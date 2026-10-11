@@ -1,0 +1,14 @@
+# systemd user unit: berthd for GPU 0. Report-only; never kills anything.
+# Install: cp contrib/berthd.service ~/.config/systemd/user/ && systemctl --user enable --now berthd
+# Undo:    systemctl --user disable --now berthd && rm ~/.config/systemd/user/berthd.service
+[Unit]
+Description=berth - GPU lease broker (one card, many inference engines)
+Before=llama-swap.service
+
+[Service]
+ExecStart=%h/.local/bin/berth daemon --gpu 0 --poll 2s
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

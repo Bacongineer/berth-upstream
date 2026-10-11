@@ -1,0 +1,18 @@
+# systemd user unit: the harbor web UI on the same box as berthd. Read-only, loopback by default.
+# Install: cp contrib/berth-harbor.service ~/.config/systemd/user/ && systemctl --user enable --now berth-harbor
+# Undo:    systemctl --user disable --now berth-harbor && rm ~/.config/systemd/user/berth-harbor.service
+[Unit]
+Description=berth harbor - web UI for the local berthd (loopback :9798 by default)
+After=berthd.service
+Wants=berthd.service
+
+[Service]
+ExecStart=%h/.local/bin/berth harbor --listen 127.0.0.1:9798
+# Behind tailscale serve on this box: append  --allow-host <machine>.<tailnet>.ts.net
+# ExecStart=%h/.local/bin/berth harbor --listen 0.0.0.0:9798  # LAN exposure: explicit opt-in, warning at startup, no auth
+Restart=on-failure
+RestartSec=2
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,20 @@
+# systemd user unit: ComfyUI holding the card through Berth. When another engine needs the card,
+# Berth waits until ComfyUI's queue is empty (never cutting a job off), stops it, and systemd
+# starts it again: the new berth run queues for the card and ComfyUI comes back when it is free.
+# Edit the paths below to your ComfyUI checkout and Python.
+# Install: cp contrib/comfyui.service ~/.config/systemd/user/ && systemctl --user enable --now comfyui
+# Undo:    systemctl --user disable --now comfyui && rm ~/.config/systemd/user/comfyui.service
+[Unit]
+Description=ComfyUI under a Berth lease
+After=berthd.service
+
+[Service]
+WorkingDirectory=%h/ComfyUI
+ExecStart=%h/.local/bin/berth run --as comfyui --priority batch --wait 87600h \
+  --drain-comfyui http://127.0.0.1:8188 -- \
+  %h/ComfyUI/.venv/bin/python main.py --listen 127.0.0.1 --port 8188
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
