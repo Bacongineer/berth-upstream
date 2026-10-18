@@ -59,7 +59,11 @@ func (v statusView) Human(c *Context, ok bool) error {
 				needs = server.MiB(l.Needs)
 			}
 			state := leaseState(c, l)
-			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", l.ID, l.Engine, l.Priority, state, needs, server.MiB(l.Used), l.GPUPIDs)
+			prio := l.Priority
+			if l.Pinned {
+				prio += ",pinned"
+			}
+			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", l.ID, l.Engine, prio, state, needs, server.MiB(l.Used), l.GPUPIDs)
 			if c.Verbose {
 				row += fmt.Sprintf("\t%d", l.PID)
 			}
@@ -72,6 +76,25 @@ func (v statusView) Human(c *Context, ok bool) error {
 		fmt.Fprint(tw, "\nSQUATTER\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
 		for _, s := range st.Squatters {
 			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", s.Name, s.PID, server.MiB(s.Used), age(s.Age), s.Run)
+		}
+	}
+	var active []proto.Claim
+	for _, cl := range st.Claims {
+		if cl.Active {
+			active = append(active, cl)
+		}
+	}
+	if len(active) > 0 {
+		fmt.Fprint(tw, "\nCLAIM\tACTION\tLEASE\tCARD\tPROCESSES\n")
+		for _, cl := range active {
+			lease, used := cl.Lease, "-"
+			if lease == "" {
+				lease = "-"
+			}
+			if cl.Used > 0 {
+				used = server.MiB(cl.Used)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", cl.Name, cl.Action, lease, used, cl.Procs)
 		}
 	}
 	if len(st.Unprotected) > 0 {

@@ -31,6 +31,9 @@ const (
 	Batch Priority = iota
 	Interactive
 	Foreground
+	// Hold outranks every engine: a game, a call, an app the operator
+	// pinned. Holds are pinned too, so nothing at any priority drains one.
+	Hold
 )
 
 func (p Priority) String() string {
@@ -39,6 +42,8 @@ func (p Priority) String() string {
 		return "batch"
 	case Foreground:
 		return "foreground"
+	case Hold:
+		return "hold"
 	}
 	return "interactive"
 }
@@ -51,8 +56,10 @@ func ParsePriority(s string) (Priority, error) {
 		return Batch, nil
 	case "foreground":
 		return Foreground, nil
+	case "hold":
+		return Hold, nil
 	}
-	return Interactive, fmt.Errorf("unknown priority %q (batch, interactive, foreground)", s)
+	return Interactive, fmt.Errorf("unknown priority %q (batch, interactive, foreground, hold)", s)
 }
 
 type state int
@@ -141,6 +148,10 @@ type Request struct {
 	Priority Priority
 	Needs    uint64 // bytes; 0 = the whole card
 	Wait     time.Duration
+	// Pinned: never a drain victim. A hold (berth hold, a game claim) or an
+	// app that must not be stopped (berth run --pinned) keeps the card until
+	// it lets go; waiters are told who pins it.
+	Pinned bool
 }
 
 // ident is a process identity. PIDs are reused, so a PID only means the same
@@ -157,6 +168,7 @@ type lease struct {
 	lostTo    string // a juggle this waiter lost: the winner's lease id; it waits, never drains it
 	lostWhy   string
 	reattach  bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
+	pinned    bool // never drained (Request.Pinned)
 	prio      Priority
 	needs     uint64
 	state     state
@@ -219,11 +231,51 @@ type Broker struct {
 	saveMu     sync.Mutex
 	saveFailed bool
 
-	verdicts   map[string]verdict // loser engine key -> the juggle it lost
+	verdicts map[string]verdict // loser engine key -> the juggle it lost
+	// tracked is the claim watcher's last scan: a process (and every child)
+	// a track claim names. Its card memory is the claim's, never a stowaway.
+	tracked    map[int]string
+	claimed    map[ident]claimedProc // this tick's card memory under tracked processes
+	claims     []proto.Claim
 	usage      usage
 	usageAt    time.Time // last tick credited to usage
 	usageSaved time.Time
 	usageDirty bool
+}
+
+type claimedProc struct {
+	claim string
+	proc  gpu.Proc
+}
+
+// SetClaims takes the claim watcher's latest scan: the processes track
+// claims name (pid -> claim) and the state of every rule, for Status.
+func (b *Broker) SetClaims(tracked map[int]string, states []proto.Claim) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tracked, b.claims = tracked, states
+}
+
+// trackedBy is the track claim a process belongs to, if any: the process
+// itself or an ancestor is one the watcher matched.
+func (b *Broker) trackedBy(pid int) string {
+	if name, ok := b.tracked[pid]; ok {
+		return name
+	}
+	for root, name := range b.tracked {
+		if procs.DescendsFrom(b.tree, pid, root) {
+			return name
+		}
+	}
+	return ""
+}
+
+func (b *Broker) claimedBytes() uint64 {
+	var n uint64
+	for _, c := range b.claimed {
+		n += c.proc.Used
+	}
+	return n
 }
 
 // EventRing is how many events berthd keeps in memory.
@@ -458,6 +510,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.snap = snap
 
 	present := map[ident]bool{}
+	claimed := map[ident]claimedProc{}
 	for _, p := range snap.Procs {
 		id := b.identify(p.PID)
 		present[id] = true
@@ -478,6 +531,15 @@ func (b *Broker) Tick(ctx context.Context) {
 			}
 		}
 		if b.allowed(p.Name) {
+			continue
+		}
+		if name := b.trackedBy(p.PID); name != "" {
+			claimed[id] = claimedProc{claim: name, proc: p}
+			if _, ok := b.squatters[id]; ok {
+				// Seen before the watcher's first scan named it: it was never a stowaway.
+				delete(b.squatters, id)
+				b.log.Info("squatter is claimed", "pid", p.PID, "name", p.Name, "claim", name)
+			}
 			continue
 		}
 		if s, ok := b.squatters[id]; ok {
@@ -529,6 +591,7 @@ func (b *Broker) Tick(ctx context.Context) {
 			b.emit(proto.Event{Kind: proto.EvStuck, Lease: key, Engine: l.engine, Bytes: l.used(), Detail: holding(l)})
 		}
 	}
+	b.claimed = claimed
 	b.schedule(now)
 }
 
@@ -735,7 +798,11 @@ func describe(ls []*lease) string {
 			names[i] = fmt.Sprintf("%s [%s, stuck: %s still held after release]", l.engine, l.prio, holding(l))
 			continue
 		}
-		names[i] = fmt.Sprintf("%s [%s, %s]", l.engine, l.prio, l.state)
+		pin := ""
+		if l.pinned {
+			pin = ", pinned"
+		}
+		names[i] = fmt.Sprintf("%s [%s%s, %s]", l.engine, l.prio, pin, l.state)
 	}
 	return strings.Join(names, ", ")
 }
@@ -828,13 +895,14 @@ type cardBudget struct {
 	reserve  uint64
 	baseline uint64
 	squat    uint64
+	claimed  uint64 // card memory under track claims: real, never drained, never a stowaway
 	held     uint64
 }
 
 // ceiling is what the card can ever hand out: the total minus everything
 // no lease can give up (the reserve floor, driver baseline, squatters).
 // avail is what is free for a new grant right now.
-func (c cardBudget) ceiling() uint64 { return sat(c.total, c.reserve+c.baseline+c.squat) }
+func (c cardBudget) ceiling() uint64 { return sat(c.total, c.reserve+c.baseline+c.squat+c.claimed) }
 func (c cardBudget) avail() uint64   { return sat(c.ceiling(), c.held) }
 
 // evaluate decides whether w fits now. If not, it returns why and which
@@ -846,6 +914,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		reserve:  b.cfg.Reserve,
 		baseline: b.snap.Baseline(),
 		squat:    b.squatBytes(),
+		claimed:  b.claimedBytes(),
 	}
 	for _, h := range hs {
 		budget.held += b.budget(h)
@@ -866,6 +935,9 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 				w.needs/gpu.MiB, budget.avail()/gpu.MiB)
 			if budget.squat > 0 {
 				reason += fmt.Sprintf("; squatters hold %d MiB", budget.squat/gpu.MiB)
+			}
+			if budget.claimed > 0 {
+				reason += fmt.Sprintf("; claims hold %d MiB", budget.claimed/gpu.MiB)
 			}
 			if comfyBytes > 0 {
 				b.comfyPoke(now, comfy)
@@ -888,7 +960,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		switch {
 		case h.state != active:
 			pending = append(pending, h)
-		case h.prio > w.prio:
+		case h.pinned || h.prio > w.prio:
 			blockers = append(blockers, h)
 		case h.prio == w.prio:
 			if keep, why := b.keeps(h, w, now); keep {
@@ -903,7 +975,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 
 	if exclusive {
 		if len(blockers) > 0 {
-			return false, "held at higher priority by " + describe(blockers), nil
+			return false, "held by " + describe(blockers), nil
 		}
 		if len(kept) > 0 {
 			return false, keptWhy, nil
@@ -937,13 +1009,16 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	}
 	reason := fmt.Sprintf("needs %d MiB; at most %d MiB can be freed", w.needs/gpu.MiB, freed/gpu.MiB)
 	if len(blockers) > 0 {
-		reason += "; held at higher priority by " + describe(blockers)
+		reason += "; held by " + describe(blockers)
 	}
 	if len(kept) > 0 {
 		reason += "; " + keptWhy
 	}
 	if squat > 0 {
 		reason += fmt.Sprintf("; squatters hold %d MiB", squat/gpu.MiB)
+	}
+	if budget.claimed > 0 {
+		reason += fmt.Sprintf("; claims hold %d MiB", budget.claimed/gpu.MiB)
 	}
 	return false, reason, nil
 }
@@ -1027,6 +1102,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 		group:    r.Group,
 		prio:     r.Priority,
 		needs:    r.Needs,
+		pinned:   r.Pinned,
 		state:    active,
 		reattach: true,
 		pid:      pid,
@@ -1069,6 +1145,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 		group:   r.Group,
 		prio:    r.Priority,
 		needs:   r.Needs,
+		pinned:  r.Pinned,
 		gpu:     map[ident]gpu.Proc{},
 		arrived: time.Now(),
 		grantCh: make(chan struct{}),
@@ -1179,7 +1256,7 @@ func (b *Broker) Status() proto.Status {
 		return proto.Lease{
 			ID: l.id, Engine: l.engine, Priority: l.prio.String(), State: l.state.String(),
 			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart, GPUPIDs: pids, Used: l.used(),
-			Contested: l.contested, Age: now.Sub(since).Seconds(),
+			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}
 	}
 	for _, l := range b.holders() {
@@ -1195,6 +1272,15 @@ func (b *Broker) Status() proto.Status {
 		})
 	}
 	sort.Slice(st.Squatters, func(i, j int) bool { return st.Squatters[i].PID < st.Squatters[j].PID })
+	for _, c := range b.claims {
+		c.PIDs = append([]int(nil), c.PIDs...)
+		for _, cp := range b.claimed {
+			if cp.claim == c.Name {
+				c.Used += cp.proc.Used
+			}
+		}
+		st.Claims = append(st.Claims, c)
+	}
 	for _, r := range b.runs {
 		st.Unprotected = append(st.Unprotected, proto.Run{Engine: r.Engine, PID: r.PID, Reason: r.Reason, Age: now.Sub(r.Started).Seconds()})
 	}

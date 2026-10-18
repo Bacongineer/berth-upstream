@@ -32,6 +32,7 @@ type Options struct {
 	Group     string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
 	Priority  string
 	Needs     uint64
+	Pinned    bool // never drained: an app that must not be stopped (Blender, a capture)
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainComfyUI is a ComfyUI base URL: on drain, wait until its queue
@@ -69,7 +70,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -190,7 +191,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, PID: pid, PIDStart: start})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, PID: pid, PIDStart: start})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()

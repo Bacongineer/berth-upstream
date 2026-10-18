@@ -4,6 +4,19 @@ package cli
 // row like any other: dispatch, help and the command list all read this table.
 var commands = []*Command{
 	{
+		Name:    "claims",
+		Summary: "the claim rules and what they match right now",
+		Args:    "[--socket P] [--format F]",
+		Help: `Claims cover work Berth does not run. A hold claim (games by default) keeps
+the card while its process runs: engines are drained and wait. A track claim
+(Blender, Resolve, OBS, Kdenlive by default) names that app's card memory, so
+it is counted and never reported as a stowaway. Rules come from [[claim]] in
+berth.toml plus the built-in pack ([claims] builtin = false turns it off).
+Claims never stop or signal a process.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runClaims,
+	},
+	{
 		Name:    "config",
 		Summary: "read berth.toml: validate it, or print it evaluated",
 		Help: `The config file is ~/.config/berth/berth.toml ($BERTH_CONFIG). Without one,
@@ -109,6 +122,19 @@ SQLite. It listens on loopback by default; a non-loopback --listen address is
 your explicit opt-in to expose it, and there is no authentication in this
 release.`,
 		Run: runHarbor,
+	},
+	{
+		Name:    "hold",
+		Summary: "keep the card free for a game or a call; engines wait",
+		Args:    "[--for D] [--reason R] [--needs-mib N] [--wait D]",
+		Help: `Hold the card for yourself. Every engine on it is drained the usual way,
+none starts while the hold lasts, and nothing drains the hold: it is a pinned
+lease at the top priority. It ends on Ctrl-C, after --for, or when this
+process dies, so a forgotten terminal never strands the card for long.
+
+Games you launch from Steam, Lutris or gamescope are held for automatically
+by the built-in claims (see berth claims); berth hold is for everything else.`,
+		Run: runHold,
 	},
 	{
 		Name:    "key",
