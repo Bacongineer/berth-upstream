@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,7 +25,11 @@ import (
 type Engine struct {
 	Name string `toml:"name" json:"name" yaml:"name"`
 	Type string `toml:"type" json:"type" yaml:"type"` // one of Types
-	URL  string `toml:"url" json:"url" yaml:"url"`    // any host and port
+	// Kind is what a custom engine produces (llm, image, tts, stt, other), so a
+	// voice or image server Berth has no reader for is tracked as one. Readers
+	// with a built-in kind (comfyui: image, kokoro: tts) ignore it.
+	Kind string `toml:"kind,omitempty" json:"kind,omitempty" yaml:"kind,omitempty"`
+	URL  string `toml:"url" json:"url" yaml:"url"` // any host and port
 	// APIKeyEnv names an environment variable holding a bearer token for
 	// engines that want one; the token itself never goes in the file.
 	APIKeyEnv string `toml:"api_key_env,omitempty" json:"api_key_env,omitempty" yaml:"api_key_env,omitempty"`
@@ -54,7 +59,10 @@ type Engine struct {
 
 // Types are the engine readers that exist.
 var Types = []string{"llama-swap", "llamacpp", "ninfer", "strata", "ollama", "vllm", "sglang", "koboldcpp",
-	"tabbyapi", "localai", "lmstudio", "unsloth", "freetoken", "openai", "comfyui", "custom"}
+	"tabbyapi", "localai", "lmstudio", "unsloth", "freetoken", "openai", "comfyui", "kokoro", "custom"}
+
+// Kinds are what an engine can produce (custom engines name theirs).
+var Kinds = []string{"llm", "image", "tts", "stt", "other"}
 
 // MapFields are the fields a custom engine may map to its metric names.
 var MapFields = []string{"prompt_tokens", "output_tokens", "prompt_seconds", "output_seconds", "processing", "waiting"}
@@ -244,6 +252,9 @@ func (c *Config) Validate() error {
 		seen[e.Name] = true
 		if !contains(Types, e.Type) {
 			errs = append(errs, fmt.Errorf("%s: type %q is not one of %v", where, e.Type, Types))
+		}
+		if e.Kind != "" && !slices.Contains(Kinds, e.Kind) {
+			errs = append(errs, fmt.Errorf("%s: kind %q is not one of %v", where, e.Kind, Kinds))
 		}
 		if u, err := url.Parse(e.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("%s: url %q must be http(s)://host:port", where, e.URL))

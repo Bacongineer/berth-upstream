@@ -194,3 +194,14 @@ func TestDurationRejectsANumber(t *testing.T) {
 		t.Error("json: a bare number should not load as a duration")
 	}
 }
+
+func TestEngineKindValidated(t *testing.T) {
+	c := Config{Engine: []Engine{{Name: "whisper", Type: "custom", URL: "http://127.0.0.1:9000", Health: "/health", Kind: "speech"}}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), `kind "speech"`) {
+		t.Fatalf("want a kind error, got %v", err)
+	}
+	c.Engine[0].Kind = "stt"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("stt rejected: %v", err)
+	}
+}
