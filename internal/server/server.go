@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -26,11 +28,15 @@ func Listen(path string) (net.Listener, error) {
 		return nil, fmt.Errorf("berthd already listening on %s", path)
 	}
 	_ = os.Remove(path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	// Windows has no mode bits on a socket; the folder's ACL is the guard.
+	if err := os.Chmod(path, 0o600); err != nil && runtime.GOOS != "windows" {
 		ln.Close()
 		return nil, err
 	}

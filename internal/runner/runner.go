@@ -101,6 +101,7 @@ func Run(o Options) int {
 		say("start %s: %v", o.Argv[0], err)
 		return 127
 	}
+	afterStart(cmd)
 	_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid})
 
 	done := make(chan struct{})
@@ -489,6 +490,7 @@ func runUnleased(o Options, reason string) int {
 		fmt.Fprintf(o.Stderr, "berth: start %s: %v\n", o.Argv[0], err)
 		return 127
 	}
+	afterStart(cmd)
 	defer record(o, cmd, reason)()
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)

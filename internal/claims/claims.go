@@ -38,7 +38,8 @@ const (
 type Rule struct {
 	Name     string        // shown on the lease: "claim:<name>"
 	Exe      []string      // globs on the process name (comm) or argv[0]'s base name; case-insensitive
-	Cmdline  string        // regex on the full command line
+	Cmdline  string        // regex on the full command line (on Windows: the executable's full path)
+	Not      string        // regex on the same; a match here excludes the process (a launcher beside its games)
 	Parent   []string      // globs on any ancestor's name: the launcher (Steam's reaper, lutris-wrapper)
 	Action   string        // hold | track
 	NeedsMiB uint64        // hold only: 0 = the whole card
@@ -46,6 +47,7 @@ type Rule struct {
 	Builtin  bool
 
 	cmdline *regexp.Regexp
+	not     *regexp.Regexp
 }
 
 // Proc is one process as the scanner reads it.
@@ -66,9 +68,22 @@ func Builtin() []Rule {
 		{Name: "steam-game", Parent: []string{"reaper"}, Action: ActionHold, Builtin: true},
 		{Name: "lutris-game", Parent: []string{"lutris-wrapper*"}, Action: ActionHold, Builtin: true},
 		{Name: "gamescope", Exe: []string{"gamescope"}, Action: ActionHold, Builtin: true},
+		// Windows (and Proton, whose paths look the same): games by install folder.
+		// Wallpaper Engine and Lossless Scaling live in the Steam library but run all
+		// day beside other work; holding the card for them would starve every engine.
+		{Name: "steam-library", Cmdline: `(?i)\\steamapps\\common\\`,
+			Not: `(?i)\\steamapps\\common\\(wallpaper_engine|Lossless Scaling|Steamworks Shared)\\`, Action: ActionHold, Builtin: true},
+		{Name: "epic-game", Cmdline: `(?i)\\Epic Games\\`, Not: `(?i)\\Epic Games\\(Launcher|EpicOnlineServices)\\`, Action: ActionHold, Builtin: true},
+		{Name: "gog-game", Cmdline: `(?i)\\GOG (Galaxy\\)?Games\\`, Action: ActionHold, Builtin: true},
+		{Name: "ea-game", Cmdline: `(?i)\\EA Games\\`, Action: ActionHold, Builtin: true},
+		{Name: "ubisoft-game", Cmdline: `(?i)\\Ubisoft Game Launcher\\games\\`, Action: ActionHold, Builtin: true},
+		{Name: "xbox-game", Cmdline: `(?i)\\XboxGames\\`, Action: ActionHold, Builtin: true},
+		{Name: "battlenet-game", Parent: []string{"battle.net"}, Not: `(?i)\\Battle\.net\\`, Action: ActionHold, Builtin: true},
 		{Name: "blender", Exe: []string{"blender"}, Action: ActionTrack, Builtin: true},
 		{Name: "davinci-resolve", Exe: []string{"resolve"}, Action: ActionTrack, Builtin: true},
-		{Name: "obs", Exe: []string{"obs"}, Action: ActionTrack, Builtin: true},
+		{Name: "obs", Exe: []string{"obs", "obs64"}, Action: ActionTrack, Builtin: true},
+		{Name: "premiere", Exe: []string{"adobe premiere pro"}, Action: ActionTrack, Builtin: true},
+		{Name: "after-effects", Exe: []string{"afterfx"}, Action: ActionTrack, Builtin: true},
 		{Name: "kdenlive", Exe: []string{"kdenlive"}, Action: ActionTrack, Builtin: true},
 	}
 }
@@ -100,6 +115,13 @@ func (r *Rule) Compile() error {
 		}
 		r.cmdline = re
 	}
+	if r.Not != "" {
+		re, err := regexp.Compile(r.Not)
+		if err != nil {
+			return fmt.Errorf("claim %q: not_cmdline: %v", r.Name, err)
+		}
+		r.not = re
+	}
 	if r.Linger <= 0 {
 		r.Linger = DefaultLinger
 	}
@@ -113,6 +135,9 @@ func (r *Rule) Matches(p Proc, table map[int]Proc) bool {
 		return false
 	}
 	if r.cmdline != nil && !r.cmdline.MatchString(p.Cmdline) {
+		return false
+	}
+	if r.not != nil && r.not.MatchString(p.Cmdline) {
 		return false
 	}
 	if len(r.Parent) > 0 {
@@ -142,8 +167,13 @@ func globAny(globs []string, name string) bool {
 		return false
 	}
 	name = strings.ToLower(name)
+	bare := strings.TrimSuffix(name, ".exe") // one rule for blender and blender.exe
 	for _, g := range globs {
-		if ok, _ := path.Match(strings.ToLower(g), name); ok {
+		g = strings.ToLower(g)
+		if ok, _ := path.Match(g, name); ok {
+			return true
+		}
+		if ok, _ := path.Match(g, bare); ok {
 			return true
 		}
 	}
