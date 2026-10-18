@@ -146,6 +146,46 @@ has the secret written into its config: "apiKey": "!berth key".`,
 		Run: runKey,
 	},
 	{
+		Name:    "models",
+		Summary: "the model files this machine holds, and what they were used for",
+		Args:    "[--dir D]... [--all] [--usage W] [--no-usage] [--format F]",
+		Help: `List the model files where the usual tools keep them - the Hugging Face
+cache, LM Studio's model directories, Ollama's store and ~/models - plus any
+--dir you name, or the [models] dirs berth.toml names.
+
+One row per model: MODEL is the file's stem (the name that never collides - a
+model's quants all answer to the same name inside the file), then QUANT, SIZE,
+PARAMS, CTX, ARCH, how many companion files belong to it (+COMP) and USED, when
+the harbor last saw it serve a request. --usage 30d adds REQ and TOKENS for that
+window. Sorted by name. --all also lists the companion files themselves: a
+vision projector (mmproj, clip) and a speculative draft (mtp, eagle, dflash)
+are run with a model, not on their own, so they are counted rather than listed.
+A split GGUF is one model: its parameter count is summed over every part.
+Headers only: berth never loads weights, hashes a file or downloads anything.
+
+The harbor's request log decides USED, REQ and TOKENS, and it is opened
+read-only. No harbor database is no usage: every model reads "never". --no-usage
+skips the read entirely. A llama-swap id is tied to the file its -m path loads
+when berth.toml's llama-swap engine names a --config; request names that no file
+on disk answers to are "served but not on disk", in the JSON only.
+
+show NAME|PATH [--dir D] prints one model in full: the metadata that has no
+column, the first line of its chat template and the usage block. A model that
+will not read is reported as that one model's error and exit 1; the rest of the
+library still lists.
+
+export ollama NAME|PATH [--as NAME] [--dry-run] [--dir D] writes a Modelfile for
+Ollama - FROM the GGUF where it lies, its mmproj as a second FROM, and
+PARAMETER num_ctx capped at 32768 - and runs "ollama create NAME -f <Modelfile>".
+No TEMPLATE: Ollama reads a GGUF's own chat template, and rewriting one is where
+an export loses the tool calls it no longer emits. --dry-run prints both and runs
+nothing. A split GGUF is refused: Ollama reads one file, so merge it with
+llama-gguf-split --merge first. Berth copies and deletes no weight file, and
+ollama create does (it takes its own blob), which is why --dry-run exists.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runModels,
+	},
+	{
 		Name:    "run",
 		Summary: "start CMD once it holds a berth, stop it when asked",
 		Args:    "--as NAME [flags] -- CMD [ARGS...]",

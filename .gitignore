@@ -2,3 +2,6 @@ bin/
 # Local design notes, kept out of the repo.
 /docs
 
+
+# agent briefs and plans: machine-specific, never part of the repo
+.router/
