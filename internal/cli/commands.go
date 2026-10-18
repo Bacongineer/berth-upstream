@@ -159,6 +159,31 @@ berth's notices are diagnostics on stderr and always print.`,
 		Run: runRun,
 	},
 	{
+		Name:    "skill",
+		Summary: "the agent skill: teach a coding agent to use Berth",
+		Help: `Berth ships a skill file for coding agents (Claude Code, Codex, Pi, OpenCode
+and others that read SKILL.md): how to read what holds the card, how to ask for
+it instead of killing a process, holds, claims and the gateway.`,
+		Sub: []*Command{
+			{
+				Name:    "install",
+				Summary: "write the skill where agents look for it",
+				Args:    "[--target claude,agents,opencode|all] [--dir D] [--format F]",
+				Help: `Write SKILL.md to ~/.claude/skills/berth, ~/.agents/skills/berth and
+~/.config/opencode/skills/berth (or --dir D/berth). A different existing file
+is kept as SKILL.md.bak. Running it again after an upgrade refreshes it.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runSkillInstall,
+			},
+			{
+				Name:    "show",
+				Summary: "print the skill",
+				Help:    `Print SKILL.md to stdout, for an agent or harness that takes it inline.`,
+				Run:     runSkillShow,
+			},
+		},
+	},
+	{
 		Name:    "status",
 		Summary: "leases, waiters, squatters, the engines and the board",
 		Args:    "[--socket P] [--format F]",
