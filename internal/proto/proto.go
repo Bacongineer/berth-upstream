@@ -39,6 +39,7 @@ type Msg struct {
 	Wait     float64   `json:"wait,omitempty"`  // seconds to wait before refusing; 0 = server default
 	PID      int       `json:"pid,omitempty"`
 	PIDStart uint64    `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
+	Pinned   bool      `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
 	Lease    string    `json:"lease,omitempty"`
 	Reason   string    `json:"reason,omitempty"`
 	Status   *Status   `json:"status,omitempty"`
@@ -81,7 +82,9 @@ const (
 	EvProbeRecovered = "probe.recovered"
 	EvAlertRaised    = "alert.raised"
 	EvAlertCleared   = "alert.cleared"
-	EvJuggle         = "lease.juggle" // two engines at one priority fought over the card; the rank decided
+	EvJuggle         = "lease.juggle"  // two engines at one priority fought over the card; the rank decided
+	EvClaimStarted   = "claim.started" // a claim rule matched: a hold is requested, or memory is now named
+	EvClaimEnded     = "claim.ended"   // its matches are gone (past the linger, for a hold)
 )
 
 // Counters are the collisions board. Every count is an event berthd can
@@ -134,6 +137,20 @@ type Status struct {
 	ProbeErr    string          `json:"probe_error,omitempty"`
 	Alerts      *Alerts         `json:"alerts,omitempty"`
 	Priority    *PriorityStatus `json:"priority,omitempty"`
+	Claims      []Claim         `json:"claims,omitempty"`
+}
+
+// Claim is one claim rule and what it matches right now: work Berth does not
+// run (a game, a render, a capture) that it holds the card for or names.
+type Claim struct {
+	Name    string `json:"name"`
+	Action  string `json:"action"` // hold | track
+	Builtin bool   `json:"builtin,omitempty"`
+	Active  bool   `json:"active"`
+	PIDs    []int  `json:"pids,omitempty"`
+	Procs   string `json:"procs,omitempty"` // the matched process names, for people
+	Lease   string `json:"lease,omitempty"` // hold: the lease it holds or waits on
+	Used    uint64 `json:"used,omitempty"`  // track: card memory under the matches
 }
 
 // PriorityStatus is how the node ranks engines when two at one priority
@@ -259,6 +276,7 @@ type Lease struct {
 	Used      uint64  `json:"used"`
 	Contested uint64  `json:"contested,omitempty"`
 	Age       float64 `json:"age_seconds"`
+	Pinned    bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
 }
 
 type Squatter struct {

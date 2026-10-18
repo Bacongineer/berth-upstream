@@ -209,6 +209,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		Priority: prio,
 		Needs:    req.Needs,
 		Wait:     time.Duration(req.Wait * float64(time.Second)),
+		Pinned:   req.Pinned,
 	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {

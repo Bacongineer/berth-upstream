@@ -30,6 +30,13 @@ func Resolve(c Config) Config {
 		discover := true
 		c.Engines.Discover = &discover
 	}
+	if c.Claims.Builtin == nil {
+		on := true
+		c.Claims.Builtin = &on
+	}
+	if c.Claims.Every.Duration == 0 {
+		c.Claims.Every.Duration = 2 * time.Second
+	}
 	if c.Alerts.ClearPolls == nil {
 		polls := DefaultClearPolls
 		c.Alerts.ClearPolls = &polls

@@ -16,6 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/T-Crypt/berth/internal/claims"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -77,6 +78,59 @@ type Config struct {
 	Engine   []Engine       `toml:"engine,omitempty" json:"engine,omitempty" yaml:"engine,omitempty"`
 	Alerts   AlertsConfig   `toml:"alerts" json:"alerts" yaml:"alerts"`
 	Priority PriorityConfig `toml:"priority,omitempty" json:"priority" yaml:"priority"`
+	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
+	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
+}
+
+// ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope
+// games hold the card; Blender, Resolve, OBS and Kdenlive are tracked).
+type ClaimsConfig struct {
+	Builtin *bool    `toml:"builtin" json:"builtin" yaml:"builtin"` // default on
+	Every   Duration `toml:"every" json:"every" yaml:"every"`       // process scan period; default 2 s
+}
+
+// ClaimRule is one [[claim]]: work Berth does not run that holds the card
+// (action "hold", the default) or has its card memory named ("track").
+type ClaimRule struct {
+	Name     string   `toml:"name" json:"name" yaml:"name"`
+	Exe      []string `toml:"exe,omitempty" json:"exe,omitempty" yaml:"exe,omitempty"`
+	Cmdline  string   `toml:"cmdline,omitempty" json:"cmdline,omitempty" yaml:"cmdline,omitempty"`
+	Parent   []string `toml:"parent,omitempty" json:"parent,omitempty" yaml:"parent,omitempty"`
+	Action   string   `toml:"action,omitempty" json:"action,omitempty" yaml:"action,omitempty"`
+	NeedsMiB uint64   `toml:"needs_mib,omitzero" json:"needs_mib,omitempty" yaml:"needs_mib,omitempty"`
+	Linger   Duration `toml:"linger,omitempty" json:"linger,omitempty" yaml:"linger,omitempty"`
+}
+
+// ClaimRules is the rule list berthd runs: the configured rules first (a
+// configured rule wins a process over a built-in), then the built-in pack
+// unless it is off, minus any built-in a configured rule renames.
+func (c *Config) ClaimRules() ([]claims.Rule, error) {
+	var out []claims.Rule
+	names := map[string]bool{}
+	for _, r := range c.Claim {
+		rule := claims.Rule{Name: r.Name, Exe: r.Exe, Cmdline: r.Cmdline, Parent: r.Parent,
+			Action: r.Action, NeedsMiB: r.NeedsMiB, Linger: r.Linger.Duration}
+		if err := rule.Compile(); err != nil {
+			return nil, err
+		}
+		if names[rule.Name] {
+			return nil, fmt.Errorf("claim %q is defined twice", rule.Name)
+		}
+		names[rule.Name] = true
+		out = append(out, rule)
+	}
+	if c.Claims.Builtin == nil || *c.Claims.Builtin {
+		for _, rule := range claims.Builtin() {
+			if names[rule.Name] {
+				continue
+			}
+			if err := rule.Compile(); err != nil {
+				return nil, err
+			}
+			out = append(out, rule)
+		}
+	}
+	return out, nil
 }
 
 // PriorityConfig decides juggles: two engines at the same priority asking for
@@ -170,6 +224,9 @@ func (c *Config) Validate() error {
 		if err := Loopback(c.Metrics.Listen); err != nil {
 			errs = append(errs, fmt.Errorf("metrics.listen: %w", err))
 		}
+	}
+	if _, err := c.ClaimRules(); err != nil {
+		errs = append(errs, err)
 	}
 	if cp := c.Alerts.ClearPolls; cp != nil && *cp < 1 {
 		errs = append(errs, errors.New("alerts.clear_polls must be >= 1"))

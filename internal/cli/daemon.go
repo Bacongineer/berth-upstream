@@ -14,6 +14,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/alerts"
 	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/claims"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/gpu"
@@ -124,6 +125,21 @@ func runDaemon(c *Context) int {
 	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *index)
 	go probe.Run(ctx)
 	go b.Run(ctx)
+	// Claims: games and apps Berth does not run hold the card or have their
+	// memory named, from the process table. Validate already compiled them.
+	if rules, err := cfg.ClaimRules(); err == nil && len(rules) > 0 {
+		cw := &claims.Watcher{Rules: rules, Every: cfg.Claims.Every.Duration, B: b, Log: log}
+		go cw.Run(ctx)
+		hold, track := 0, 0
+		for _, r := range rules {
+			if r.Action == claims.ActionHold {
+				hold++
+			} else {
+				track++
+			}
+		}
+		log.Info("claims armed", "hold", hold, "track", track, "builtin", *cfg.Claims.Builtin)
+	}
 	if watcher != nil {
 		go watcher.Run(ctx)
 		for _, e := range cfg.Engine {

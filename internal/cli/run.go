@@ -14,7 +14,8 @@ func runRun(c *Context) int {
 	sock := fs.String("socket", defaultSocket(), "berthd socket ($BERTH_SOCKET)")
 	engine := fs.String("as", "", "engine name shown in status and drain messages (required)")
 	group := fs.String("group", "", "engine family for juggles and the usage ranking, e.g. llama-swap for each of its models (default: --as)")
-	prio := fs.String("priority", "interactive", "batch, interactive or foreground")
+	prio := fs.String("priority", "interactive", "batch, interactive, foreground or hold")
+	pinned := fs.Bool("pinned", false, "never drained: the card stays CMD's until it exits (for apps like Blender, not engines)")
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
 	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default")
 	drainPost := fs.String("drain-post", "", "URL to POST when asked to drain, before signalling (e.g. llama-swap's unload)")
@@ -38,7 +39,7 @@ func runRun(c *Context) int {
 	// Nothing here goes to stdout: the engine owns it. berth's own notices are
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.Options{
-		Socket: *sock, Engine: *engine, Group: *group, Priority: *prio, Needs: *needs * gpu.MiB, Wait: *wait,
+		Socket: *sock, Engine: *engine, Group: *group, Priority: *prio, Needs: *needs * gpu.MiB, Wait: *wait, Pinned: *pinned,
 		DrainPost: *drainPost, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err,
 	})
