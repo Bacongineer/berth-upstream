@@ -312,7 +312,20 @@ type Engine struct {
 	Slots []Slot    `json:"slots,omitempty"`
 	At    time.Time `json:"at"`
 	Age   float64   `json:"age_seconds"`
+	// Kind is what the engine produces: llm, image, tts, stt or other.
+	Kind string `json:"kind,omitempty"`
+	// Voices is how many voices a text-to-speech engine offers; 0 = not one, or not reported.
+	Voices int `json:"voices,omitempty"`
 }
+
+// Engine kinds.
+const (
+	KindLLM   = "llm"
+	KindImage = "image"
+	KindTTS   = "tts"
+	KindSTT   = "stt"
+	KindOther = "other"
+)
 
 // Slot is one live KV session (a llama.cpp slot) the engine reports via
 // /slots. Used and Cached are prompt tokens: what the session has in its

@@ -228,6 +228,7 @@ wrapped. History lives in `~/.local/state/berth/`.
 | vLLM | `vllm` | :8000 | models, window; tokens and queue from `/metrics` |
 | SGLang | `sglang` | :30000 | models, window; tokens and queue with `--enable-metrics` |
 | ComfyUI | `comfyui` | :8188 | jobs running and queued, version; job-boundary handoff |
+| Kokoro-FastAPI (text to speech) | `kokoro` | :8880 | health, models, voice count, default voice |
 | LM Studio | `lmstudio` | :1234 | loaded models, context length |
 | KoboldCpp | `koboldcpp` | :5001 | model, context length |
 | TabbyAPI (ExLlamaV3) | `tabbyapi` | :5000 | models, context length |
@@ -237,7 +238,7 @@ wrapped. History lives in `~/.local/state/berth/`.
 | [NInfer](https://github.com/T-Crypt/ninfer-4090) | `ninfer` | as llama.cpp | as llama.cpp, plus draft acceptance |
 | [Strata](https://github.com/T-Crypt/strata) | `strata` | :8080 | model, window, tokens, queue |
 | Any OpenAI-compatible server | `openai` | :8080, :8000 | models |
-| Anything else | `custom` | never | your health, models, metrics and slots paths |
+| Anything else | `custom` | never | your health, models, metrics and slots paths; `kind = "tts"`, `"stt"`, `"image"` or `"other"` tracks a voice or image server as one |
 
 Every reader takes any URL, so any port and any host works. Engines that need a key name the
 environment variable that holds it (`api_key_env`); the key never goes in the file. An

@@ -291,6 +291,8 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 		err = w.freetoken(ctx, base, e.APIKeyEnv, &out)
 	case "comfyui":
 		err = w.comfyui(ctx, base, e.APIKeyEnv, &out)
+	case "kokoro":
+		err = w.kokoro(ctx, base, e.APIKeyEnv, &out)
 	default:
 		err = fmt.Errorf("no reader for type %q", e.Type)
 	}
@@ -298,6 +300,7 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 	if err != nil {
 		out.Error = err.Error()
 	}
+	out.Kind = kindOf(e.Type, e.Kind)
 	return out
 }
 

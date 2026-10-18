@@ -44,10 +44,11 @@ var discoveryPorts = []struct {
 	{30000, []string{"sglang"}},
 	{5000, []string{"tabbyapi"}},
 	{5001, []string{"koboldcpp"}},
+	{8880, []string{"kokoro"}},
 }
 
 // probeOrder is the order every reader is tried on an extra port.
-var probeOrder = []string{"llama-swap", "strata", "comfyui", "ollama", "koboldcpp", "llamacpp", "vllm", "sglang",
+var probeOrder = []string{"llama-swap", "strata", "comfyui", "kokoro", "ollama", "koboldcpp", "llamacpp", "vllm", "sglang",
 	"tabbyapi", "localai", "lmstudio", "unsloth", "freetoken", "openai"}
 
 // Labels are the display names of discovered engines.
@@ -55,7 +56,7 @@ var Labels = map[string]string{
 	"llama-swap": "llama-swap", "strata": "Strata", "llamacpp": "llama.cpp", "ollama": "Ollama",
 	"vllm": "vLLM", "sglang": "SGLang", "koboldcpp": "KoboldCpp", "tabbyapi": "TabbyAPI",
 	"localai": "LocalAI", "lmstudio": "LM Studio", "unsloth": "Unsloth", "freetoken": "FreeToken",
-	"openai": "OpenAI-compatible", "comfyui": "ComfyUI",
+	"openai": "OpenAI-compatible", "comfyui": "ComfyUI", "kokoro": "Kokoro",
 }
 
 type target struct {
@@ -201,6 +202,9 @@ func fingerprint(ctx context.Context, c *http.Client, base, typ string) bool {
 		}
 		_, sys := m["system"].(map[string]any)
 		return sys && isList("devices")
+	case "kokoro":
+		// {"status":"healthy"} is common; a voice list is Kokoro-FastAPI's own.
+		return get("/health") && m["status"] == "healthy" && get("/v1/audio/voices") && isList("voices")
 	case "ollama":
 		return get("/api/version") && m["version"] != nil
 	case "llamacpp":
