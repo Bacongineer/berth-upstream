@@ -98,6 +98,29 @@ func (c *Context) Parse(fs *flag.FlagSet) (int, bool) {
 	return ExitOK, false
 }
 
+// ParseInterspersed is Parse for commands whose positional arguments are
+// plain values (a model reference, a directory): flags may follow them, as in
+// "berth pull hf:org/repo --dir D". Commands that pass a command line through
+// (berth run -- CMD -m x) keep Parse, which stops at the first positional.
+func (c *Context) ParseInterspersed(fs *flag.FlagSet) (int, bool) {
+	var pos []string
+	for {
+		if code, done := c.Parse(fs); done {
+			return code, true
+		}
+		if len(c.Args) == 0 {
+			break
+		}
+		pos = append(pos, c.Args[0])
+		c.Args = c.Args[1:]
+		if len(c.Args) == 0 {
+			break
+		}
+	}
+	c.Args = pos
+	return ExitOK, false
+}
+
 // Changed says whether the flag was on the command line, so a command can tell
 // "the default path" from "the path the operator named".
 func (c *Context) Changed(name string) bool { return c.setFlags[name] }

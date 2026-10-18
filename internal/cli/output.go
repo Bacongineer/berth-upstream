@@ -102,6 +102,17 @@ func newStyle(w io.Writer) Style {
 	return Style{on: err == nil && fi.Mode()&os.ModeCharDevice != 0}
 }
 
+// isTerminal reports whether w is a character device: live progress lines
+// (carriage returns, clear-line) only make sense there.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 func (s Style) paint(code, v string) string {
 	if !s.on {
 		return v

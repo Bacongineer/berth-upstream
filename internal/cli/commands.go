@@ -146,6 +146,24 @@ has the secret written into its config: "apiKey": "!berth key".`,
 		Run: runKey,
 	},
 	{
+		Name:    "pull",
+		Summary: "download a model from Hugging Face, checked byte for byte",
+		Args:    "hf:ORG/REPO[:QUANT|FILE|GLOB][@REV] [--dir D] [--dry-run] [--token-env V] [--format F]",
+		Help: `Download model files from the Hugging Face Hub into DIR/<org>/<repo>/
+(~/models by default). A quant name picks the matching GGUF and every part of a
+split model, plus the vision projector when the repo has one; a file name or a
+glob picks exactly that.
+
+Every file comes from one commit, resolved once at the start, and is checked
+against the size and sha256 the Hub publishes before it is moved into place.
+An interrupted pull resumes where it stopped when you run it again, and a file
+already present and correct is not downloaded twice. A manifest beside the
+files records the commit and every hash, so berth verify can re-check them
+later without the network. Gated and private repos read a token from $HF_TOKEN.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runPull,
+	},
+	{
 		Name:    "run",
 		Summary: "start CMD once it holds a berth, stop it when asked",
 		Args:    "--as NAME [flags] -- CMD [ARGS...]",
@@ -192,6 +210,17 @@ why, what holds memory without a lease, the engines found, and the collisions
 board. Read only: nothing here changes the node.`,
 		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 		Run:     runStatus,
+	},
+	{
+		Name:    "verify",
+		Summary: "re-check pulled models against their recorded hashes",
+		Args:    "[DIR...] [--dir D] [--format F]",
+		Help: `Re-hash every file berth pull fetched and compare it with the size and
+sha256 in its manifest. No DIR checks every pulled model under the models
+directory. Exit 1 when a file is missing, truncated or changed; pulling the
+same reference again repairs only what does not match.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runVerify,
 	},
 	{
 		Name:    "version",
