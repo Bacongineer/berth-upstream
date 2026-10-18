@@ -45,6 +45,10 @@ to install.
 - **`berth pull hf:org/repo:Q4_K_M`** downloads from Hugging Face, resumes where it stopped,
   and checks every file against the size and sha256 the Hub publishes before using it.
 - **`berth verify`** re-checks pulled models offline and names any file that changed.
+- **`berth models`** lists every model on the machine (GGUF, safetensors, the Hugging Face
+  cache, LM Studio and Ollama's stores) with quant, size, parameters, context and when each
+  was last used, so you can see what earns its disk space.
+- **`berth models export ollama`** turns a GGUF you already have into an Ollama model.
 
 **Sees everything on the card**
 - **Finds your engines.** Berth reads llama.cpp, llama-swap, Ollama, vLLM, SGLang, ComfyUI,
@@ -322,6 +326,15 @@ engine's figures are its own claims and are shown apart from what the driver mea
 - **`berth verify`** re-hashes pulled models against the manifest the pull wrote
   (`.berth-manifest.json`: repo, commit, every hash), offline, and exits 1 on any change.
 - Gated and private repos read `$HF_TOKEN`.
+- **`berth models`** reads every GGUF header (never the weights) in the tools' usual places
+  and any `--dir` or `[models] dirs`. Split models list as one; vision projectors and MTP or
+  draft heads list with the model they belong to (`--all` shows them on their own).
+  `--usage 30d` adds requests and tokens per file from the harbor's request log, matched
+  through llama-swap's config when that is how the model is served.
+- **`berth models show NAME`** prints one model's header: architecture, context, tensor
+  types, chat template.
+- **`berth models export ollama NAME [--dry-run]`** writes a Modelfile and runs `ollama
+  create`; a split model needs `llama-gguf-split --merge` first.
 
 ### Gateway (preview)
 - **One port for every engine.** `berth gateway` proxies OpenAI-style requests to the engine
@@ -458,7 +471,7 @@ carries a browser `Origin`, so a web page cannot start an engine. ComfyUI alread
 
 ### Interfaces
 - **CLI:** one command tree with one output contract. `berth status`, `berth events -f`,
-  `berth run`, `berth hold`, `berth claims`, `berth pull`, `berth verify`, `berth gateway`,
+  `berth run`, `berth hold`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
   `berth wire llama-swap`, `berth engine check`, `berth config check`, `berth config show`,
   `berth export`, `berth key`, `berth skill install`, `berth version`. Berth runs fully
   headless.
