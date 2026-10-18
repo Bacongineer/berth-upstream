@@ -142,3 +142,38 @@ func TestWatcherHoldLifecycle(t *testing.T) {
 		t.Fatalf("hold requested %d times", len(fb.asked))
 	}
 }
+
+// Windows-shaped process tables: Name is the exe, Cmdline the image path.
+func TestBuiltinWindows(t *testing.T) {
+	ps := []Proc{
+		{PID: 4, Name: "System"},
+		{PID: 100, Name: "steam.exe", Cmdline: `C:\Program Files (x86)\Steam\steam.exe`},
+		{PID: 110, Name: "steamwebhelper.exe", Parent: 100, Cmdline: `C:\Program Files (x86)\Steam\bin\cef\steamwebhelper.exe`},
+		{PID: 120, Name: "Cyberpunk2077.exe", Parent: 100, Cmdline: `D:\SteamLibrary\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe`},
+		{PID: 130, Name: "wallpaper64.exe", Parent: 100, Cmdline: `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe`},
+		{PID: 200, Name: "EpicGamesLauncher.exe", Cmdline: `C:\Program Files (x86)\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe`},
+		{PID: 210, Name: "FortniteClient-Win64-Shipping.exe", Parent: 200, Cmdline: `C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe`},
+		{PID: 300, Name: "Battle.net.exe", Cmdline: `C:\Program Files (x86)\Battle.net\Battle.net.exe`},
+		{PID: 310, Name: "Agent.exe", Parent: 300, Cmdline: `C:\ProgramData\Battle.net\Agent\Agent.9001\Agent.exe`},
+		{PID: 320, Name: "Overwatch.exe", Parent: 300, Cmdline: `C:\Program Files (x86)\Overwatch\_retail_\Overwatch.exe`},
+		{PID: 400, Name: "blender.exe", Cmdline: `C:\Program Files\Blender Foundation\Blender 4.5\blender.exe`},
+		{PID: 410, Name: "obs64.exe", Cmdline: `C:\Program Files\obs-studio\bin\64bit\obs64.exe`},
+	}
+	m := Match(compiled(t, Builtin()...), ps)
+	want := map[string][]int{
+		"steam-library":  {120},
+		"epic-game":      {210},
+		"battlenet-game": {320},
+		"blender":        {400},
+		"obs":            {410},
+	}
+	for name, pids := range want {
+		got := m[name]
+		if len(got) != len(pids) || (len(got) > 0 && got[0].PID != pids[0]) {
+			t.Errorf("%s = %v, want %v", name, got, pids)
+		}
+	}
+	if len(m) != len(want) {
+		t.Errorf("unexpected matches: %v", m)
+	}
+}

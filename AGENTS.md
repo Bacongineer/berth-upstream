@@ -13,6 +13,9 @@ Run from the repo root (a worktree):
     # the one command that proves the tree is sound: build, format, vet, all tests
     go build ./... && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
 
+    # the Windows node must keep cross-building (CI runs this too)
+    GOOS=windows go build ./... && GOOS=windows go vet ./...
+
     # lint: the exact CI command; only `go` is needed on PATH
     go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 

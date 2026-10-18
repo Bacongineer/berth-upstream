@@ -17,6 +17,9 @@ func isolate(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// afterStart has nothing to do: the process group was set at start.
+func afterStart(*exec.Cmd) {}
+
 func signalGroup(cmd *exec.Cmd, s os.Signal) {
 	if sig, ok := s.(syscall.Signal); ok {
 		_ = syscall.Kill(-cmd.Process.Pid, sig)

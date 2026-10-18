@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // defaultSocket is $BERTH_SOCKET, else $XDG_RUNTIME_DIR/berth.sock, else a
@@ -14,6 +15,11 @@ func defaultSocket() string {
 	}
 	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
 		return filepath.Join(d, "berth.sock")
+	}
+	// Windows (10 1803 and later has AF_UNIX): the per-user local app data
+	// folder, whose ACL already keeps other users out.
+	if d := os.Getenv("LOCALAPPDATA"); d != "" && runtime.GOOS == "windows" {
+		return filepath.Join(d, "berth", "berth.sock")
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("berth-%d.sock", os.Getuid()))
 }

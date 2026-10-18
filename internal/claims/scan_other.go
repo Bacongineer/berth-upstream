@@ -1,9 +1,9 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package claims
 
 import "errors"
 
-// Scan is Linux-only in this release; the Windows process table comes with
-// the Windows node.
+// Scan has no process table on this platform yet; claims stay idle. The
+// node still leases engines.
 func Scan() ([]Proc, error) { return nil, errors.ErrUnsupported }

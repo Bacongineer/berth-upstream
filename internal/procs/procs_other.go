@@ -1,8 +1,8 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package procs
 
-// System has no parent lookup off Linux yet (Windows is v1), so only a
+// System has no parent lookup on this platform, so only a
 // wrapper's direct child PID is attributed to its lease.
 type System struct{}
 
