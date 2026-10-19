@@ -1,0 +1,276 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-labelledby="t d">
+<title id="t">berth: the VRAM leasing service for every GPU you run</title>
+<desc id="d">A llama harbor master on a night pier holds a lit padlock lantern moored to a dock board of GPU berths. On gpu0 llama-swap hands the card to strata at a request boundary, comfyui waits for its job boundary on gpu1, and a game holds gpu2. Zero collisions.</desc>
+<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#060b13"/><stop offset=".7" stop-color="#0b1726"/><stop offset="1" stop-color="#10233a"/>
+  </linearGradient>
+  <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0c1d30"/><stop offset="1" stop-color="#050a12"/>
+  </linearGradient>
+  <radialGradient id="moonGlow"><stop offset="0" stop-color="#7ad4f2" stop-opacity=".28"/><stop offset="1" stop-color="#7ad4f2" stop-opacity="0"/></radialGradient>
+  <radialGradient id="amberGlow"><stop offset="0" stop-color="#ffcf7a" stop-opacity=".75"/><stop offset=".4" stop-color="#e8b56f" stop-opacity=".25"/><stop offset="1" stop-color="#e8b56f" stop-opacity="0"/></radialGradient>
+  <radialGradient id="lampGlow"><stop offset="0" stop-color="#ffd38a" stop-opacity=".9"/><stop offset="1" stop-color="#e8b56f" stop-opacity="0"/></radialGradient>
+  <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#ffe2a6" stop-opacity="0"/><stop offset="1" stop-color="#ffe2a6" stop-opacity=".22"/>
+  </linearGradient>
+  <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#132236" stop-opacity=".96"/><stop offset="1" stop-color="#0b1522" stop-opacity=".96"/>
+  </linearGradient>
+  <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#6b4a2c"/><stop offset="1" stop-color="#3b2716"/>
+  </linearGradient>
+  <linearGradient id="vram" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#1d4a63"/><stop offset="1" stop-color="#7ad4f2"/>
+  </linearGradient>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter>
+  <style>
+    .mono{font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace}
+    .tw{animation:tw 4s ease-in-out infinite}
+    @keyframes tw{0%,100%{opacity:.25}50%{opacity:1}}
+    .beam{transform-origin:1218px 196px;animation:sweep 9s ease-in-out infinite alternate}
+    @keyframes sweep{from{transform:rotate(-14deg)}to{transform:rotate(16deg)}}
+    .lamp{animation:lamp 3.2s ease-in-out infinite}
+    @keyframes lamp{0%,100%{opacity:.55}50%{opacity:1}}
+    .shoot{animation:shoot 7s linear infinite;opacity:0}
+    @keyframes shoot{0%{opacity:0;transform:translate(0,0)}4%{opacity:1}12%{opacity:0;transform:translate(-160px,60px)}100%{opacity:0;transform:translate(-160px,60px)}}
+    .s1{animation:s1 9s linear infinite} .s2{animation:s2 9s linear infinite} .s3{animation:s3 9s linear infinite}
+    @keyframes s1{0%,38%{opacity:1}44%,94%{opacity:0}100%{opacity:1}}
+    @keyframes s2{0%,38%{opacity:0}44%,56%{opacity:1}62%,100%{opacity:0}}
+    @keyframes s3{0%,56%{opacity:0}62%,94%{opacity:1}100%{opacity:0}}
+    .drain{animation:drain 9s linear infinite;transform-box:fill-box;transform-origin:left}
+    @keyframes drain{0%,40%{transform:scaleX(.82)}56%{transform:scaleX(0)}62%{transform:scaleX(0)}74%,100%{transform:scaleX(.9)}}
+    .wave{animation:wave 6s ease-in-out infinite alternate}
+    @keyframes wave{from{transform:translateX(-10px)}to{transform:translateX(10px)}}
+    @media (prefers-reduced-motion:reduce){*{animation:none!important}.s2,.s3{opacity:0}}
+  </style>
+</defs>
+<rect width="1280" height="400" fill="url(#sky)"/>
+
+<circle cx="415" cy="38" r="0.6" fill="#dfe9f5" opacity="0.55" class="tw" style="animation-delay:2.1s"/>
+<circle cx="74" cy="127" r="0.6" fill="#dfe9f5" opacity="0.48" class="tw" style="animation-delay:1.7s"/>
+<circle cx="705" cy="15" r="1.6" fill="#dfe9f5" opacity="0.70" class="tw" style="animation-delay:0.9s"/>
+<circle cx="1213" cy="144" r="1.2" fill="#dfe9f5" opacity="0.66" class="tw" style="animation-delay:0.9s"/>
+<circle cx="170" cy="105" r="1.6" fill="#dfe9f5" opacity="0.80" class="tw" style="animation-delay:1.2s"/>
+<circle cx="231" cy="145" r="0.8" fill="#dfe9f5" opacity="0.65"/>
+<circle cx="80" cy="15" r="0.8" fill="#dfe9f5" opacity="0.64"/>
+<circle cx="463" cy="62" r="0.8" fill="#dfe9f5" opacity="0.48"/>
+<circle cx="151" cy="105" r="1" fill="#dfe9f5" opacity="0.37" class="tw" style="animation-delay:2.0s"/>
+<circle cx="855" cy="191" r="1.6" fill="#dfe9f5" opacity="0.80"/>
+<circle cx="435" cy="88" r="1.2" fill="#dfe9f5" opacity="0.60"/>
+<circle cx="1075" cy="236" r="1.2" fill="#dfe9f5" opacity="0.39"/>
+<circle cx="1271" cy="205" r="1" fill="#dfe9f5" opacity="0.84"/>
+<circle cx="444" cy="235" r="1" fill="#dfe9f5" opacity="0.38" class="tw" style="animation-delay:0.5s"/>
+<circle cx="983" cy="32" r="0.8" fill="#dfe9f5" opacity="0.85"/>
+<circle cx="703" cy="221" r="1.2" fill="#dfe9f5" opacity="0.50"/>
+<circle cx="532" cy="90" r="1.2" fill="#dfe9f5" opacity="0.43"/>
+<circle cx="226" cy="58" r="0.8" fill="#dfe9f5" opacity="0.45" class="tw" style="animation-delay:3.3s"/>
+<circle cx="361" cy="36" r="1.6" fill="#dfe9f5" opacity="0.66"/>
+<circle cx="1220" cy="173" r="1.6" fill="#dfe9f5" opacity="0.71"/>
+<circle cx="502" cy="100" r="0.6" fill="#dfe9f5" opacity="0.57"/>
+<circle cx="244" cy="246" r="1.2" fill="#dfe9f5" opacity="0.38" class="tw" style="animation-delay:1.4s"/>
+<circle cx="0" cy="38" r="0.6" fill="#dfe9f5" opacity="0.69"/>
+<circle cx="90" cy="52" r="1.2" fill="#dfe9f5" opacity="0.54" class="tw" style="animation-delay:1.0s"/>
+<circle cx="466" cy="31" r="1.2" fill="#dfe9f5" opacity="0.61"/>
+<circle cx="619" cy="21" r="0.6" fill="#dfe9f5" opacity="0.76"/>
+<circle cx="30" cy="238" r="1.6" fill="#dfe9f5" opacity="0.73"/>
+<circle cx="1170" cy="190" r="1" fill="#dfe9f5" opacity="0.82"/>
+<circle cx="682" cy="195" r="1" fill="#dfe9f5" opacity="0.69"/>
+<circle cx="1009" cy="190" r="0.8" fill="#dfe9f5" opacity="0.80"/>
+<circle cx="631" cy="183" r="0.6" fill="#dfe9f5" opacity="0.61"/>
+<circle cx="248" cy="151" r="1" fill="#dfe9f5" opacity="0.87"/>
+<circle cx="1265" cy="239" r="1" fill="#dfe9f5" opacity="0.61" class="tw" style="animation-delay:0.4s"/>
+<circle cx="432" cy="121" r="1.6" fill="#dfe9f5" opacity="0.61"/>
+<circle cx="836" cy="200" r="0.6" fill="#dfe9f5" opacity="0.42"/>
+<circle cx="497" cy="178" r="0.8" fill="#dfe9f5" opacity="0.45"/>
+<circle cx="593" cy="186" r="0.6" fill="#dfe9f5" opacity="0.44"/>
+<circle cx="163" cy="38" r="1.2" fill="#dfe9f5" opacity="0.43"/>
+<circle cx="1058" cy="245" r="1" fill="#dfe9f5" opacity="0.36" class="tw" style="animation-delay:2.2s"/>
+<circle cx="1023" cy="182" r="0.6" fill="#dfe9f5" opacity="0.86"/>
+<circle cx="555" cy="218" r="0.8" fill="#dfe9f5" opacity="0.63" class="tw" style="animation-delay:0.9s"/>
+<circle cx="536" cy="33" r="1" fill="#dfe9f5" opacity="0.71"/>
+<circle cx="167" cy="38" r="1.6" fill="#dfe9f5" opacity="0.45" class="tw" style="animation-delay:1.8s"/>
+<circle cx="5" cy="200" r="0.8" fill="#dfe9f5" opacity="0.42" class="tw" style="animation-delay:2.5s"/>
+<circle cx="79" cy="171" r="1.6" fill="#dfe9f5" opacity="0.78"/>
+<circle cx="136" cy="140" r="0.8" fill="#dfe9f5" opacity="0.40" class="tw" style="animation-delay:0.2s"/>
+<circle cx="579" cy="7" r="0.6" fill="#dfe9f5" opacity="0.69"/>
+<circle cx="579" cy="133" r="1.2" fill="#dfe9f5" opacity="0.49"/>
+<circle cx="670" cy="219" r="1" fill="#dfe9f5" opacity="0.84"/>
+<circle cx="259" cy="112" r="1.2" fill="#dfe9f5" opacity="0.39" class="tw" style="animation-delay:1.8s"/>
+<circle cx="308" cy="18" r="1" fill="#dfe9f5" opacity="0.84"/>
+<circle cx="198" cy="179" r="1" fill="#dfe9f5" opacity="0.88" class="tw" style="animation-delay:3.5s"/>
+<circle cx="281" cy="238" r="1.2" fill="#dfe9f5" opacity="0.44"/>
+<circle cx="1272" cy="101" r="1.2" fill="#dfe9f5" opacity="0.75" class="tw" style="animation-delay:1.3s"/>
+<circle cx="25" cy="139" r="1.2" fill="#dfe9f5" opacity="0.56"/>
+<g class="shoot"><line x1="560" y1="40" x2="620" y2="18" stroke="#cfe9ff" stroke-width="1.6" stroke-linecap="round" opacity=".8"/></g>
+<circle cx="92" cy="72" r="80" fill="url(#moonGlow)"/>
+<circle cx="92" cy="72" r="34" fill="#1d3550"/><circle cx="92" cy="72" r="34" fill="none" stroke="#7ad4f2" stroke-opacity=".55" stroke-width="1.5"/>
+<path d="M80 50a34 34 0 0 1 0 44a30 30 0 0 0 0-44z" fill="#2b4a6a" opacity=".6"/>
+<circle cx="100" cy="64" r="5" fill="#16293f"/><circle cx="84" cy="86" r="3.5" fill="#16293f"/><circle cx="106" cy="88" r="2.5" fill="#16293f"/>
+<g fill="#0f1e31" opacity=".9">
+<path d="M0 200c30-30 70-34 96-14c20-28 70-30 92 2c26-10 54 0 64 24H0z"/>
+<path d="M300 222c22-24 60-26 80-8c18-20 56-20 72 4c22-6 40 4 46 18H300z" opacity=".8"/>
+<path d="M820 196c26-22 60-22 78-4c20-18 60-18 74 8c20-4 36 6 40 20H820z" opacity=".55"/>
+</g>
+<rect y="300" width="1280" height="100" fill="url(#sea)"/>
+<g class="wave" stroke="#7ad4f2" stroke-opacity=".12" stroke-width="1.4" stroke-linecap="round">
+<line x1="662" y1="365" x2="730" y2="365"/>
+<line x1="144" y1="392" x2="174" y2="392"/>
+<line x1="1122" y1="356" x2="1154" y2="356"/>
+<line x1="1160" y1="360" x2="1217" y2="360"/>
+<line x1="1049" y1="389" x2="1102" y2="389"/>
+<line x1="1211" y1="370" x2="1257" y2="370"/>
+<line x1="659" y1="374" x2="694" y2="374"/>
+<line x1="357" y1="387" x2="385" y2="387"/>
+<line x1="1146" y1="364" x2="1165" y2="364"/>
+<line x1="113" y1="363" x2="163" y2="363"/>
+<line x1="285" y1="364" x2="309" y2="364"/>
+<line x1="15" y1="396" x2="55" y2="396"/>
+<line x1="1172" y1="379" x2="1192" y2="379"/>
+<line x1="908" y1="393" x2="977" y2="393"/>
+<line x1="335" y1="360" x2="402" y2="360"/>
+<line x1="805" y1="375" x2="833" y2="375"/>
+<line x1="570" y1="382" x2="603" y2="382"/>
+<line x1="1029" y1="396" x2="1049" y2="396"/>
+<line x1="24" y1="374" x2="92" y2="374"/>
+<line x1="658" y1="363" x2="699" y2="363"/>
+<line x1="843" y1="381" x2="895" y2="381"/>
+<line x1="699" y1="391" x2="767" y2="391"/>
+<line x1="394" y1="361" x2="424" y2="361"/>
+<line x1="254" y1="391" x2="310" y2="391"/>
+<line x1="179" y1="396" x2="248" y2="396"/>
+<line x1="1071" y1="353" x2="1122" y2="353"/>
+</g>
+<polygon class="beam" points="1218,197 840,168 840,236" fill="url(#beam)"/>
+<path d="M1196 300h46l-6-14h-34z" fill="#0d1826"/>
+<path d="M1206 286l5-80h14l5 80z" fill="#16273b" stroke="#2a4e68" stroke-width="1"/>
+<path d="M1208 262h22M1209 240h20M1210 220h18" stroke="#e8b56f" stroke-opacity=".5" stroke-width="3"/>
+<rect x="1208" y="190" width="20" height="16" rx="2" fill="#ffd38a" class="lamp"/>
+<path d="M1204 190h28l-14-12z" fill="#16273b"/>
+<circle cx="1218" cy="197" r="26" fill="url(#lampGlow)" class="lamp"/>
+<rect x="14" y="340" width="262" height="12" rx="2" fill="url(#wood)"/>
+<line x1="20" y1="341" x2="20" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="54" y1="341" x2="54" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="88" y1="341" x2="88" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="122" y1="341" x2="122" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="156" y1="341" x2="156" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="190" y1="341" x2="190" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="224" y1="341" x2="224" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="258" y1="341" x2="258" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<rect x="30" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="31" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="144" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="145" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="250" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="251" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="420" y="340" width="830" height="12" rx="2" fill="url(#wood)"/>
+<line x1="426" y1="341" x2="426" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="460" y1="341" x2="460" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="494" y1="341" x2="494" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="528" y1="341" x2="528" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="562" y1="341" x2="562" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="596" y1="341" x2="596" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="630" y1="341" x2="630" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="664" y1="341" x2="664" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="698" y1="341" x2="698" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="732" y1="341" x2="732" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="766" y1="341" x2="766" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="800" y1="341" x2="800" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="834" y1="341" x2="834" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="868" y1="341" x2="868" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="902" y1="341" x2="902" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="936" y1="341" x2="936" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="970" y1="341" x2="970" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1004" y1="341" x2="1004" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1038" y1="341" x2="1038" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1072" y1="341" x2="1072" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1106" y1="341" x2="1106" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1140" y1="341" x2="1140" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1174" y1="341" x2="1174" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1208" y1="341" x2="1208" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<line x1="1242" y1="341" x2="1242" y2="351" stroke="#2a1a0e" stroke-opacity=".6"/>
+<rect x="446" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="447" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="634" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="635" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="824" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="825" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="1014" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="1015" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<rect x="1208" y="350" width="12" height="60" fill="#2e1f12"/>
+<rect x="1209" y="350" width="10" height="60" fill="#ffd38a" opacity=".05"/>
+<circle cx="452" cy="326" r="22" fill="url(#lampGlow)" class="lamp"/><rect x="445" y="318" width="14" height="14" rx="3" fill="#ffcf7a" class="lamp"/><rect x="443" y="330" width="18" height="10" fill="#1a2433"/>
+<circle cx="1214" cy="326" r="22" fill="url(#lampGlow)" class="lamp"/><rect x="1207" y="318" width="14" height="14" rx="3" fill="#ffcf7a" class="lamp"/><rect x="1205" y="330" width="18" height="10" fill="#1a2433"/>
+<ellipse cx="640" cy="360" rx="10" ry="4" fill="#ffcf7a" opacity=".55" class="lamp"/>
+<ellipse cx="830" cy="360" rx="10" ry="4" fill="#ffcf7a" opacity=".55" class="lamp"/>
+<ellipse cx="1020" cy="360" rx="10" ry="4" fill="#ffcf7a" opacity=".55" class="lamp"/>
+<g opacity=".22">
+<rect x="470" y="356" width="720" height="3" fill="#7ad4f2"/><rect x="520" y="366" width="600" height="2" fill="#7ad4f2" opacity=".6"/>
+<rect x="208" y="358" width="36" height="3" fill="#ffcf7a"/><rect x="214" y="368" width="24" height="2" fill="#ffcf7a"/>
+</g>
+<g id="llama">
+<ellipse cx="128" cy="338" rx="70" ry="5" fill="#000" opacity=".35"/>
+<g fill="#f4edda" stroke="#d6c9a8" stroke-width="1.2">
+  <rect x="84" y="296" width="13" height="42" rx="5"/><rect x="104" y="300" width="13" height="38" rx="5"/>
+  <rect x="140" y="300" width="13" height="38" rx="5"/><rect x="160" y="296" width="13" height="42" rx="5"/>
+  <circle cx="66" cy="270" r="11"/>
+  <ellipse cx="124" cy="282" rx="62" ry="34"/>
+  <rect x="146" y="188" width="36" height="104" rx="17"/>
+  <rect x="140" y="150" width="58" height="50" rx="22"/>
+  <ellipse cx="190" cy="186" rx="20" ry="14"/>
+</g>
+<g stroke="#e6dbc0" stroke-width="2" fill="none" stroke-linecap="round">
+  <path d="M152 214q8 4 0 8M170 230q8 4 0 8M152 248q8 4 0 8M170 264q8 4 0 8M84 270q8 4 0 8M108 262q8 4 0 8M132 268q8 4 0 8"/>
+</g>
+<rect x="148" y="132" width="10" height="24" rx="5" fill="#f4edda" stroke="#d6c9a8"/>
+<rect x="170" y="132" width="10" height="24" rx="5" fill="#f4edda" stroke="#d6c9a8"/>
+<path d="M136 160q2-26 32-28q30 2 32 26z" fill="#1b2a44" stroke="#2a3f63"/>
+<path d="M180 152q22-2 30 8q-14 4-34 0z" fill="#22365a"/>
+<circle cx="168" cy="132" r="4" fill="#e8b56f"/>
+<rect x="142" y="154" width="52" height="5" rx="2" fill="#2a3f63"/>
+<circle cx="178" cy="176" r="3.6" fill="#1a1a22"/><circle cx="179.3" cy="174.8" r="1.1" fill="#fff"/>
+<ellipse cx="186" cy="192" rx="6" ry="3.5" fill="#f3a6a0" opacity=".75"/>
+<path d="M200 190q4 3 7 1" stroke="#8a7a5a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+<path d="M176 268q22 18 40 38" stroke="#7a5a33" stroke-width="3" fill="none" stroke-linecap="round"/>
+</g>
+<circle cx="226" cy="318" r="40" fill="url(#amberGlow)" class="lamp"/>
+<path d="M216 308v-8a10 10 0 0 1 20 0v8" fill="none" stroke="#c99645" stroke-width="4"/>
+<rect x="210" y="306" width="32" height="28" rx="6" fill="#e8b56f" stroke="#ffd38a"/>
+<circle cx="226" cy="317" r="3.5" fill="#5a3d12"/><rect x="224.5" y="318" width="3" height="8" rx="1.5" fill="#5a3d12"/>
+<rect x="208" y="334" width="36" height="6" rx="2" fill="#1a2433"/>
+<path id="moor" d="M244 316C330 300 380 268 470 262" fill="none" stroke="#7ad4f2" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="5 6"/>
+<circle r="3.5" fill="#bff0ff"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#moor"/></animateMotion></circle>
+<g class="mono">
+<text x="1186" y="84" text-anchor="end" font-size="78" font-weight="700" fill="#f0f5fa">berth<tspan fill="#e8b56f">.</tspan></text>
+<text x="1186" y="120" text-anchor="end" font-size="19" fill="#cbd8e8">the VRAM leasing service for every GPU you run</text>
+<text x="1186" y="154" text-anchor="end" font-size="21" fill="#e8b56f">Lease. Hand off. Never collide.</text>
+</g>
+<rect x="470" y="184" width="720" height="156" rx="14" fill="url(#panel)" stroke="#2a4e68" stroke-width="1.5"/>
+<path d="M484 214h692" stroke="#243549"/>
+<g class="mono">
+<circle cx="490" cy="200" r="4" fill="#7ee8ac"/>
+<text x="502" y="205" font-size="13" fill="#8ba0b8">berthd · harbor board</text>
+<rect x="1040" y="190" width="138" height="20" rx="10" fill="#0f2a1f" stroke="#2c5038"/>
+<path d="M1054 200l4 4l7-8" fill="none" stroke="#7ee8ac" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1116" y="204" text-anchor="middle" font-size="12.5" fill="#bff0d1">0 collisions</text>
+</g>
+<rect x="484" y="222" width="220" height="108" rx="10" fill="#0d1826" stroke="#1f3247"/>
+<g class="mono"><text x="496" y="241" font-size="13" fill="#cbd8e8">gpu0</text><text x="692" y="241" text-anchor="end" font-size="11.5" fill="#8ba0b8">rtx 4090 · 24 GiB</text></g>
+<rect x="496" y="314" width="196" height="5" rx="2.5" fill="#16263a"/>
+<rect x="720" y="222" width="220" height="108" rx="10" fill="#0d1826" stroke="#1f3247"/>
+<g class="mono"><text x="732" y="241" font-size="13" fill="#cbd8e8">gpu1</text><text x="928" y="241" text-anchor="end" font-size="11.5" fill="#8ba0b8">rtx 5080 · 16 GiB</text></g>
+<rect x="732" y="314" width="196" height="5" rx="2.5" fill="#16263a"/>
+<rect x="956" y="222" width="220" height="108" rx="10" fill="#0d1826" stroke="#1f3247"/>
+<g class="mono"><text x="968" y="241" font-size="13" fill="#cbd8e8">gpu2</text><text x="1164" y="241" text-anchor="end" font-size="11.5" fill="#8ba0b8">4070 ti · 12 GiB</text></g>
+<rect x="968" y="314" width="196" height="5" rx="2.5" fill="#16263a"/>
+<g class="mono">
+<g class="s1"><rect x="496" y="252" width="196" height="34" rx="7" fill="#123047" stroke="#7ad4f2" stroke-width="1.5"/><text x="594" y="274" text-anchor="middle" font-size="15" fill="#e6f7ff">llama-swap</text><text x="594" y="304" text-anchor="middle" font-size="12" fill="#7ad4f2">docked</text></g>
+<g class="s2" opacity="0"><rect x="496" y="252" width="196" height="34" rx="7" fill="#2a2111" stroke="#e8b56f" stroke-width="1.5" stroke-dasharray="6 4"/><text x="594" y="274" text-anchor="middle" font-size="14" fill="#ffe2a6">llama-swap → strata</text><text x="594" y="304" text-anchor="middle" font-size="12" fill="#e8b56f">handing off at request end</text></g>
+<g class="s3" opacity="0"><rect x="496" y="252" width="196" height="34" rx="7" fill="#123047" stroke="#7ad4f2" stroke-width="1.5"/><text x="594" y="274" text-anchor="middle" font-size="15" fill="#e6f7ff">strata</text><text x="594" y="304" text-anchor="middle" font-size="12" fill="#7ad4f2">docked</text></g>
+</g>
+<rect class="drain" x="496" y="314" width="196" height="5" rx="2.5" fill="url(#vram)"/>
+<g class="mono"><rect x="732" y="252" width="196" height="34" rx="7" fill="#151b24" stroke="#5d7ea6" stroke-width="1.2"/><text x="830" y="274" text-anchor="middle" font-size="15" fill="#cbd8e8">comfyui</text><text x="830" y="304" text-anchor="middle" font-size="12" fill="#e8b56f">waiting · job boundary</text></g>
+<rect x="732" y="314" width="150" height="5" rx="2.5" fill="#e8b56f" opacity=".75"/>
+<g class="mono"><rect x="968" y="252" width="196" height="34" rx="7" fill="#2a1520" stroke="#fb7185" stroke-width="1.2"/><text x="1066" y="274" text-anchor="middle" font-size="15" fill="#ffd9df">steam game</text><text x="1066" y="304" text-anchor="middle" font-size="12" fill="#fb7185">hold · AI drained</text></g>
+<rect x="968" y="314" width="178" height="5" rx="2.5" fill="#fb7185" opacity=".75"/>
+</svg>
