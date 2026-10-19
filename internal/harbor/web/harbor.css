@@ -110,6 +110,8 @@
   --input-fs-phone: 16px; /* keeps iOS from zooming a focused input */
   /* chrome */
   --header-h: 60px;
+  --rail-h: 56px;      /* the phone's one top row (R-02) */
+  --tabbar-h: 56px;    /* the phone's fixed bottom nav */
   /* z scale: dialogs live in the native top layer and need none */
   --z-sticky: 15;  /* section rail */
   --z-rail: 20;    /* app header / phone top rail */
@@ -325,6 +327,13 @@ body.mode-basic .adv-only { display: none !important; }
 }
 .tab:hover { color: var(--ink); }
 .tab[aria-current="page"] { color: var(--amber); border-color: var(--hair-2); background: var(--panel); }
+/* the phone's bottom nav marks the active tab with the state vocabulary's own
+   dot above the label (spec 4); the wide header keeps the bordered pill look.
+   Two classes because .si's own display rule must not win here. */
+.tabs .tab-si { display: none; color: var(--amber); border-radius: 50%; }
+/* the menu button is the phone rail's only spare slot; the wide header has no
+   room for it and no need of it */
+.menu-btn { display: none; }
 .tab .count {
   font-size: var(--fs-micro); color: var(--dim-2);
   border: 1px solid var(--hair-2); border-radius: var(--r-pill);
@@ -500,7 +509,7 @@ body.mode-basic .adv-only { display: none !important; }
 }
 /* the range pickers share the mode switch's segmented style; the inset reads
    as a well the pressed half sits in */
-.range-group { display: inline-flex; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.range-group { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
 .panel-meta {
   font-family: var(--mono); font-size: var(--fs-small); color: var(--dim);
   letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
@@ -1510,6 +1519,64 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
 .sc-row { display: flex; justify-content: space-between; gap: var(--s4); font-size: var(--fs-body); color: var(--dim); }
 .sc-row > span:first-child { display: inline-flex; gap: 4px; }
 
+/* ---------- the phone menu sheet ---------- */
+/* The sheet is the phone's home for what the wide header says in text: the
+   node's versions, the last successful read, the retry, the shortcut list,
+   and the detail level the compressed rail can only show. It sits on the
+   bottom edge at --e3 and scrolls inside itself, like every other surface. */
+dialog.sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  max-height: min(76vh, 560px);
+  padding: 0 0 env(safe-area-inset-bottom);
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  border-bottom: 0;
+  border-radius: var(--r3) var(--r3) 0 0;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--e3);
+}
+dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--hair);
+  font-family: var(--mono); font-size: var(--fs-body); letter-spacing: var(--track);
+  color: var(--ink-strong);
+}
+.sheet-close { color: var(--dim); font-family: var(--mono); font-size: var(--fs-micro); width: auto; height: auto; min-width: var(--touch); min-height: var(--touch); padding: 6px 10px; }
+.sheet-body {
+  display: flex; flex-direction: column;
+  max-height: calc(min(76vh, 560px) - 52px);
+  overflow-y: auto;
+  padding: 0 var(--s4) var(--s4);
+}
+.sheet-sect {
+  margin: var(--s3) 0 var(--s1);
+  font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track);
+  font-weight: 600; color: var(--amber);
+}
+.sheet-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px var(--s3); margin: 0; }
+.sheet-meta dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--dim); }
+.sheet-meta dd { margin: 0 0 var(--s2); font-size: var(--fs-body); color: var(--ink-strong); overflow-wrap: anywhere; }
+.sheet-items { display: flex; flex-direction: column; gap: var(--touch-gap); }
+.sheet-item {
+  appearance: none; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: var(--touch); padding: var(--s2) var(--s3);
+  border: 1px solid var(--edge); border-radius: var(--r2);
+  background: var(--panel-3); color: var(--ink);
+  font-family: var(--mono); font-size: var(--fs-label); letter-spacing: var(--track);
+  box-shadow: var(--e1);
+}
+.sheet-item:hover { color: var(--ink-strong); border-color: var(--hair-2); }
+.sheet-item[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); border-color: var(--cyan-dim); }
+.sheet-hint { margin-left: auto; color: var(--dim-2); font-size: var(--fs-micro); letter-spacing: 0; }
+
 /* ---------- about ---------- */
 .about {
   border: 1px solid var(--hair);
@@ -1599,17 +1666,63 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
   /* phone width: the wordmark alone identifies the app and the tabs take
      their own line; the KPI tiles go full width at this basis, and a log row
      is a two-line clock + kind with the detail on its own full-width line */
+  /* R-02: one 56px rail and one 56px bottom nav. H1 measured 232px of sticky
+     chrome here (28.6% of the screen), which put the counter below the fold. */
+  html { scroll-padding-top: calc(var(--rail-h) + var(--s2)); }
+  /* backdrop-filter would make the header the containing block of the fixed
+     bottom nav, i.e. the nav would land on the rail instead of the page's */
+  .app-header {
+    height: var(--rail-h); min-height: var(--rail-h); gap: var(--s2);
+    padding: 0 var(--s3); flex-wrap: nowrap; overflow: visible;
+    box-shadow: var(--e3); backdrop-filter: none;
+  }
+  .brand { order: 0; flex: none; }
+  .wordmark { font-size: 17px; }
+  .header-status { order: 1; flex: 1; min-width: 0; gap: var(--s1); flex-wrap: nowrap; }
+  .app-header .mode { order: 2; flex: none; }
+  .menu-btn { order: 3; display: inline-flex; width: var(--touch); height: var(--touch); }
+  .node-version, .last-update, #keys-btn { display: none; }
+  /* dot-compressed pills: the shape and the state word stay, the message and
+     the relative age live in the menu sheet */
+  .conn { min-width: 0; min-height: var(--touch); padding: 4px 8px; gap: 5px; }
+  .conn .msg, .conn .ago { display: none; }
+  .conn .word { overflow: hidden; text-overflow: ellipsis; }
+  /* the rail's density segment shows the mode you are in; the sheet switches
+     it. Scoped to the header, because the range pickers are .mode-btn too and
+     every one of their options stays visible on a phone (R-06). */
+  .app-header .mode > .mode-btn { min-height: var(--touch); padding: 8px 10px; display: none; }
+  .app-header .mode > .mode-btn[aria-pressed="true"] { display: inline-flex; }
   .descriptor { display: none; }
-  .tabs { order: 4; width: 100%; }
+  /* the bottom nav is the same .tabs element, out of flow on the bottom edge */
+  .tabs {
+    order: 4; position: fixed; inset: auto 0 0 0; margin: 0; gap: 0; width: 100%;
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--chrome); backdrop-filter: blur(6px);
+    border-top: 1px solid var(--hair); box-shadow: var(--e3);
+    z-index: var(--z-tabbar); align-items: stretch;
+  }
+  .tab {
+    flex: 1 1 0; min-width: 0; min-height: var(--touch); padding: 6px 2px;
+    border: 0; border-radius: 0; background: transparent;
+    flex-direction: column; justify-content: center; gap: 4px;
+    font-size: var(--fs-micro); letter-spacing: var(--track);
+  }
+  .tab[aria-current="page"] { border: 0; background: transparent; }
+  .tabs .tab-si { width: 6px; height: 6px; }
+  .tabs .tab[aria-current="page"] .tab-si { display: inline-block; }
+  .tab-long, .tab .count { display: none; }
   .kpi { flex-basis: 150px; }
   .subnav { margin: 0 calc(-1 * var(--s4)) var(--s3); padding: 6px var(--s4); }
-  #main { padding: var(--s4) var(--s4) var(--s8); }
+  /* the nav is out of flow, so the page keeps its own clearance below it, and
+     anchor jumps clear the rail instead of the wide header */
+  #main { padding: var(--s4) var(--s4) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s5)); }
+  .app-footer { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s4)); }
+  .panel { scroll-margin-top: calc(var(--rail-h) + var(--s2)); }
   .log-row { grid-template-columns: 56px minmax(0, 1fr); }
   .log-row .ld { grid-column: 1 / -1; }
   .digit { width: 30px; height: 40px; }
   .reel span { height: 40px; line-height: 40px; font-size: 20px; }
-  .mode-btn { min-height: 40px; padding: 8px 16px; }
-  .tab { min-height: 44px; padding: 10px 14px; }
   .chip { min-height: 40px; padding: 8px 12px; }
   .collapse-btn { width: 40px; height: 40px; }
   .log-pause { min-height: 40px; padding: 8px 12px; }
@@ -1640,7 +1753,7 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
   .search input { min-height: 40px; padding-right: 48px; }
   .search .clear-btn { width: 40px; height: 40px; right: 0; }
   .skip-link { padding: 10px 14px; }
-  .toast-host { right: var(--s2); left: var(--s2); bottom: var(--s2); max-width: none; }
+  .toast-host { right: var(--s2); left: var(--s2); bottom: calc(var(--tabbar-h) + var(--s2)); max-width: none; }
   .trow { grid-template-columns: 110px minmax(0, 1fr); }
   .ticket-stub { display: none; }
   .ticket-paper { --fold-x: 100%; }
@@ -1676,7 +1789,7 @@ body.reduced-motion .si-live, body.reduced-motion .si-connecting, body.reduced-m
 }
 @media print {
   .app-header .mode, .app-header .tabs, .subnav, .toast-host, .jump-btn,
-  .log-toolbar, .collapse-btn, .ticket-actions, #shortcuts { display: none !important; }
+  .log-toolbar, .collapse-btn, .ticket-actions, #shortcuts, #rail-menu { display: none !important; }
   body { background: #fff; }
   .panel { break-inside: avoid; box-shadow: none; }
   .log { max-height: none; overflow: visible; }

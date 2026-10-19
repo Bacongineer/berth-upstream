@@ -53,8 +53,15 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(BASE + "?demo", wait_until="networkidle")
     pg.wait_for_timeout(1500)
-    # advanced mode: the rpm chart and the machine charts paint only in it
-    pg.click("#mode-advanced")
+    # advanced mode: the rpm chart and the machine charts paint only in it. On
+    # a phone the rail shows only the current density, so the sheet switches it.
+    adv = pg.locator("#mode-advanced")
+    if adv.is_visible():
+        adv.click()
+    else:
+        pg.click("#menu-btn")
+        pg.wait_for_timeout(250)
+        pg.locator("#sheet-mode-advanced").click()
     pg.wait_for_timeout(400)
 
     def probe(sel):
@@ -154,6 +161,18 @@ with sync_playwright() as p:
                frame: box.querySelectorAll('.chart-frame').length }; }""")
     ok("sparkline: still text-free and frame-free", spark is not None
        and spark["texts"] == 0 and spark["axis"] == 0 and spark["frame"] == 0, spark)
+
+    # the engines tab's picker: the compressed rail must not swallow it (R-06).
+    # A segment's 44px thumb zone is step 7's control pass; until then the
+    # height is reported, not asserted.
+    pg.click("#tab-engines")
+    pg.wait_for_timeout(600)
+    lb = pg.evaluate("""() => { const g = document.querySelector('#lb-range');
+      const bs = [...g.querySelectorAll('.mode-btn')];
+      return { shown: bs.filter(x => x.getClientRects().length).length, n: bs.length,
+        minH: Math.min(...bs.map(x => x.getBoundingClientRect().height)) }; }""")
+    ok("the leaderboard picker shows every window", lb["shown"] == lb["n"], lb)
+    info("leaderboard picker segment height (44 is step 7)", lb["minH"])
 
     # the page itself never got wider because of an overlay
     sw = pg.evaluate("() => document.documentElement.scrollWidth")

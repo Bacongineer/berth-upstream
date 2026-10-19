@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Berth harbor: the read-only control surface for the VRAM leasing service.">
   <title>berth harbor</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -20,13 +20,13 @@
       <span class="descriptor">the VRAM leasing service for every GPU you run</span>
     </div>
     <div class="mode" role="group" aria-label="detail level">
-      <button class="mode-btn" id="mode-basic" type="button" aria-pressed="true">BASIC</button>
-      <button class="mode-btn" id="mode-advanced" type="button" aria-pressed="false">ADVANCED</button>
+      <button class="mode-btn" id="mode-basic" type="button" data-mode="basic" aria-pressed="true">BASIC</button>
+      <button class="mode-btn" id="mode-advanced" type="button" data-mode="advanced" aria-pressed="false">ADVANCED</button>
     </div>
     <nav class="tabs" aria-label="sections">
-      <button class="tab" id="tab-harbor" type="button" aria-current="page">HARBOR</button>
-      <button class="tab" id="tab-engines" type="button">ENGINES &amp; REQUESTS</button>
-      <button class="tab" id="tab-about" type="button">ABOUT</button>
+      <button class="tab" id="tab-harbor" type="button" aria-current="page"><span class="si tab-si" aria-hidden="true"></span><span class="tab-label">CARD</span></button>
+      <button class="tab" id="tab-engines" type="button"><span class="si tab-si" aria-hidden="true"></span><span class="tab-label">ENGINES <span class="tab-long">&amp; REQUESTS</span></span></button>
+      <button class="tab" id="tab-about" type="button"><span class="si tab-si" aria-hidden="true"></span><span class="tab-label">ABOUT</span></button>
     </nav>
     <div class="header-status">
       <span id="node-version" class="node-version" title="berthd node version"></span>
@@ -34,6 +34,7 @@
       <span id="conn-pill" class="conn" role="status" title="connection state">CONNECTING</span>
       <span id="last-update" class="last-update" title="last successful status read"></span>
     </div>
+    <button class="icon-btn menu-btn" type="button" id="menu-btn" aria-label="open the menu" aria-haspopup="dialog" aria-controls="rail-menu"></button>
   </header>
 
   <div id="alerts" class="alert-strip" role="status" aria-live="polite" hidden></div>
@@ -378,6 +379,33 @@ berth config check</pre>
         <div class="stub-line" id="t-stub-no"></div>
         <div class="stub-line stub-class" id="t-stub-class"></div>
         <div class="stub-note">keep this stub</div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- the phone rail's menu: everything the wide header shows in text lives
+       here when the header is one 56px row -->
+  <dialog id="rail-menu" class="sheet" aria-labelledby="rail-menu-title">
+    <div class="sheet-head"><span id="rail-menu-title">MENU</span><button class="icon-btn sheet-close" type="button" data-autofocus aria-label="close menu">close</button></div>
+    <div class="sheet-body">
+      <h3 class="sheet-sect" id="sheet-sec-node">THIS NODE</h3>
+      <dl class="sheet-meta">
+        <dt>versions</dt>
+        <dd id="sheet-node">not read yet</dd>
+        <dt>last successful read</dt>
+        <dd id="sheet-read">no successful read yet</dd>
+        <dt>connection</dt>
+        <dd id="sheet-conn">connecting</dd>
+      </dl>
+      <h3 class="sheet-sect" id="sheet-sec-view">DETAIL LEVEL</h3>
+      <div class="sheet-items" role="group" aria-labelledby="sheet-sec-view">
+        <button class="sheet-item" type="button" id="sheet-mode-basic" data-mode="basic" aria-pressed="true">BASIC</button>
+        <button class="sheet-item" type="button" id="sheet-mode-advanced" data-mode="advanced" aria-pressed="false">ADVANCED</button>
+      </div>
+      <h3 class="sheet-sect" id="sheet-sec-act">ACTIONS</h3>
+      <div class="sheet-items" role="group" aria-labelledby="sheet-sec-act">
+        <button class="sheet-item" type="button" id="sheet-retry">RETRY NOW<span class="sheet-hint">same as R</span></button>
+        <button class="sheet-item" type="button" id="sheet-keys">KEYBOARD SHORTCUTS<span class="sheet-hint">?</span></button>
       </div>
     </div>
   </dialog>
