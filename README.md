@@ -1,20 +1,54 @@
-<p align="center"><img src="assets/banner.png" alt="berth: the VRAM leasing service for every GPU you run" width="900"></p>
+<p align="center"><img src="assets/banner.svg" alt="berth: a llama harbor master on a night pier moors a padlock lantern to a dock board of GPUs. On gpu0 llama-swap hands the card to strata when its reply ends, ComfyUI waits for its job to finish on gpu1, and a game holds gpu2. Zero collisions." width="100%"></p>
 
-<p align="center"><b>The VRAM leasing service for every GPU you run.</b><br>Lease. Hand off. Never collide.</p>
+<p align="center">
+  <a href="https://github.com/T-Crypt/berth/releases"><img src="https://img.shields.io/github/v/release/T-Crypt/berth?color=7ad4f2&amp;labelColor=0a1017" alt="latest release"></a>
+  <a href="https://github.com/T-Crypt/berth/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/T-Crypt/berth/ci.yml?branch=main&amp;label=ci&amp;labelColor=0a1017" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/go-1.27-7ad4f2?labelColor=0a1017" alt="Go 1.27">
+  <img src="https://img.shields.io/badge/runs%20on-linux%20%7C%20windows%20(experimental)-e8b56f?labelColor=0a1017" alt="Linux, Windows experimental">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-7ee8ac?labelColor=0a1017" alt="Apache-2.0"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> &nbsp;·&nbsp; <a href="#how-it-works">How it works</a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#gateway-preview">Gateway</a> &nbsp;·&nbsp; <a href="#visibility">Harbor</a> &nbsp;·&nbsp; <a href="#roadmap">Roadmap</a>
+</p>
 
 # Berth
 
-Berth decides who gets your GPU. Chat models, image pipelines, voice engines, games and
-GPU apps lease the card instead of grabbing it, so two of them never load at once and
-crash each other with an out-of-memory error. One Go binary, no cloud account, nothing else
-to install.
+Berth decides who gets your GPU. Chat models, image pipelines, voice engines, games and GPU apps
+lease the card instead of grabbing it, so two of them never load at once and crash each other
+with an out-of-memory error. One Go binary, no cloud account, nothing else to install.
+
+```sh
+berth daemon &                                        # one broker per card
+berth run --as llama -- llama-server -m model.gguf    # this engine now takes turns
+berth status                                          # who holds the card, who waits, and why
+```
+
+## How it works
+
+<p align="center"><img src="assets/how-it-works.svg" alt="How berth works. Four clients ask for the card: a chat agent through the gateway, a ComfyUI workflow, an engine under berth run, and a game. berthd queues them by priority, drains the holder when its reply or job ends, waits for the driver to show the memory free, then grants the lease. Below, a timeline of one 24 GiB card: llama-swap, strata, a game and ComfyUI take turns and never overlap; markers 1 to 4 show one handoff." width="100%"></p>
+
+Every engine asks berthd for the card: through `berth run`, the gateway, ComfyUI's API or a game
+claim. When another engine holds it, Berth:
+
+1. queues the request by priority: `hold`, `foreground`, `interactive`, `batch`;
+2. lets the holder finish its reply or image job, then unloads it;
+3. waits until the driver shows the memory free;
+4. grants the lease and starts the next engine, and the request that waited streams.
+
+The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
+shows up as a stowaway: Berth reports its PID and memory and leaves it running.
+
+> **Status: alpha (v0.1).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
+> [Roadmap](#roadmap) lists what does not exist yet.
 
 ## What Berth does
 
 **Shares one card between everything**
 - **Engines take turns.** You start each one through `berth run`. When another needs the
-  card, Berth unloads the holder (its own unload, then SIGTERM, then SIGKILL) and lets the
-  next one in only after the driver shows the memory free.
+  card, Berth waits for the holder's current reply to end, unloads it (its own unload, then
+  SIGTERM, then SIGKILL) and lets the next one in only after the driver shows the memory free.
 - **Priorities.** `foreground`, `interactive`, `batch`, and `hold` above them all. A lower
   request waits and gets a reason naming the holder, never an OOM crash.
 - **No ping-pong.** When two clients ask for different engines at once, a ranking picks one
@@ -39,6 +73,8 @@ to install.
 - **`berth gateway`**: one OpenAI-compatible port. Name a model and Berth starts its engine,
   unloads whatever holds the card, waits for the load and streams the answer.
 - It proxies ComfyUI's workflow API too, so an image request queues behind the same lease.
+- **Wake pages** (`--gui-listen`): a bookmark to a stopped engine's web UI shows who holds the
+  card and a Start button, says what the start waits for, and opens the UI once it answers.
 - Bearer key on every route, loopback only, browser origins refused.
 
 **Models**
@@ -72,10 +108,6 @@ to install.
 
 **Runs on** Linux with an NVIDIA GPU (supported) and Windows 10/11 with an NVIDIA GPU
 (experimental). Apache-2.0.
-
-> **Status: alpha (v0.1).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
-> Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
-> [Roadmap](#roadmap) lists what does not exist yet.
 
 ## Quick start
 
