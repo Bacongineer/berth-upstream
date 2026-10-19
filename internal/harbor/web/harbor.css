@@ -1766,25 +1766,26 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .log-row .ld { grid-column: 1 / -1; white-space: normal; overflow: visible; text-overflow: clip; }
   .digit { width: 30px; height: 40px; }
   .reel span { height: 40px; line-height: 40px; font-size: 20px; }
-  .chip { min-height: 40px; padding: 8px 12px; }
-  .collapse-btn { width: 40px; height: 40px; }
-  .log-pause { min-height: 40px; padding: 8px 12px; }
-  .log-why { min-height: 40px; padding: 8px 4px; }
-  /* every control a thumb can land on clears 40 px here, the section rail and
-     the board's sort heads included */
-  .icon-btn { width: 40px; height: 40px; }
-  .subnav a { min-height: 40px; padding: 8px 14px; }
-  .bhead-btn { min-height: 40px; }
-  .board-row { min-height: 40px; }
-  .alert-card .alert-dismiss { min-width: 40px; min-height: 40px; margin: -8px -6px -8px 0; }
-  .jump-btn { min-height: 40px; padding: 8px 14px; }
-  .retry-btn { min-height: 40px; padding: 8px 12px; }
-  .lth { min-height: 40px; }
-  .ticket-act, .ticket-close { min-height: 40px; padding: 8px 12px; }
+  /* R-05: every control a thumb can land on clears --touch (44px) on this band,
+     the section rail and the board's sort heads included. The odometer digits
+     above are the read-out, not a control. */
+  .chip { min-height: var(--touch); padding: 8px 12px; }
+  .collapse-btn { width: var(--touch); height: var(--touch); }
+  .log-pause { min-height: var(--touch); padding: 8px 12px; }
+  .log-why { min-height: var(--touch); padding: 8px 12px; }
+  .icon-btn { width: var(--touch); height: var(--touch); }
+  .subnav a { min-height: var(--touch); padding: 8px 14px; }
+  .bhead-btn { min-height: var(--touch); }
+  .board-row { min-height: var(--touch); }
+  .alert-card .alert-dismiss { min-width: var(--touch); min-height: var(--touch); margin: -8px -6px -8px 0; }
+  .jump-btn { min-height: var(--touch); padding: 8px 14px; }
+  .retry-btn { min-height: var(--touch); padding: 8px 12px; }
+  .lth { min-height: var(--touch); }
+  .ticket-act, .ticket-close { min-height: var(--touch); padding: 8px 12px; }
   /* the hit area reaches past the pill's own padding: a thumb on a phone
      should not have to aim at a 24 px glyph */
-  .toast-close { min-width: 40px; min-height: 40px; }
-  .conn .retry { min-width: 40px; min-height: 40px; margin: -6px -8px -6px 0; }
+  .toast-close { min-width: var(--touch); min-height: var(--touch); }
+  .conn .retry { min-width: var(--touch); min-height: var(--touch); margin: -6px -8px -6px 0; }
   /* every chart's shape, not its words, takes the phone's minimum height: an
      axis label has had room to be 13 px since the frame stopped scaling text */
   .chart-frame { min-height: 160px; }
@@ -1792,10 +1793,25 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .residency-canvas { height: 160px; }
   .kpi-label { font-size: var(--fs-label); }
   .kpi { flex-basis: 100%; }
+  /* R-09: the joined segmented look hides where one option ends, and a 4px gap
+     between chips is under a thumb's aim. Pickers become separate chips and the
+     log's chips get 8px between them. */
+  .mode {
+    gap: var(--touch-gap); border: 0; background: transparent; box-shadow: none;
+    overflow: visible; flex-wrap: wrap;
+  }
+  .mode > .mode-btn {
+    min-height: var(--touch); padding: 8px 12px;
+    border: 1px solid var(--edge); border-radius: var(--r2);
+    background: var(--panel-3); box-shadow: var(--e1);
+  }
+  .mode > .mode-btn + .mode-btn { border-left: 1px solid var(--edge); }
+  .log-chips { gap: var(--s2); }
   .search { flex: 1 1 100%; }
-  .search input { min-height: 40px; padding-right: 48px; }
-  .search .clear-btn { width: 40px; height: 40px; right: 0; }
-  .skip-link { padding: 10px 14px; }
+  /* 16px or iOS zooms the page when the field takes focus (R-09) */
+  .search input { min-height: var(--touch); padding-right: 48px; font-size: var(--input-fs-phone); }
+  .search .clear-btn { width: var(--touch); height: var(--touch); right: 0; }
+  .skip-link { min-height: var(--touch); padding: 10px 14px; }
   .toast-host { right: var(--s2); left: var(--s2); bottom: calc(var(--tabbar-h) + var(--s2)); max-width: none; }
   .trow { grid-template-columns: 110px minmax(0, 1fr); }
   .ticket-stub { display: none; }
