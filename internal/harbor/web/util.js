@@ -128,6 +128,49 @@ export function kindCss(kind) {
     default: return "";
   }
 }
+// ---------------- the status indicator ----------------
+// One vocabulary for every state word (spec 2.7): a shape that carries the
+// meaning, then the word itself. dot = working now, ring = waiting or passive,
+// half = in transition, triangle = needs attention, square = not running or
+// not live. The five lease states are board.js's five words, kept verbatim.
+// The log's kind words read through the same table, so one state cannot look
+// two ways on one page. The glyph is decoration beside the word, so it is
+// aria-hidden and the word stays the message.
+export const STATE_SI = {
+  waiting: "boarding",
+  active: "docked",
+  draining: "casting-off",
+  releasing: "adrift",
+  stuck: "aground",
+};
+// proto Event.Kind -> the state its word names, in the same vocabulary
+const KIND_SI = {
+  "lease.requested": "boarding",
+  "lease.waiting": "boarding",
+  "lease.granted": "docked",
+  "lease.reattached": "docked",
+  "lease.draining": "casting-off",
+  "lease.released": "adrift",
+  "lease.freed": "adrift",
+  "lease.stuck": "aground",
+  "lease.juggle": "stale",
+  "lease.refused": "crit",
+  "squatter.appeared": "crit",
+  "squatter.gone": "adrift",
+  "probe.failed": "crit",
+  "probe.recovered": "up",
+  "alert.raised": "warn",
+  "alert.cleared": "adrift",
+};
+export function kindSi(kind) {
+  return KIND_SI[kind] || "";
+}
+// siEl builds the glyph for one state name ("docked", "stored", "warn").
+export function siEl(name) {
+  const s = el("span", "si si-" + name);
+  s.setAttribute("aria-hidden", "true");
+  return s;
+}
 // A reading is "n/a" when the driver reported -1 or the field is absent.
 export function isNA(v) {
   return v == null || Number.isNaN(v) || v === -1;

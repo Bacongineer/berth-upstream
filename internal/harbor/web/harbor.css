@@ -301,6 +301,9 @@ body.mode-basic .adv-only { display: none !important; }
   min-height: 32px;
   padding: 6px 14px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .mode-btn + .mode-btn { border-left: 1px solid var(--hair-2); }
 .mode-btn[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); }
@@ -372,6 +375,72 @@ body.mode-basic .adv-only { display: none !important; }
 .conn.state.state-degraded .dot { background: var(--amber); }
 .conn.state.state-offline { color: var(--strip-demo-ink); border-color: var(--magenta-dim); }
 .conn.state.state-offline .dot { background: var(--magenta); }
+/* the demo page has no live node, so the state pill says DEMO */
+.conn.state.state-demo { color: var(--strip-demo-ink); border-color: var(--magenta-dim); }
+.conn.state.state-demo .dot { background: var(--magenta); }
+
+/* ---------- the status indicator ---------- */
+/* One vocabulary for every state word: an 8px shape in the word's own colour,
+   always followed by the word itself. The shape is load-bearing so no state
+   reads as colour alone: dot = working now, ring = waiting or passive, half =
+   in transition, triangle = needs attention, square = not running or not
+   live. The word never drops, so phones (no hover) and forced colors read the
+   same state. Surfaces that already colour the word need no colour rule here. */
+.si {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  vertical-align: baseline;
+  background: currentColor;
+}
+/* dot: working now */
+.si.si-dot, .si.si-docked, .si.si-live, .si.si-up { border-radius: 50%; }
+/* ring: waiting or passive. The shapes are masks and clip paths, never a
+   background of their own, so the surface's colour rule still fills them. */
+.si.si-ring, .si.si-boarding, .si.si-adrift, .si.si-stale, .si.si-latched, .si.si-connecting {
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 0 40%, #000 45%);
+  mask: radial-gradient(circle, transparent 0 40%, #000 45%);
+}
+/* half: in transition */
+.si.si-half, .si.si-casting-off {
+  border-radius: 50%;
+  -webkit-mask: conic-gradient(#000 0 50%, transparent 50% 100%);
+  mask: conic-gradient(#000 0 50%, transparent 50% 100%);
+}
+/* triangle: needs attention */
+.si.si-tri, .si.si-aground, .si.si-down, .si.si-degraded, .si.si-warn, .si.si-crit {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+/* square: not running or not live */
+.si.si-square, .si.si-demo, .si.si-offline, .si.si-stored { border-radius: 1px; }
+/* colour only where the word beside the glyph is not already the state's own */
+.si-docked { color: var(--cyan); }
+.si-live, .si-up { color: var(--green); box-shadow: 0 0 6px var(--glow-green); }
+.si-boarding, .si-casting-off, .si-stale, .si-latched, .si-degraded, .si-warn { color: var(--amber); }
+.si-aground, .si-down, .si-demo, .si-crit { color: var(--magenta); }
+.si-adrift, .si-offline { color: var(--dim-2); }
+.si-connecting, .si-stored { color: var(--dim); }
+/* the states that are happening now breathe; reduced motion stops them */
+.si-live, .si-connecting, .si-casting-off { animation: pulse-dot 2.4s ease-in-out infinite; }
+/* the data-source marker: the glyph inside each range option, and the chip in
+   the panel head that names the pressed option's source in words (a phone
+   never sees a title). */
+.mode-btn .si { opacity: 0.85; }
+.src-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 1px;
+  color: var(--dim); white-space: nowrap;
+}
+.src-chip.is-live { color: var(--green); }
+/* the glyph a board status cell and a log kind word lead with */
+.board-row .cell .si { align-self: center; margin-right: 3px; }
+.log-row .lk { display: inline-flex; align-items: center; gap: 5px; }
+.log-row .lk .si { vertical-align: 0; }
+.engine-state { display: inline-flex; align-items: center; gap: 5px; }
+.alert-card .si { align-self: center; }
+.kpi-label { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---------- section sub-navigation ---------- */
 .subnav {
@@ -1561,6 +1630,7 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
   /* the infinite ones must stop, not just run faster: getAnimations lists
      a 0.001ms loop as still running */
   .tl-live, .conn.live .dot, .skel { animation: none; }
+  .si-live, .si-connecting, .si-casting-off { animation: none; }
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
 body.reduced-motion .reel { transition: none; }
@@ -1569,8 +1639,10 @@ body.reduced-motion dialog[open] .stamp { animation: none; }
 body.reduced-motion .toast { animation: none; }
 body.reduced-motion .board-row.row-changed { animation: none; }
 body.reduced-motion .tl-live, body.reduced-motion .conn.live .dot, body.reduced-motion .skel { animation: none; }
+body.reduced-motion .si-live, body.reduced-motion .si-connecting, body.reduced-motion .si-casting-off { animation: none; }
 @media (forced-colors: active) {
   .conn .dot, .res-dot { forced-color-adjust: none; }
+  .si { forced-color-adjust: none; }
   .tile { border: 1px solid ButtonText; }
   .chart-tip, .res-tip, .toast { border: 1px solid CanvasText; }
 }

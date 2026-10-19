@@ -4,7 +4,7 @@
 import {
   $, el, fmtGiB, fmtMiB, fmtAge, fmtClock, fmtDate, fmtClockShort, pad,
   isNA, na, fmtPct, fmtMS, fmtTok, fmtBytes, fmtDayShort,
-  kindWord, kindGroup, kindCss, berthLabel,
+  kindWord, kindGroup, kindCss, berthLabel, kindSi, siEl,
 } from "./util.js";
 import { Board } from "./board.js";
 import { PriorityView } from "./priority.js";
@@ -229,6 +229,45 @@ function main() {
   }
 }
 
+// ---------------- the data-source marker ----------------
+// Each range picker says where its numbers come from: the live node or its
+// store. The glyph inside the option, its accessible name and the chip in the
+// panel head all read the pressed option's data-src, so the source is stated
+// where a title cannot be read (R-06). "ALL" on the counter is the node's own
+// board, not the store.
+const SRC_WORDS = {
+  "5m": "5 minutes", "15m": "15 minutes", "1h": "1 hour", "6h": "6 hours",
+  "24h": "24 hours", "7d": "7 days", "30d": "30 days", all: "the whole board",
+};
+const SRC_CHIP = { live: "LIVE", stored: "STORED" };
+// wireSourceMarkers gives every range option its glyph and its named source,
+// once at startup: the source of a range never changes.
+function wireSourceMarkers() {
+  for (const b of document.querySelectorAll(".range-group .mode-btn")) {
+    const src = b.dataset.src;
+    if (!src) continue;
+    b.prepend(siEl(src));
+    const words = SRC_WORDS[b.dataset.range] || b.dataset.range;
+    b.setAttribute("aria-label", words + ", " + src);
+  }
+}
+// paintSourceChip names the pressed option's source in words in the panel head,
+// beside the same glyph the option carries.
+function paintSourceChip(groupId, range) {
+  const group = $(groupId);
+  if (!group) return;
+  const btn = group.querySelector('[data-range="' + range + '"]');
+  const src = btn ? btn.dataset.src : "";
+  if (!src) return;
+  let chip = group.nextElementSibling;
+  if (!chip || !chip.classList.contains("src-chip")) {
+    chip = el("span", "src-chip");
+    group.insertAdjacentElement("afterend", chip);
+  }
+  chip.replaceChildren(siEl(src), el("span", null, SRC_CHIP[src] || src.toUpperCase()));
+  chip.classList.toggle("is-live", src === "live");
+}
+
 // ---------------- range pickers ----------------
 // The tide's picker drives /v1/history for the tide and the throughput
 // charts; the leaderboard's drives /v1/insights for the ledger and the
@@ -243,6 +282,7 @@ function wireRangePickers() {
   for (const b of document.querySelectorAll("#counter-range .mode-btn")) {
     b.addEventListener("click", () => setCounterRange(b.dataset.range, true));
   }
+  wireSourceMarkers();
   paintCounterRange();
 }
 function setCounterRange(r, persist) {
@@ -261,6 +301,7 @@ function paintCounterRange() {
   for (const b of document.querySelectorAll("#counter-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.crange));
   }
+  paintSourceChip("counter-range", state.crange);
 }
 async function fetchCounterWindow() {
   if (state.crange === "all") return;
@@ -309,6 +350,7 @@ function paintRange() {
   for (const b of document.querySelectorAll("#tide-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.range));
   }
+  paintSourceChip("tide-range", state.range);
 }
 function setLbRange(r, persist) {
   if (!LB_RANGES.includes(r)) return;
@@ -345,6 +387,7 @@ function paintLbRange() {
   for (const b of document.querySelectorAll("#lb-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.lbrange));
   }
+  paintSourceChip("lb-range", state.lbrange);
 }
 // The ledger and the leaderboard read from one insights object: the node's
 // live 24 h one by default, the stored range's once the picker leaves it.
@@ -606,7 +649,7 @@ function setConn() {
   connSig = sig;
   connPill.className = "conn " + s;
   connPill.title = title;
-  connPill.replaceChildren(el("span", "dot"), el("span", null, text));
+  connPill.replaceChildren(pillSi(s), el("span", null, text));
   if (s === "live" || s === "demo") {
     const ago = el("span", "ago");
     ago.id = "conn-ago";
@@ -639,11 +682,11 @@ function paintLastUpdate() {
   lastUpdate.title = state.lastGood ? "last successful status read: " + fmtClock(new Date(state.lastGood)) : "last successful status read";
 }
 // overallState is the operator's state, reconciled against the conn pill's
-// transport state: offline when the node is down, degraded on any alert
-// level, a latched engine, or a stale read, live otherwise. The demo page
-// has no special case: the fixture's alert levels and latched engine read
-// as DEGRADED while the conn pill keeps saying DEMO.
+// transport state: DEMO on the fixture page, offline when the node is down,
+// degraded on any alert level, a latched engine, or a stale read, live
+// otherwise.
 function overallState() {
+  if (state.demo) return "demo";
   const c = connState();
   if (c === "down") return "offline";
   const lv = (state.alerts && state.alerts.levels) || {};
@@ -664,8 +707,16 @@ function paintOverall() {
   if (sig === stateSig) return;
   stateSig = sig;
   statePill.className = "conn state state-" + s;
-  statePill.replaceChildren(el("span", "dot"), el("span", null, { live: "LIVE", degraded: "DEGRADED", offline: "OFFLINE" }[s]));
+  statePill.replaceChildren(pillSi(s), el("span", null, { live: "LIVE", degraded: "DEGRADED", offline: "OFFLINE", demo: "DEMO" }[s]));
   statePill.title = title;
+}
+
+// The conn and state pills show the state's shape. The glyph keeps the pill's
+// .dot class, so the existing .conn.<state> .dot colour rules fill it.
+function pillSi(state) {
+  const g = siEl(state);
+  g.classList.add("dot");
+  return g;
 }
 
 // ---------------- data ----------------
@@ -1027,7 +1078,8 @@ function buildKpiStrip() {
     const tile = el("div", "kpi" + (k.advOnly ? " adv-only" : ""));
     tile.title = k.title;
     const top = el("div", "kpi-top");
-    top.append(el("span", "kpi-label", k.label));
+    const label = el("span", "kpi-label", k.label);
+    top.append(label);
     const unit = el("span", "kpi-unit", k.unit);
     top.append(unit);
     const value = el("div", "kpi-value");
@@ -1040,7 +1092,7 @@ function buildKpiStrip() {
       holder.append(sparkCtl.el);
       tile.append(holder);
     }
-    kpiTiles[k.key] = { tile, value, spark: sparkCtl, unit };
+    kpiTiles[k.key] = { tile, value, spark: sparkCtl, unit, label };
     kpiStripEl.append(tile);
   }
 }
@@ -1088,7 +1140,26 @@ function updateKpiStrip(s) {
     const l = k.alertKey ? lv[k.alertKey] : "";
     t.tile.classList.toggle("lvl-warn", l === "warn");
     t.tile.classList.toggle("lvl-crit", l === "crit");
+    setKpiLevel(t, l);
   }
+}
+// A KPI's level reads as the attention shape beside its word, so warn and crit
+// do not depend on the tile's colour alone.
+function setKpiLevel(t, l) {
+  const want = l === "warn" || l === "crit" ? l : "";
+  let g = t.label._si;
+  if (!want) {
+    if (g) g.hidden = true;
+    return;
+  }
+  if (!g) {
+    g = siEl(want);
+    t.label.prepend(g);
+    t.label._si = g;
+  }
+  g.hidden = false;
+  const cls = "si si-" + want;
+  if (g.className !== cls) g.className = cls;
 }
 
 // ---------------- alerts ----------------
@@ -1226,7 +1297,7 @@ function paintAlerts(s) {
       lastAlertSig = null;
       paintAlerts(state.status || s);
     });
-    card.append(badge, text, when, dismiss);
+    card.append(siEl(lv[k] === "crit" ? "crit" : "warn"), badge, text, when, dismiss);
     alertStripEl.append(card);
   }
 }
@@ -1936,7 +2007,12 @@ function makeLogRow(e) {
     why.addEventListener("click", showPriority);
     detail.append(" ", why);
   }
-  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), el("span", "lk", kindWord(e.kind)), el("span", "le", e.engine || e.lease || ""), el("span", "lb", fmtMiB(e.bytes)), detail);
+  const lk = el("span", "lk");
+  // the kind word leads with the shape of the state it names
+  const ks = kindSi(e.kind);
+  if (ks) lk.append(siEl(ks));
+  lk.append(kindWord(e.kind));
+  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), lk, el("span", "le", e.engine || e.lease || ""), el("span", "lb", fmtMiB(e.bytes)), detail);
   e._row = row;
   return row;
 }

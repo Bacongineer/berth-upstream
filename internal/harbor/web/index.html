@@ -45,12 +45,12 @@
         <div class="panel-head">
           <h2 class="panel-title">THE TICKET COUNTER</h2>
           <div class="mode range-group" role="group" aria-label="counter range" id="counter-range">
-            <button class="mode-btn" type="button" data-range="5m" aria-pressed="false" title="stored, last five minutes">5M</button>
-            <button class="mode-btn" type="button" data-range="15m" aria-pressed="false" title="stored, last fifteen minutes">15M</button>
-            <button class="mode-btn" type="button" data-range="1h" aria-pressed="false" title="stored, last hour">1H</button>
-            <button class="mode-btn" type="button" data-range="24h" aria-pressed="false" title="stored, last day">24H</button>
-            <button class="mode-btn" type="button" data-range="7d" aria-pressed="false" title="stored, last week">7D</button>
-            <button class="mode-btn" type="button" data-range="all" aria-pressed="true" title="the node's own board, kept across restarts">ALL</button>
+            <button class="mode-btn" type="button" data-range="5m" aria-pressed="false" title="stored, last five minutes" data-src="stored">5M</button>
+            <button class="mode-btn" type="button" data-range="15m" aria-pressed="false" title="stored, last fifteen minutes" data-src="stored">15M</button>
+            <button class="mode-btn" type="button" data-range="1h" aria-pressed="false" title="stored, last hour" data-src="stored">1H</button>
+            <button class="mode-btn" type="button" data-range="24h" aria-pressed="false" title="stored, last day" data-src="stored">24H</button>
+            <button class="mode-btn" type="button" data-range="7d" aria-pressed="false" title="stored, last week" data-src="stored">7D</button>
+            <button class="mode-btn" type="button" data-range="all" aria-pressed="true" title="the node's own board, kept across restarts" data-src="live">ALL</button>
           </div>
           <span class="panel-meta" id="counter-meta">counts the collisions the broker has caught</span>
         </div>
@@ -84,11 +84,11 @@
         <div class="panel-head">
           <h2 class="panel-title">THE TIDE</h2>
           <div class="mode range-group" role="group" aria-label="tide range" id="tide-range">
-            <button class="mode-btn" id="range-1h" type="button" data-range="1h" aria-pressed="true" title="live node, one hour">1H</button>
-            <button class="mode-btn" id="range-6h" type="button" data-range="6h" aria-pressed="false" title="stored, six hours">6H</button>
-            <button class="mode-btn" id="range-24h" type="button" data-range="24h" aria-pressed="false" title="stored, one day">24H</button>
-            <button class="mode-btn" id="range-7d" type="button" data-range="7d" aria-pressed="false" title="stored, one week">7D</button>
-            <button class="mode-btn" id="range-30d" type="button" data-range="30d" aria-pressed="false" title="stored, one month">30D</button>
+            <button class="mode-btn" id="range-1h" type="button" data-range="1h" aria-pressed="true" title="live node, one hour" data-src="live">1H</button>
+            <button class="mode-btn" id="range-6h" type="button" data-range="6h" aria-pressed="false" title="stored, six hours" data-src="stored">6H</button>
+            <button class="mode-btn" id="range-24h" type="button" data-range="24h" aria-pressed="false" title="stored, one day" data-src="stored">24H</button>
+            <button class="mode-btn" id="range-7d" type="button" data-range="7d" aria-pressed="false" title="stored, one week" data-src="stored">7D</button>
+            <button class="mode-btn" id="range-30d" type="button" data-range="30d" aria-pressed="false" title="stored, one month" data-src="stored">30D</button>
           </div>
           <span class="panel-meta" id="tide-meta">scheduled card memory, last hour</span>
         </div>
@@ -230,9 +230,9 @@
         <div class="panel-head">
           <h2 class="panel-title">LEADERBOARD</h2>
           <div class="mode range-group" role="group" aria-label="leaderboard range" id="lb-range">
-            <button class="mode-btn" id="lbrange-24h" type="button" data-range="24h" aria-pressed="true" title="live node, last 24 hours">24H</button>
-            <button class="mode-btn" id="lbrange-7d" type="button" data-range="7d" aria-pressed="false" title="stored, seven days">7D</button>
-            <button class="mode-btn" id="lbrange-30d" type="button" data-range="30d" aria-pressed="false" title="stored, thirty days">30D</button>
+            <button class="mode-btn" id="lbrange-24h" type="button" data-range="24h" aria-pressed="true" title="live node, last 24 hours" data-src="live">24H</button>
+            <button class="mode-btn" id="lbrange-7d" type="button" data-range="7d" aria-pressed="false" title="stored, seven days" data-src="stored">7D</button>
+            <button class="mode-btn" id="lbrange-30d" type="button" data-range="30d" aria-pressed="false" title="stored, thirty days" data-src="stored">30D</button>
           </div>
           <span class="panel-meta" id="lb-meta">24 h, click a column to sort</span>
         </div>
@@ -300,7 +300,7 @@
           <dt>ADRIFT</dt><dd>the lease is being released and the memory is on its way out</dd>
           <dt>AGROUND</dt><dd>the release stalled; the memory is not coming back on its own</dd>
         </dl>
-        <p>A magenta CONTESTED flag on a docked row means the driver saw other VRAM holders on the card at grant time, so the measured hold and the free space disagree. The row title and the ticket stamp carry how much they held. CARD RANKING on the engines tab shows how the node orders engines when two at one priority ask for the card inside the juggle window: the config order, or card hours over the last seven days.</p>
+        <p>Every state shows as a shape and its word together, the same on every panel: a dot is working now, a ring is waiting or passive, a half-filled circle is in transition, a triangle needs attention, a square is not running or not live. A magenta CONTESTED flag on a docked row means the driver saw other VRAM holders on the card at grant time, so the measured hold and the free space disagree. The row title and the ticket stamp carry how much they held. CARD RANKING on the engines tab shows how the node orders engines when two at one priority ask for the card inside the juggle window: the config order, or card hours over the last seven days.</p>
 
         <h2 class="section-title">THE REQUEST KPIs</h2>
         <dl class="about-dl">

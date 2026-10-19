@@ -1,6 +1,6 @@
 // The departures board: split-flap tiles, one tile per character.
 // Rows are real buttons so Tab reaches every voyage and Enter opens its ticket.
-import { el, fmtBytes } from "./util.js";
+import { el, fmtBytes, siEl, STATE_SI } from "./util.js";
 import { icon, flash, prefersReduced } from "./ui.js";
 const COLS = ["ticket", "vessel", "berth", "cls", "hold", "status", "time"];
 // Columns the header can sort. The board keeps the broker's queue order
@@ -86,6 +86,12 @@ function makeRow(key, onOpen) {
     const cell = el("div", c === "ticket" ? "cell lease-id-cell" : "cell");
     cell.dataset.col = c;
     cell._tiles = [];
+    if (c === "status") {
+      // Every status word leads with its shape, so the state reads without
+      // colour. Tiles append after it, so it stays the cell's first child.
+      cell._si = siEl(STATE_SI.active);
+      cell.append(cell._si);
+    }
     btn.append(cell);
     btn._cells[c] = cell;
   }
@@ -112,6 +118,15 @@ function flipTile(tile, ch, delay) {
     tile._endBound = true;
   }
 }
+// the state glyph a status cell leads with: the five words are the vocabulary,
+// so a state never looks one way on the board and another in the log
+function syncSi(cell, st) {
+  const name = STATE_SI[st];
+  if (!cell || !cell._si || !name) return;
+  const cls = "si si-" + name;
+  if (cell._si.className !== cls) cell._si.className = cls;
+}
+
 // Reconcile a cell's tiles with new text. tone: "" | cyan | amber | magenta | dim
 function updateCell(cell, text, tone) {
   const chars = Array.from(String(text));
@@ -191,6 +206,7 @@ export class Board {
       updateCell(c.cls, fit(CLASS[l.priority] || l.priority || "", WIDTH.cls), "");
       updateCell(c.hold, fit(hold, WIDTH.hold), "");
       // status cell: flip tiles, then the contested flag
+      syncSi(c.status, st);
       updateCell(c.status, fit(statusText(st), WIDTH.status), tone);
       syncContest(c.status, l.contested);
       updateCell(c.time, fit(ageText(l.age_seconds), WIDTH.time), "");
