@@ -230,8 +230,8 @@ with sync_playwright() as p:
     # the server mode says lan (demo/loopback keeps it hidden)
     ok("phone: lan banner in the DOM, hidden outside lan mode",
        pg3.locator("#lan-banner").count() == 1 and not pg3.locator("#lan-banner").is_visible())
-    ok("phone: chips meet 40px targets",
-       pg3.evaluate("getComputedStyle(document.querySelector('#chip-leases')).minHeight") == "40px",
+    ok("phone: chips meet 44px targets",
+       pg3.evaluate("getComputedStyle(document.querySelector('#chip-leases')).minHeight") == "44px",
        pg3.evaluate("getComputedStyle(document.querySelector('#chip-leases')).minHeight"))
     ok("phone: tabs meet 44px targets",
        pg3.evaluate("getComputedStyle(document.querySelector('#tab-harbor')).minHeight") == "44px",
@@ -248,6 +248,29 @@ with sync_playwright() as p:
         ok("phone: tap away dismisses the tooltip", not (tip3.count() > 0 and tip3.is_visible()))
     else:
         ok("phone: tap pins the tide tooltip", False, "no tide svg")
+    # R-01: an axis word is HTML at its own size, never text inside a viewBox
+    # that gets scaled down with the picture
+    axis = pg3.evaluate("""() => [...document.querySelectorAll('.chart-axis span')]
+      .filter(s => s.getClientRects().length)
+      .map(s => ({ fs: parseFloat(getComputedStyle(s).fontSize), t: s.textContent.trim() }))""")
+    small = [a for a in axis if a["fs"] < 11]
+    ok("phone: every axis word is at least 11px", len(axis) > 0 and not small, f"{len(axis)} labels, small: {small[:4]}")
+    # R-04: the departures board is cards on this band, not a silent scroller
+    bover = pg3.evaluate("""() => { const b = document.querySelector('#board');
+      return b.scrollWidth - b.clientWidth; }""")
+    ok("phone: the board does not scroll sideways", bover <= 1, str(bover))
+    # R-07: Esc means the same thing with nothing focused: clear the filter
+    rows0 = pg3.locator("#log-wrap .log-row").count()
+    pg3.fill("#log-search", "granted")
+    pg3.wait_for_timeout(400)
+    rows1 = pg3.locator("#log-wrap .log-row").count()
+    pg3.evaluate("() => document.activeElement.blur()")
+    pg3.keyboard.press("Escape")
+    pg3.wait_for_timeout(400)
+    rows2 = pg3.locator("#log-wrap .log-row").count()
+    ok("phone: Esc with no focus clears the log filter",
+       pg3.input_value("#log-search") == "" and rows1 < rows0 and rows2 >= rows0,
+       f"{rows0} -> {rows1} -> {rows2}")
     pg3.screenshot(path=out + "phone-390.png", full_page=True)
     ok("phone: no JS errors", not [e for e in errs if e.startswith("phone:")], "; ".join(e for e in errs if e.startswith("phone:"))[:160])
     b.close()
