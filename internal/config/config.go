@@ -53,9 +53,14 @@ type Engine struct {
 	// the gateway headroom guard. 0 = unknown, and the guard fails open.
 	NeedsRAMMiB  uint64 `toml:"needs_ram_mib,omitzero" json:"needs_ram_mib,omitempty" yaml:"needs_ram_mib,omitempty"`
 	DrainPost    string `toml:"drain_post,omitempty" json:"drain_post,omitempty" yaml:"drain_post,omitempty"`          // as berth run --drain-post
+	DrainSlots   string `toml:"drain_slots,omitempty" json:"drain_slots,omitempty" yaml:"drain_slots,omitempty"`       // as berth run --drain-slots
 	DrainComfyUI string `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
+	// GUI is the engine's web UI as a browser reaches it. With start set, the
+	// gateway's wake page (/gui/<name>) starts the engine on a visit and
+	// follows it there once it answers.
+	GUI string `toml:"gui,omitempty" json:"gui,omitempty" yaml:"gui,omitempty"`
 }
 
 // Types are the engine readers that exist.
@@ -341,6 +346,18 @@ func (c *Config) Validate() error {
 		}
 		if e.Type == "comfyui" && len(e.Serves) > 0 {
 			errs = append(errs, fmt.Errorf("%s: a comfyui engine is reached at the gateway's /prompt, not through serves (ComfyUI is not OpenAI-compatible)", where))
+		}
+		if e.DrainSlots != "" {
+			if u, err := url.Parse(e.DrainSlots); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: drain_slots %q must be the engine's http(s)://host:port", where, e.DrainSlots))
+			}
+		}
+		if e.GUI != "" {
+			if u, err := url.Parse(e.GUI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: gui %q must be an http(s) URL", where, e.GUI))
+			} else if len(e.Start) == 0 {
+				errs = append(errs, fmt.Errorf("%s: gui needs start, the command the wake page starts the engine with", where))
+			}
 		}
 		if e.KeepComfyUI && e.DrainComfyUI == "" {
 			errs = append(errs, fmt.Errorf("%s: keep_comfyui_up needs drain_comfyui, the ComfyUI base URL to unload on drain", where))

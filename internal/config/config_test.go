@@ -289,3 +289,33 @@ func TestPriorityValidated(t *testing.T) {
 		}
 	}
 }
+
+func TestGUIValidated(t *testing.T) {
+	c, err := Load(write(t, `
+[[engine]]
+name  = "comfyui"
+type  = "comfyui"
+url   = "http://127.0.0.1:8188"
+start = ["comfyui"]
+gui   = "https://box.example.ts.net:8188/"
+`))
+	if err != nil {
+		t.Fatalf("valid gui refused: %v", err)
+	}
+	if c.Engine[0].GUI != "https://box.example.ts.net:8188/" {
+		t.Fatalf("gui not loaded: %+v", c.Engine[0])
+	}
+	for _, bad := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"no start", "gui = \"http://127.0.0.1:8188/\"\n", "gui needs start"},
+		{"not a url", "start = [\"c\"]\ngui = \"javascript:alert(1)\"\n", "must be an http(s) URL"},
+	} {
+		_, err := Load(write(t, "[[engine]]\nname = \"c\"\ntype = \"comfyui\"\nurl = \"http://127.0.0.1:8188\"\n"+bad.body))
+		if err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("%s: error lacks %q: %v", bad.name, bad.want, err)
+		}
+	}
+}

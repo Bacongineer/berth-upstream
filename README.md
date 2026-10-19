@@ -420,6 +420,55 @@ needs the key. The gateway listens
 on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
 carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
+#### Open a stopped engine's web UI
+
+A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a
+`gui` URL (where a browser reaches its web UI) next to its `start` command, and run the gateway with
+`--gui-listen 127.0.0.1:9796`:
+
+```toml
+[[engine]]
+name  = "comfyui"
+type  = "comfyui"
+url   = "http://127.0.0.1:8188"
+start = ["comfy", "--workspace", "/path/to/comfy", "launch", "--", "--listen", "127.0.0.1", "--port", "8188"]
+gui   = "https://box.tailnet.ts.net:8188/"
+```
+
+Point the bookmark (or a home-page tile) at `http://127.0.0.1:9796/gui/comfyui` instead:
+
+- **ComfyUI answers:** the browser goes straight to its UI.
+- **ComfyUI is stopped:** the page says so and lists what holds the card (`llama-swap (NInfer-27B)  active`), with a
+  **Start** button. Opening the page takes nothing; only Start asks for the card.
+- **After Start:** the page says what the start waits for, in the broker's terms: "Waiting for strata release:
+  finishing its current request", "Waiting for llama-swap (NInfer-27B) release: freeing its memory", then
+  "loading comfyui". It opens the UI once ComfyUI answers. A failed start shows its reason code and a retry button.
+- `/gui/` lists every engine with a wake page.
+
+A start never runs two engines on the card at once. Berth drains the holder only at its boundary: llama-swap once its
+slots are idle (`drain_post`), ComfyUI once its queue is empty (`drain_comfyui`), and a server with no unload URL
+once its `/slots` show idle (`drain_slots`, below). A pinned holder (a game, a render, `berth hold`) is never stopped;
+the page says so and the start waits until it ends.
+
+The wake page needs no API key: it can only start an engine you gave both `start` and `gui`. It listens on
+loopback, accepts loopback Host names plus the gateway's `--allow-host` names (for `tailscale serve` in
+front), and takes a start only as a POST from its own page, so another site cannot make a visitor's
+browser drain the card.
+
+#### Drain a server at its request boundary
+
+An engine with `/slots` but no unload URL (Strata, a bare llama-server) would otherwise get SIGTERM mid-request when
+another engine asks for the card. `drain_slots` (or `berth run --drain-slots URL`) names its base URL: a drain waits
+until no slot reports `is_processing`, then stops it.
+
+```toml
+[[engine]]
+name        = "strata"
+type        = "llamacpp"
+url         = "http://127.0.0.1:8080"
+drain_slots = "http://127.0.0.1:8080"
+```
+
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
   first-seen time; optional desktop notification and webhook. Report-only by design.

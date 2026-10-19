@@ -35,6 +35,11 @@ type Options struct {
 	Pinned    bool // never drained: an app that must not be stopped (Blender, a capture)
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
+	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
+	// drain, wait until no slot is processing, then stop the engine. For a
+	// server with no unload URL (Strata), so a drain never cuts off the
+	// request it is serving.
+	DrainSlots string
 	// DrainComfyUI is a ComfyUI base URL: on drain, wait until its queue
 	// has nothing running or pending before any stop step, so a job is
 	// never cut off. There is no time limit; a job ends when it ends.
@@ -360,7 +365,11 @@ func comfyVRAM(base string) (free, total uint64, err error) {
 // was running and none that it stopped. An engine that exits meanwhile
 // ends the drain.
 func slotBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
-	base := drainPostBase(o.DrainPost)
+	return slotBoundaryAt(o, drainPostBase(o.DrainPost), done, say)
+}
+
+// slotBoundaryAt is slotBoundary for an engine at base.
+func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(string, ...any)) bool {
 	if base == "" {
 		return true
 	}
@@ -578,6 +587,11 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 			return true
 		case <-time.After(o.Grace):
 			return false
+		}
+	}
+	if o.DrainSlots != "" && o.DrainPost == "" {
+		if !slotBoundaryAt(o, drainPostBase(o.DrainSlots), done, say) {
+			return
 		}
 	}
 	if o.DrainPost != "" {

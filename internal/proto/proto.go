@@ -267,6 +267,7 @@ type History struct {
 type Lease struct {
 	ID        string  `json:"id"`
 	Engine    string  `json:"engine"`
+	Group     string  `json:"group,omitempty"` // the engine family it counts for (llama-swap's models); "" = Engine
 	Priority  string  `json:"priority"`
 	State     string  `json:"state"`
 	Needs     uint64  `json:"needs"`

@@ -55,7 +55,7 @@ func (v pullView) Human(c *Context, ok bool) error {
 	for _, f := range v.doc.Files {
 		total += f.Size
 	}
-	c.Printf("%s %s %s @ %.12s (%s) into %s\n", c.Style.OK(markOK), verb, v.doc.Repo, v.doc.Commit, gib(total), v.doc.Dir)
+	c.Printf("%s %s %s @ %.12s (%s) into %s\n", c.Style.OK(markOK), verb, v.doc.Repo, v.doc.Commit, fileSize(total), v.doc.Dir)
 	for _, f := range v.doc.Files {
 		state := "sha256 verified"
 		switch {
@@ -66,12 +66,12 @@ func (v pullView) Human(c *Context, ok bool) error {
 		case f.SHA256 == "":
 			state = "size verified (no sha256 published)"
 		}
-		c.Bullet("%s  %s  %s", f.Path, gib(f.Size), state)
+		c.Bullet("%s  %s  %s", f.Path, fileSize(f.Size), state)
 	}
 	return nil
 }
 
-func gib(n int64) string {
+func fileSize(n int64) string {
 	if n >= 1<<30 {
 		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
 	}
@@ -147,12 +147,12 @@ func runPull(c *Context) int {
 				return
 			}
 			rate := float64(done) / time.Since(t0).Seconds() / (1 << 20)
-			fmt.Fprintf(c.Err, "\rberth: %s  %5.1f%%  %s of %s  %.0f MiB/s   ", name, 100*float64(done)/float64(max(total, 1)), gib(done), gib(total), rate)
+			fmt.Fprintf(c.Err, "\rberth: %s  %5.1f%%  %s of %s  %.0f MiB/s   ", name, 100*float64(done)/float64(max(total, 1)), fileSize(done), fileSize(total), rate)
 		})
 		if live {
 			fmt.Fprintln(c.Err)
 		} else if !c.Machine() && err == nil {
-			fmt.Fprintf(c.Err, "berth: %s %s (%s)\n", f.Path, map[bool]string{true: "already here", false: "downloaded and verified"}[skipped], gib(f.Size))
+			fmt.Fprintf(c.Err, "berth: %s %s (%s)\n", f.Path, map[bool]string{true: "already here", false: "downloaded and verified"}[skipped], fileSize(f.Size))
 		}
 		if err != nil {
 			if ctx.Err() != nil {

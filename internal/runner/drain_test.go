@@ -351,6 +351,43 @@ func TestDrainSlotBoundaryWaits(t *testing.T) {
 	}
 }
 
+// --drain-slots, for an engine with no unload URL (Strata): the engine keeps
+// running while a slot is processing, is stopped once the slots idle, and
+// nothing is posted to it.
+func TestDrainSlotsWaitsThenStops(t *testing.T) {
+	stub := &slotStub{}
+	stub.busy.Store(true)
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+
+	cmd, waited := startSleep(t)
+	done := make(chan struct{})
+	released := make(chan struct{})
+	var logs strings.Builder
+	go drain(Options{Engine: "strata", DrainSlots: srv.URL,
+		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-waited:
+		t.Fatal("engine stopped while a slot was processing")
+	default:
+	}
+	if _, seen := stub.counts(); seen == 0 {
+		t.Fatal("drain never read the busy boundary")
+	}
+
+	stub.busy.Store(false)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("engine still alive after its slots idled")
+	}
+	if unloads, _ := stub.counts(); unloads != 0 {
+		t.Fatalf("drain-slots posted %d unloads, want none", unloads)
+	}
+}
+
 // A drain-post host with no /slots unloads at once instead of hanging.
 func TestDrainNoSlotsProceeds(t *testing.T) {
 	var mu sync.Mutex

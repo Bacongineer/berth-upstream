@@ -58,6 +58,7 @@ type Gateway struct {
 	mu      sync.Mutex
 	running map[string]*started // engines this gateway started, by name
 	lists   map[string]cached   // engine URL -> its /v1/models, briefly cached
+	wakes   map[string]*wake    // the wake page's last start, by engine name
 }
 
 type started struct {
@@ -194,6 +195,14 @@ type target struct {
 
 // live is every engine the node reads that is up, configured or discovered.
 func (g *Gateway) live() []proto.Engine {
+	if st := g.nodeStatus(); st != nil {
+		return st.Engines
+	}
+	return nil
+}
+
+// nodeStatus is berthd's whole view, or nil when it does not answer.
+func (g *Gateway) nodeStatus() *proto.Status {
 	conn, raw, err := server.Dial(g.Socket)
 	if err != nil {
 		return nil
@@ -203,10 +212,10 @@ func (g *Gateway) live() []proto.Engine {
 		return nil
 	}
 	m, err := conn.Recv()
-	if err != nil || m.Status == nil {
+	if err != nil {
 		return nil
 	}
-	return m.Status.Engines
+	return m.Status
 }
 
 // listed is what an engine's own /v1/models says it can serve. llama-swap and
@@ -585,7 +594,7 @@ func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration) {
 	g.log().Info("gateway starting engine", "engine", e.Name, "priority", prio)
 	s.code = runner.Run(runner.Options{
 		Socket: g.Socket, Engine: e.Name, Priority: prio, Needs: e.NeedsMiB << 20,
-		Wait: wait, DrainPost: e.DrainPost, DrainComfyUI: e.DrainComfyUI,
+		Wait: wait, DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
 		KeepComfyUI: e.KeepComfyUI,
 		Grace:       30 * time.Second, Argv: e.Start, Stderr: s.stderr,
 	})
