@@ -1,20 +1,43 @@
-// The wake page: ask the gateway to start the engine, poll its state, and
-// go to the engine's web UI once it answers.
+// The wake page: show who holds the card, start the engine only when asked,
+// say what the start waits for, and open the engine's web UI once it answers.
 (() => {
   const name = document.body.dataset.engine;
   if (!name) return;
   const base = "/gui/" + encodeURIComponent(name);
-  const status = document.getElementById("status");
-  const detail = document.getElementById("detail");
-  const elapsed = document.getElementById("elapsed");
-  const retry = document.getElementById("retry");
-  let started = Date.now();
-  let timer = null;
+  const $ = (id) => document.getElementById(id);
+  const status = $("status"), detail = $("detail"), card = $("card");
+  const start = $("start"), meta = $("meta"), elapsed = $("elapsed");
+  let since = 0;
 
-  const tick = () => { elapsed.textContent = Math.round((Date.now() - started) / 1000) + " s"; };
-  setInterval(tick, 1000);
+  setInterval(() => {
+    if (since) elapsed.textContent = Math.round((Date.now() - since) / 1000) + " s";
+  }, 1000);
 
-  const wake = () => fetch(base + "/wake", { method: "POST" }).catch(() => {});
+  function showCard(holds) {
+    card.replaceChildren(...(holds || []).map((h) => {
+      const li = document.createElement("li");
+      const who = document.createElement("strong");
+      who.textContent = h.name;
+      const what = document.createElement("span");
+      what.textContent = h.pinned ? "held, never stopped" : h.state;
+      what.className = "chip " + (h.pinned ? "pinned" : h.state);
+      li.append(who, what);
+      return li;
+    }));
+  }
+
+  function render(s) {
+    document.body.className = s.state;
+    status.textContent = s.message || s.state;
+    detail.textContent = s.detail || "";
+    showCard(s.card);
+    const idle = s.state === "offline" || s.state === "failed";
+    start.hidden = !idle;
+    start.textContent = s.state === "failed" ? "Try again" : "Start " + name;
+    meta.hidden = idle;
+    if (!idle && !since) since = Date.now();
+    if (idle) since = 0;
+  }
 
   async function poll() {
     let s;
@@ -23,41 +46,30 @@
       s = await r.json();
     } catch {
       status.textContent = "The gateway is not answering; retrying ...";
-      timer = setTimeout(poll, 2000);
+      setTimeout(poll, 2000);
       return;
     }
-    switch (s.state) {
-      case "up":
-        status.textContent = "Ready. Opening " + name + " ...";
-        document.body.classList.add("ready");
-        location.replace(s.url);
-        return;
-      case "failed":
-        status.textContent = name + " did not start" + (s.code ? " (" + s.code + ")" : "");
-        detail.textContent = s.detail || "";
-        document.body.classList.add("failed");
-        retry.hidden = false;
-        return;
-      case "down":
-        await wake();
-        break;
-      default:
-        status.textContent = "Starting " + name + " ...";
+    render(s);
+    if (s.state === "up") {
+      location.replace(s.url);
+      return;
     }
-    detail.textContent = s.detail || "";
-    timer = setTimeout(poll, 1000);
+    // Offline is polled slowly so the card stays current; a start fast.
+    setTimeout(poll, s.state === "offline" || s.state === "failed" ? 3000 : 1000);
   }
 
-  retry.addEventListener("click", async () => {
-    retry.hidden = true;
-    document.body.classList.remove("failed");
-    started = Date.now();
+  start.addEventListener("click", async () => {
+    start.hidden = true;
+    since = Date.now();
+    meta.hidden = false;
     status.textContent = "Asking berth for the card ...";
-    detail.textContent = "";
-    clearTimeout(timer);
-    await wake();
-    poll();
+    try {
+      const r = await fetch(base + "/wake", { method: "POST" });
+      render(await r.json());
+    } catch {
+      status.textContent = "The gateway is not answering";
+    }
   });
 
-  wake().then(poll);
+  poll();
 })();

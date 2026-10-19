@@ -11,10 +11,11 @@
 {{- if .Engine}}
   <div class="tide" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
   <h1>{{.Engine}}</h1>
-  <p id="status" class="status" role="status" aria-live="polite">Asking berth for the card ...</p>
+  <p id="status" class="status" role="status" aria-live="polite">Checking the card ...</p>
+  <ul id="card" class="card-list" aria-label="On the card"></ul>
   <p id="detail" class="detail"></p>
-  <p class="meta"><span id="elapsed">0 s</span> · the page opens {{.Engine}} once it answers</p>
-  <button id="retry" type="button" hidden>Try again</button>
+  <button id="start" type="button" hidden>Start {{.Engine}}</button>
+  <p id="meta" class="meta" hidden><span id="elapsed">0 s</span> · the page opens {{.Engine}} once it answers</p>
   <script src="/_wake/wake.js"></script>
 {{- else}}
   <h1>berth</h1>

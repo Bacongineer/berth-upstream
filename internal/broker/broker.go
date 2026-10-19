@@ -1254,7 +1254,7 @@ func (b *Broker) Status() proto.Status {
 		}
 		sort.Ints(pids)
 		return proto.Lease{
-			ID: l.id, Engine: l.engine, Priority: l.prio.String(), State: l.state.String(),
+			ID: l.id, Engine: l.engine, Group: l.group, Priority: l.prio.String(), State: l.state.String(),
 			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart, GPUPIDs: pids, Used: l.used(),
 			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}

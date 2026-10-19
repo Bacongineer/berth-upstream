@@ -19,6 +19,7 @@ func runRun(c *Context) int {
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
 	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default")
 	drainPost := fs.String("drain-post", "", "URL to POST when asked to drain, before signalling (e.g. llama-swap's unload)")
+	drainSlots := fs.String("drain-slots", "", "engine base URL whose /slots must show idle before a drain stops it (an engine with no unload URL, e.g. Strata)")
 	drainComfy := fs.String("drain-comfyui", "", "ComfyUI base URL: on drain, wait until its queue is empty before stopping it (never cuts a job off)")
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
@@ -40,7 +41,7 @@ func runRun(c *Context) int {
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.Options{
 		Socket: *sock, Engine: *engine, Group: *group, Priority: *prio, Needs: *needs * gpu.MiB, Wait: *wait, Pinned: *pinned,
-		DrainPost: *drainPost, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, Grace: *grace,
+		DrainPost: *drainPost, DrainSlots: *drainSlots, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err,
 	})
 }

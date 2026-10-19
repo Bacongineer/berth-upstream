@@ -11,14 +11,15 @@ import (
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // The wake page. A browser cannot use the gateway API (it needs the key and
 // refuses any Origin), so a second loopback listener serves one page per
 // engine with a gui URL in berth.toml: GET /gui/<name> sends the browser to
-// the engine's web UI when it answers, or shows a page that asks for a start
-// (under a lease, like any gateway start) and follows the engine there once
-// it does. A bookmark or a home-page tile can point here instead of at an
+// the engine's web UI when it answers, or shows a page that names who holds
+// the card and offers a Start button: a start runs under a lease, like any
+// gateway start, and the page follows the engine there once it answers. A bookmark or a home-page tile can point here instead of at an
 // engine that may be stopped.
 //
 // It holds no key: it can only start an engine that has a start command and
@@ -123,7 +124,7 @@ func (g *Gateway) guiIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 // guiShow sends the browser on when the engine answers; otherwise it shows
-// the page, whose script asks for the start.
+// the page, which says who holds the card and offers a start.
 func (g *Gateway) guiShow(w http.ResponseWriter, r *http.Request) {
 	e, ok := g.guiEngine(r.PathValue("name"))
 	if !ok {
@@ -136,14 +137,25 @@ func (g *Gateway) guiShow(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = guiPage.Execute(w, guiView{Title: e.Name + " - starting", Engine: e.Name})
+	_ = guiPage.Execute(w, guiView{Title: e.Name + " - offline", Engine: e.Name})
 }
 
 type guiStatus struct {
-	State  string `json:"state"` // up, starting, down or failed
-	Detail string `json:"detail,omitempty"`
-	Code   string `json:"code,omitempty"` // a start's reason code when it failed
-	URL    string `json:"url,omitempty"`  // where the browser goes once up
+	// State is up, offline (no start asked), waiting (a start waits for the
+	// card), starting (the card is ours, the engine is loading) or failed.
+	State   string    `json:"state"`
+	Message string    `json:"message,omitempty"` // one line for people
+	Detail  string    `json:"detail,omitempty"`  // the start's last log line, or its error
+	Code    string    `json:"code,omitempty"`    // a failed start's reason code
+	URL     string    `json:"url,omitempty"`     // where the browser goes once up
+	Card    []guiHold `json:"card,omitempty"`    // who holds the card besides this engine
+}
+
+// guiHold is one lease on the card, as the page names it.
+type guiHold struct {
+	Name   string `json:"name"`
+	State  string `json:"state"` // active, draining, releasing, stuck
+	Pinned bool   `json:"pinned,omitempty"`
 }
 
 func (g *Gateway) guiState(w http.ResponseWriter, r *http.Request) {
@@ -152,25 +164,20 @@ func (g *Gateway) guiState(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusNotFound, "no engine of that name has a gui and a start command in berth.toml")
 		return
 	}
-	st := guiStatus{State: "down"}
+	var st guiStatus
 	if g.probe(r.Context(), e) {
-		st = guiStatus{State: "up", URL: e.GUI}
+		st = guiStatus{State: "up", URL: e.GUI, Message: e.Name + " is ready"}
 	} else {
 		g.mu.Lock()
 		wk := g.wakes[e.Name]
+		var last string
 		if s, ok := g.running[e.Name]; ok {
-			st.Detail = lastLine(s.stderr.String())
+			last = lastLine(s.stderr.String())
 		}
 		g.mu.Unlock()
-		switch {
-		case wk != nil && wk.starting:
-			st.State = "starting"
-		case wk != nil && wk.err != nil:
-			st.State = "failed"
-			st.Detail = wk.err.Error()
-			if se, ok := wk.err.(*startError); ok {
-				st.Code = se.code
-			}
+		st = cardView(e.Name, g.nodeStatus(), wk)
+		if st.State != "failed" {
+			st.Detail = last
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -178,8 +185,90 @@ func (g *Gateway) guiState(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(st)
 }
 
+// cardView is the page's state for a stopped engine: whether a start is under
+// way, who holds the card, and what the start waits for. Berth never runs two
+// engines on the card at once, and a drain waits for the holder's request (or
+// ComfyUI job) to finish, so the page names that wait instead of hiding it.
+func cardView(engine string, node *proto.Status, wk *wake) guiStatus {
+	st := guiStatus{State: "offline"}
+	ours := false
+	if node != nil {
+		for _, l := range node.Leases {
+			if l.Engine == engine {
+				ours = true
+				continue
+			}
+			st.Card = append(st.Card, guiHold{Name: holderName(l), State: l.State, Pinned: l.Pinned})
+		}
+	}
+	switch {
+	case wk != nil && wk.starting && ours:
+		st.State = "starting"
+		st.Message = "The card is " + engine + "'s; loading " + engine
+	case wk != nil && wk.starting:
+		st.State = "waiting"
+		st.Message = waitLine(st.Card)
+	case wk != nil && wk.err != nil:
+		st.State = "failed"
+		st.Message = engine + " did not start"
+		st.Detail = wk.err.Error()
+		if se, ok := wk.err.(*startError); ok {
+			st.Code = se.code
+		}
+	case node == nil:
+		st.Message = engine + " is offline; berthd is not answering, so a start would fail"
+	case len(st.Card) == 0:
+		st.Message = engine + " is offline and the card is free"
+	default:
+		st.Message = engine + " is offline; the card is in use by " + names(st.Card) +
+			". Start asks it to release the card once its current request finishes"
+		for _, h := range st.Card {
+			if h.Pinned {
+				st.Message = engine + " is offline; " + h.Name + " holds the card and Berth never stops it. Start waits until it ends"
+			}
+		}
+	}
+	return st
+}
+
+// waitLine says what a start is waiting on.
+func waitLine(card []guiHold) string {
+	if len(card) == 0 {
+		return "Waiting for the card"
+	}
+	h := card[0]
+	switch {
+	case h.Pinned:
+		return "Waiting for " + h.Name + " to end (Berth never stops it)"
+	case h.State == "draining":
+		return "Waiting for " + h.Name + " release: finishing its current request"
+	case h.State == "releasing":
+		return "Waiting for " + h.Name + " release: freeing its memory"
+	case h.State == "stuck":
+		return "Waiting for " + h.Name + " release: it exited but its memory is still held"
+	}
+	return "Waiting for " + h.Name + " release"
+}
+
+// holderName names a lease for people: llama-swap's models by their family.
+func holderName(l proto.Lease) string {
+	if l.Group != "" && l.Group != l.Engine {
+		return l.Group + " (" + l.Engine + ")"
+	}
+	return l.Engine
+}
+
+func names(card []guiHold) string {
+	out := make([]string, len(card))
+	for i, h := range card {
+		out[i] = h.Name
+	}
+	return strings.Join(out, " and ")
+}
+
 // guiWake starts the engine in the background and answers at once; the page
-// polls /state. A second ask while a start is under way joins it.
+// polls /state. A second ask while a start is under way joins it. Only the
+// Start button asks: opening the page never takes the card.
 func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
 	e, ok := g.guiEngine(r.PathValue("name"))
 	if !ok {
@@ -213,5 +302,5 @@ func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(guiStatus{State: "starting"})
+	_ = json.NewEncoder(w).Encode(guiStatus{State: "waiting", Message: "Asking berth for the card"})
 }

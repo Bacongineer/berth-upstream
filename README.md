@@ -435,15 +435,39 @@ start = ["comfy", "--workspace", "/path/to/comfy", "launch", "--", "--listen", "
 gui   = "https://box.tailnet.ts.net:8188/"
 ```
 
-Point the bookmark at `http://127.0.0.1:9796/gui/comfyui` instead. If ComfyUI answers, the browser goes
-straight to its UI. If it is stopped, a loading page starts it the same way the gateway API does (a lease,
-the holder drained at its next request or job boundary) and shows the broker's progress. It opens the UI
-once the engine answers, or shows the reason code if the start fails. `/gui/` lists every engine with a wake page.
+Point the bookmark (or a home-page tile) at `http://127.0.0.1:9796/gui/comfyui` instead:
+
+- **ComfyUI answers:** the browser goes straight to its UI.
+- **ComfyUI is stopped:** the page says so and lists what holds the card (`llama-swap (NInfer-27B)  active`), with a
+  **Start** button. Opening the page takes nothing; only Start asks for the card.
+- **After Start:** the page says what the start waits for, in the broker's terms: "Waiting for strata release:
+  finishing its current request", "Waiting for llama-swap (NInfer-27B) release: freeing its memory", then
+  "loading comfyui". It opens the UI once ComfyUI answers. A failed start shows its reason code and a retry button.
+- `/gui/` lists every engine with a wake page.
+
+A start never runs two engines on the card at once. Berth drains the holder only at its boundary: llama-swap once its
+slots are idle (`drain_post`), ComfyUI once its queue is empty (`drain_comfyui`), and a server with no unload URL
+once its `/slots` show idle (`drain_slots`, below). A pinned holder (a game, a render, `berth hold`) is never stopped;
+the page says so and the start waits until it ends.
 
 The wake page needs no API key: it can only start an engine you gave both `start` and `gui`. It listens on
 loopback, accepts loopback Host names plus the gateway's `--allow-host` names (for `tailscale serve` in
 front), and takes a start only as a POST from its own page, so another site cannot make a visitor's
 browser drain the card.
+
+#### Drain a server at its request boundary
+
+An engine with `/slots` but no unload URL (Strata, a bare llama-server) would otherwise get SIGTERM mid-request when
+another engine asks for the card. `drain_slots` (or `berth run --drain-slots URL`) names its base URL: a drain waits
+until no slot reports `is_processing`, then stops it.
+
+```toml
+[[engine]]
+name        = "strata"
+type        = "llamacpp"
+url         = "http://127.0.0.1:8080"
+drain_slots = "http://127.0.0.1:8080"
+```
 
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and

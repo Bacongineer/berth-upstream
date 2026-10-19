@@ -45,9 +45,22 @@ h1 { margin: .75rem 0 .25rem; color: var(--ink-strong); font-size: 1.4rem; font-
 .tide span:nth-child(4) { animation-delay: .36s; }
 .tide span:nth-child(5) { animation-delay: .48s; }
 @keyframes swell { 0%, 100% { height: 12px; opacity: .55; } 50% { height: 44px; opacity: 1; } }
-.ready .tide span { background: var(--green); animation: none; height: 44px; }
+.tide span { animation-play-state: paused; opacity: .4; }
+.waiting .tide span, .starting .tide span { animation-play-state: running; }
+.up .tide span { background: var(--green); animation: none; height: 44px; opacity: 1; }
 .failed .tide span { background: var(--magenta); animation: none; height: 12px; }
-@media (prefers-reduced-motion: reduce) { .tide span { animation: none; height: 28px; } }
+.card-list { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .35rem; }
+.card-list:empty { display: none; }
+.card-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+  padding: .45rem .7rem; border: 1px solid var(--hair); border-radius: 8px; font-size: 13px;
+}
+.card-list strong { color: var(--ink-strong); font-weight: 500; overflow-wrap: anywhere; text-align: left; }
+.chip { flex: none; padding: .1rem .5rem; border-radius: 999px; font: 11px/1.6 ui-monospace, monospace; color: var(--bg); background: var(--dim); }
+.chip.active { background: var(--cyan); }
+.chip.draining, .chip.releasing { background: #e8b56f; }
+.chip.stuck, .chip.pinned { background: var(--magenta); }
+@media (prefers-reduced-motion: reduce) { .tide span { animation: none !important; height: 28px; } }
 button {
   margin-top: 1rem; padding: .45rem 1.1rem;
   color: var(--ink-strong); background: var(--cyan-deep);

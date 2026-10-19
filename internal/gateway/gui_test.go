@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // noFollow is a client that shows a redirect instead of following it.
@@ -44,8 +45,8 @@ func guiState(t *testing.T, base, name string) guiStatus {
 	return s
 }
 
-// A visit to a stopped engine's wake page shows the page; the page's start
-// takes a lease, the state turns up, and the next visit goes straight to the
+// A visit to a stopped engine's wake page shows the page and takes nothing;
+// the page's Start takes a lease, the state turns up, and the next visit goes straight to the
 // engine's web UI. No API key is involved.
 func TestWakePageStartsAndRedirects(t *testing.T) {
 	sock, b := daemon(t)
@@ -64,8 +65,11 @@ func TestWakePageStartsAndRedirects(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(page), `data-engine="comfyui"`) {
 		t.Fatalf("wake page %d: %s", resp.StatusCode, page)
 	}
-	if s := guiState(t, srv.URL, "comfyui"); s.State != "down" {
+	if s := guiState(t, srv.URL, "comfyui"); s.State != "offline" || !strings.Contains(s.Message, "the card is free") {
 		t.Fatalf("state before a start = %+v", s)
+	}
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("opening the page took a lease: %+v", st.Leases)
 	}
 
 	resp = guiReq(t, "POST", srv.URL+"/gui/comfyui/wake", map[string]string{"Sec-Fetch-Site": "same-origin"})
@@ -161,5 +165,33 @@ func TestWakePageGuard(t *testing.T) {
 			t.Fatalf("failed start never reported: %+v", s)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// The page names who holds the card and what a start waits for, with
+// llama-swap's models under their family.
+func TestCardView(t *testing.T) {
+	ninfer := proto.Lease{Engine: "NInfer-27B", Group: "llama-swap", State: "active"}
+	starting := &wake{starting: true}
+	for _, c := range []struct {
+		name  string
+		node  *proto.Status
+		wk    *wake
+		state string
+		want  string
+	}{
+		{"free", &proto.Status{}, nil, "offline", "the card is free"},
+		{"in use", &proto.Status{Leases: []proto.Lease{ninfer}}, nil, "offline", "in use by llama-swap (NInfer-27B). Start asks it to release"},
+		{"pinned", &proto.Status{Leases: []proto.Lease{{Engine: "blender", State: "active", Pinned: true}}}, nil, "offline", "Berth never stops it"},
+		{"no berthd", nil, nil, "offline", "berthd is not answering"},
+		{"draining", &proto.Status{Leases: []proto.Lease{{Engine: "strata", State: "draining"}}}, starting, "waiting", "Waiting for strata release: finishing its current request"},
+		{"releasing", &proto.Status{Leases: []proto.Lease{{Engine: "NInfer-27B", Group: "llama-swap", State: "releasing"}}}, starting, "waiting", "Waiting for llama-swap (NInfer-27B) release: freeing its memory"},
+		{"granted", &proto.Status{Leases: []proto.Lease{{Engine: "comfyui", State: "active"}}}, starting, "starting", "loading comfyui"},
+		{"failed", &proto.Status{}, &wake{err: &startError{"no_berth", "comfyui got no berth"}}, "failed", "did not start"},
+	} {
+		got := cardView("comfyui", c.node, c.wk)
+		if got.State != c.state || !strings.Contains(got.Message, c.want) {
+			t.Errorf("%s: %s %q, want %s containing %q", c.name, got.State, got.Message, c.state, c.want)
+		}
 	}
 }
