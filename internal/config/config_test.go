@@ -319,3 +319,57 @@ gui   = "https://box.example.ts.net:8188/"
 		}
 	}
 }
+
+func TestLibraryValidated(t *testing.T) {
+	c, err := Load(write(t, `
+[library]
+free_floor = 0.25
+[[library.root]]
+path   = "/mnt/windows/ComfyUI/models"
+shelf  = "image"
+shared = "windows"
+[[library.root]]
+path = "/data/models"
+`))
+	if err != nil {
+		t.Fatalf("valid library section rejected: %v", err)
+	}
+	if c.LibraryFloor() != 0.25 {
+		t.Errorf("floor = %g, want the configured 0.25", c.LibraryFloor())
+	}
+	if len(c.Library.Root) != 2 || c.Library.Root[0].Shelf != "image" || c.Library.Root[0].Shared != "windows" {
+		t.Errorf("roots = %+v", c.Library.Root)
+	}
+	_, err = Load(write(t, "[library]\nfree_floor = 1.5\n"))
+	if err == nil || !strings.Contains(err.Error(), "free_floor") {
+		t.Errorf("floor over 1: %v", err)
+	}
+	_, err = Load(write(t, "[library]\nfree_floor = -0.1\n"))
+	if err == nil || !strings.Contains(err.Error(), "free_floor") {
+		t.Errorf("negative floor: %v", err)
+	}
+	_, err = Load(write(t, "[[library.root]]\npath = \"/a\"\nshelf = \"video\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "shelf") {
+		t.Errorf("bad shelf: %v", err)
+	}
+	_, err = Load(write(t, "[[library.root]]\n[[library.root]]\npath = \"/a\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "path") {
+		t.Errorf("missing path: %v", err)
+	}
+	_, err = Load(write(t, "[[library.root]]\npath = \"/a\"\n[[library.root]]\npath = \"/a\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Errorf("duplicate path: %v", err)
+	}
+}
+
+func TestLibraryFloorDefaults(t *testing.T) {
+	var c Config
+	if c.LibraryFloor() != DefaultFreeFloor {
+		t.Errorf("empty config floor = %g, want the default %g", c.LibraryFloor(), DefaultFreeFloor)
+	}
+	off := 0.0
+	c.Library.FreeFloor = &off
+	if c.LibraryFloor() != 0 {
+		t.Errorf("explicit 0 = %g, want the guard off", c.LibraryFloor())
+	}
+}
