@@ -2,6 +2,6 @@ bin/
 # Local design notes, kept out of the repo.
 /docs
 
-# [ome]: local hydrated state is never committed
-.ome/events/
-.ome/log/
+
+# agent briefs and plans: machine-specific, never part of the repo
+.router/

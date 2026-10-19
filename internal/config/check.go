@@ -106,6 +106,12 @@ func warnings(c *Config) []Warning {
 				Message: "a handoff stops ComfyUI immediately; drain_comfyui waits for the job boundary"})
 		}
 	}
+	for i, d := range c.Models.Dirs {
+		if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+			out = append(out, Warning{Key: fmt.Sprintf("models.dirs[%d]", i),
+				Message: fmt.Sprintf("%s is not a directory: berth models will find nothing there", d)})
+		}
+	}
 	return out
 }
 

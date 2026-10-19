@@ -88,6 +88,7 @@ type Config struct {
 	Priority PriorityConfig `toml:"priority,omitempty" json:"priority" yaml:"priority"`
 	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
 	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
+	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
 }
 
 // ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope
@@ -140,6 +141,14 @@ func (c *Config) ClaimRules() ([]claims.Rule, error) {
 		}
 	}
 	return out, nil
+}
+
+// ModelsConfig is where the model library is: the extra directories
+// `berth models` scans when the command line names none. The tools' own
+// directories (the Hugging Face cache, LM Studio, Ollama's store, ~/models) are
+// scanned anyway, so this is only for a library kept somewhere else.
+type ModelsConfig struct {
+	Dirs []string `toml:"dirs,omitempty" json:"dirs,omitempty" yaml:"dirs,omitempty"`
 }
 
 // PriorityConfig decides juggles: two engines at the same priority asking for
