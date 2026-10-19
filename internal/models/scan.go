@@ -45,6 +45,7 @@ type Model struct {
 	Bytes      uint64    `json:"bytes" yaml:"bytes"`
 	Format     string    `json:"format" yaml:"format"`                 // gguf | safetensors | ollama
 	Source     string    `json:"source" yaml:"source"`                 // dir | hf-cache | lmstudio | ollama
+	Shelf      Shelf     `json:"shelf,omitempty" yaml:"shelf,omitempty"` // chat | image | audio; empty = undetermined
 	Role       string    `json:"role,omitempty" yaml:"role,omitempty"` // model | mmproj | draft | embedding
 	Arch       string    `json:"arch,omitempty" yaml:"arch,omitempty"` // model_type for safetensors
 	Quant      string    `json:"quant,omitempty" yaml:"quant,omitempty"`
@@ -131,6 +132,9 @@ func Scan(dirs []string) []Model {
 	var out []Model
 	for _, r := range roots {
 		out = append(out, scanRoot(r)...)
+	}
+	for i := range out {
+		out[i].Shelf = ShelfOf(&out[i])
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
