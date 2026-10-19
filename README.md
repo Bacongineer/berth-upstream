@@ -420,6 +420,31 @@ needs the key. The gateway listens
 on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
 carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
+#### Open a stopped engine's web UI
+
+A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a
+`gui` URL (where a browser reaches its web UI) next to its `start` command, and run the gateway with
+`--gui-listen 127.0.0.1:9796`:
+
+```toml
+[[engine]]
+name  = "comfyui"
+type  = "comfyui"
+url   = "http://127.0.0.1:8188"
+start = ["comfy", "--workspace", "/path/to/comfy", "launch", "--", "--listen", "127.0.0.1", "--port", "8188"]
+gui   = "https://box.tailnet.ts.net:8188/"
+```
+
+Point the bookmark at `http://127.0.0.1:9796/gui/comfyui` instead. If ComfyUI answers, the browser goes
+straight to its UI. If it is stopped, a loading page starts it the same way the gateway API does (a lease,
+the holder drained at its next request or job boundary) and shows the broker's progress. It opens the UI
+once the engine answers, or shows the reason code if the start fails. `/gui/` lists every engine with a wake page.
+
+The wake page needs no API key: it can only start an engine you gave both `start` and `gui`. It listens on
+loopback, accepts loopback Host names plus the gateway's `--allow-host` names (for `tailscale serve` in
+front), and takes a start only as a POST from its own page, so another site cannot make a visitor's
+browser drain the card.
+
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
   first-seen time; optional desktop notification and webhook. Report-only by design.

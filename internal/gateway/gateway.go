@@ -58,6 +58,7 @@ type Gateway struct {
 	mu      sync.Mutex
 	running map[string]*started // engines this gateway started, by name
 	lists   map[string]cached   // engine URL -> its /v1/models, briefly cached
+	wakes   map[string]*wake    // the wake page's last start, by engine name
 }
 
 type started struct {
