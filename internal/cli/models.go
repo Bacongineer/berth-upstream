@@ -20,14 +20,16 @@ import (
 // with their vision projectors and drafts counted in +COMP - unless --all asked
 // for every file. Bytes and Files are always the whole library.
 type modelsDoc struct {
-	Status     string   `json:"status" yaml:"status"` // ok | failed
-	Roots      []string `json:"roots" yaml:"roots"`
-	Count      int      `json:"count" yaml:"count"` // rows of Models
-	Bytes      uint64   `json:"bytes" yaml:"bytes"` // every file in every root
-	Files      int      `json:"files" yaml:"files"`
-	Companions int      `json:"companions" yaml:"companions"` // mmproj/draft files, not rows unless --all
-	Duplicates int      `json:"duplicates" yaml:"duplicates"` // models likely the same file twice
-	All        bool     `json:"all,omitempty" yaml:"all,omitempty"`
+	Status     string                 `json:"status" yaml:"status"` // ok | failed
+	Roots      []string               `json:"roots" yaml:"roots"`
+	Count      int                    `json:"count" yaml:"count"` // rows of Models
+	Bytes      uint64                 `json:"bytes" yaml:"bytes"` // every file in every root
+	Files      int                    `json:"files" yaml:"files"`
+	Companions int                    `json:"companions" yaml:"companions"` // mmproj/draft files, not rows unless --all
+	Duplicates int                    `json:"duplicates" yaml:"duplicates"` // models likely the same file twice
+	All        bool                   `json:"all,omitempty" yaml:"all,omitempty"`
+	Shelf      string                 `json:"shelf,omitempty" yaml:"shelf,omitempty"` // the --shelf filter, when set
+	Shelves    map[string]*shelfUsage `json:"shelves,omitempty" yaml:"shelves,omitempty"`
 
 	// Usage is the window --usage asked about; empty when the column is the
 	// only reason the harbor log was read.
@@ -64,7 +66,11 @@ func (v modelsListView) Data() any { return v.doc }
 func (v modelsListView) Human(c *Context, ok bool) error {
 	d := v.doc
 	if len(d.Models) == 0 {
-		c.Printf("%s No models found\n", c.Style.OK(markOK))
+		what := "No models found"
+		if d.Shelf != "" {
+			what = fmt.Sprintf("No models on the %s shelf", d.Shelf)
+		}
+		c.Printf("%s %s\n", c.Style.OK(markOK), what)
 		for _, r := range d.Roots {
 			c.Bullet("Nothing under %s", r)
 		}
@@ -83,7 +89,7 @@ func (v modelsListView) Human(c *Context, ok bool) error {
 	}
 	c.Printf("%s %d %s%s\n", c.Style.OK(markOK), d.Count, what, since)
 
-	head := []string{"MODEL", "QUANT", "SIZE", "PARAMS", "CTX", "ARCH", "+COMP", "USED"}
+	head := []string{"MODEL", "SHELF", "QUANT", "SIZE", "PARAMS", "CTX", "ARCH", "+COMP", "USED"}
 	rows := make([][]string, 0, len(d.Models))
 	for _, m := range d.Models {
 		rows = append(rows, modelRow(m, d.Since != ""))
@@ -101,6 +107,23 @@ func (v modelsListView) Human(c *Context, ok bool) error {
 	pad := strings.Repeat(" ", len(markOK)+1)
 	c.Printf("\n%stotal %s, %d file%s in %d root%s\n",
 		pad, gib(d.Bytes), d.Files, plural(d.Files), len(d.Roots), plural(len(d.Roots)))
+	if len(d.Shelves) > 0 {
+		order := make([]string, 0, len(d.Shelves))
+		for s := range d.Shelves {
+			order = append(order, s)
+		}
+		sort.Strings(order)
+		line := "by shelf:"
+		for _, s := range order {
+			u := d.Shelves[s]
+			label := s
+			if label == "" {
+				label = "unshelved"
+			}
+			line += fmt.Sprintf(" %s %s in %d model%s", label, gib(u.Bytes), u.Models, plural(u.Models))
+		}
+		c.Printf("%s%s\n", pad, line)
+	}
 	if d.Companions > 0 && !d.All {
 		c.Printf("%s%d companion file%s (vision projector, draft) - %s lists all %d\n", pad,
 			d.Companions, plural(d.Companions), c.Style.Dim("berth models --all"), d.Count+d.Companions)
@@ -124,6 +147,7 @@ func modelRow(m models.Model, usage bool) []string {
 	}
 	row := []string{
 		truncate(m.Name, nameCol),
+		dashShelf(m.Shelf),
 		quant,
 		size(m.Bytes),
 		params(m.Params),
@@ -246,6 +270,14 @@ func dash(s string) string {
 	return s
 }
 
+// dashShelf is a model's shelf, dashed when no evidence names one.
+func dashShelf(s models.Shelf) string {
+	if s == "" {
+		return "-"
+	}
+	return string(s)
+}
+
 // gib is a file size as a person reads a model's size.
 func gib(b uint64) string { return fmt.Sprintf("%.1f GiB", float64(b)/float64(1<<30)) }
 
@@ -295,13 +327,18 @@ func runModels(c *Context) int {
 	fs.StringVar(&usageWin, "usage", "", "add REQ and TOKENS columns over a window: 30d, 24h, 90m "+
 		"(the USED column always shows the last time the harbor saw a model serve anything)")
 	fs.BoolVar(&noUsage, "no-usage", false, "never open the harbor database")
+	shelf := fs.String("shelf", "", "show only models on this shelf: chat, image or audio")
 	if code, done := c.Parse(fs); done {
 		return code
+	}
+	if *shelf != "" && !models.Shelf(*shelf).Valid() {
+		return c.fail(Failf("--shelf %q is not a shelf", *shelf).
+			WithHint("the shelves are chat, image and audio"))
 	}
 	if code, done := c.noArgs(); done {
 		return code
 	}
-	doc := modelsDoc{Status: "ok"}
+	doc := modelsDoc{Status: "ok", Shelf: *shelf}
 	// The window is what a person types; 30d because that is how a retention is
 	// written everywhere else in Berth.
 	var since time.Time
@@ -341,6 +378,25 @@ func runModels(c *Context) int {
 		scanned = models.DefaultRoots()
 	}
 	doc.Roots, doc.All = scanned, all
+	// The config's declaration of a root beats what the files themselves say.
+	var declared []models.RootShelf
+	for _, r := range cfg.Library.Root {
+		if r.Shelf != "" {
+			declared = append(declared, models.RootShelf{Path: r.Path, Shelf: models.Shelf(r.Shelf)})
+		}
+	}
+	models.ApplyRootShelves(ms, declared)
+	// The scan's snapshot goes back into each root it came from: a sibling
+	// boot reading the same root sees these resolutions, not just its own scan.
+	for _, root := range scanned {
+		var rm []models.Model
+		for _, m := range ms {
+			if underPath(m.Path, root) {
+				rm = append(rm, m)
+			}
+		}
+		_ = models.WriteCatalog(root, rm) // best effort: a read-only root keeps its old one
+	}
 	if !noUsage {
 		doc.DB = defaultHarborDB()
 		attachUsage(c, ms, swapIDs(cfg), since, &doc)
@@ -358,6 +414,15 @@ func runModels(c *Context) int {
 		}
 		doc.Companions = len(seen)
 	}
+	if *shelf != "" {
+		var filtered []models.Model
+		for _, m := range listed {
+			if m.Shelf == models.Shelf(*shelf) {
+				filtered = append(filtered, m)
+			}
+		}
+		listed = filtered
+	}
 	doc.Count = len(listed)
 	doc.Models = listed
 	for _, m := range ms {
@@ -370,6 +435,16 @@ func runModels(c *Context) int {
 		if m.Err != "" {
 			doc.Errors = append(doc.Errors, modelErrDoc{Name: m.Name, Path: m.Path, Err: m.Err})
 		}
+		if doc.Shelves == nil {
+			doc.Shelves = map[string]*shelfUsage{}
+		}
+		u := doc.Shelves[string(m.Shelf)]
+		if u == nil {
+			u = &shelfUsage{}
+			doc.Shelves[string(m.Shelf)] = u
+		}
+		u.Bytes += m.Bytes
+		u.Models++
 	}
 	for _, g := range models.Duplicates(ms) {
 		doc.Duplicates += len(g)
@@ -427,6 +502,9 @@ func (v modelShowView) Human(c *Context, ok bool) error {
 	// One model has no table to align, so its row prints as one field per word.
 	c.Sub("%s", strings.Join(modelRow(m, false), "  "))
 	c.Sub("title: %s", dash(m.Title))
+	if m.Shelf != "" {
+		c.Sub("shelf: %s", m.Shelf)
+	}
 	if m.Role != "" {
 		c.Sub("role: %s", m.Role)
 	}
