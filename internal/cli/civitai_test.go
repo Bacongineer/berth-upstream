@@ -21,7 +21,7 @@ func TestCivitaiSearchCommand(t *testing.T) {
 			http.Error(w, "unexpected query", http.StatusBadRequest)
 			return
 		}
-		w.Write([]byte(`{"items":[{"id":42,"name":"Flux Lora","type":"Lora","user":{"name":"c"},"metadata":{"baseModel":"Flux.1"},"stats":{"downloadCount":100,"rating":4.5}}],"count":1}`))
+		_, _ = w.Write([]byte(`{"items":[{"id":42,"name":"Flux Lora","type":"Lora","user":{"name":"c"},"metadata":{"baseModel":"Flux.1"},"stats":{"downloadCount":100,"rating":4.5}}],"count":1}`))
 	}))
 	defer srv.Close()
 	t.Setenv("CIVITAI_ENDPOINT", srv.URL)
@@ -64,7 +64,7 @@ func TestCivitaiVersionsCommand(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"items":[{"id":90,"name":"v3","createdAt":"2026-08-01T00:00:00Z"},{"id":50,"name":"v2","createdAt":"2026-06-01T00:00:00Z"}]}`))
+		_, _ = w.Write([]byte(`{"items":[{"id":90,"name":"v3","createdAt":"2026-08-01T00:00:00Z"},{"id":50,"name":"v2","createdAt":"2026-06-01T00:00:00Z"}]}`))
 	}))
 	defer srv.Close()
 	t.Setenv("CIVITAI_ENDPOINT", srv.URL)
@@ -93,4 +93,3 @@ func TestCivitaiVersionsCommand(t *testing.T) {
 		t.Error("a non-number model id must fail")
 	}
 }
-

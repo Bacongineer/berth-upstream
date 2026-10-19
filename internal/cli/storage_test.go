@@ -122,7 +122,7 @@ func TestStorageUnderFloorFails(t *testing.T) {
 		"[library]\nfree_floor = 1.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := runCLI(t, "storage", "--dir", root, "--format", "json")
+	code, out, _ := runCLI(t, "storage", "--dir", root, "--format", "json")
 	if code == 0 {
 		t.Fatalf("a full floor must fail the check\n%s", out)
 	}
@@ -133,8 +133,8 @@ func TestStorageUnderFloorFails(t *testing.T) {
 	if doc.Status != "failed" || len(doc.Roots) == 0 || !doc.Roots[0].UnderFloor {
 		t.Errorf("doc = %+v, want failed with the root under floor", doc)
 	}
-	code, out, errOut = runCLI(t, "storage", "--dir", root)
+	code, out, _ = runCLI(t, "storage", "--dir", root)
 	if code == 0 || !strings.Contains(out, "under floor") {
-		t.Errorf("human run code %d lost the verdict\n%s%s", code, out, errOut)
+		t.Errorf("human run code %d lost the verdict\n%s", code, out)
 	}
 }

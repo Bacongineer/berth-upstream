@@ -21,10 +21,8 @@ func sum(b []byte) string {
 
 // fakeSite is the site's API and a file host with Range support behind it.
 type fakeSite struct {
-	srv   *httptest.Server
-	file  []byte
-	files int
-	down  bool
+	srv  *httptest.Server
+	file []byte
 }
 
 func (s *fakeSite) close() { s.srv.Close() }

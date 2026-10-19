@@ -25,8 +25,8 @@ func fakeSiteFull(t *testing.T, file []byte) *httptest.Server {
 	t.Helper()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/model-versions/456":
+		switch r.URL.Path {
+		case "/api/v1/model-versions/456":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 456, "name": "v2.0", "type": "Lora",
 				"model": map[string]any{"id": 123, "name": "Test Model", "metadata": map[string]any{"baseModel": "Flux.1"}},
@@ -35,7 +35,7 @@ func fakeSiteFull(t *testing.T, file []byte) *httptest.Server {
 						"type": "Safetensors", "downloadUrl": srv.URL + "/files/test.safetensors"},
 				},
 			})
-		case r.URL.Path == "/files/test.safetensors":
+		case "/files/test.safetensors":
 			start := int64(0)
 			if rng := r.Header.Get("Range"); len(rng) > 6 && rng[:6] == "bytes=" {
 				start, _ = parseRangeStart2(rng[6:])
@@ -157,9 +157,9 @@ func TestPullCivitaiFloorRefusal(t *testing.T) {
 }
 
 func readManifest(t *testing.T, dir string) (m struct {
-	Source string   `json:"source"`
-	Name   string   `json:"name"`
-	Ref    string   `json:"ref"`
+	Source string `json:"source"`
+	Name   string `json:"name"`
+	Ref    string `json:"ref"`
 	Files  []struct {
 		Path   string `json:"path"`
 		Size   int64  `json:"size"`

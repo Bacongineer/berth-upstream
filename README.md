@@ -80,6 +80,11 @@ shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 **Models**
 - **`berth pull hf:org/repo:Q4_K_M`** downloads from Hugging Face, resumes where it stopped,
   and checks every file against the size and sha256 the Hub publishes before using it.
+- **`berth pull civitai:VERSION_ID`** does the same from CivitAI, with the hash the site
+  publishes, and **`berth models`** shelves what it finds as chat, image or audio so a
+  machine reading a shared root knows what a folder is.
+- **`berth storage`** shows each model root's filesystem, free space against its floor, and
+  the other operating systems it is shared with.
 - **`berth verify`** re-checks pulled models offline and names any file that changed.
 - **`berth models`** lists every model on the machine (GGUF, safetensors, the Hugging Face
   cache, LM Studio and Ollama's stores) with quant, size, parameters, context and when each
@@ -234,6 +239,17 @@ url  = "http://127.0.0.1:9090"
 [alerts.queue]
 warn = 4
 crit = 10
+
+[models]
+# dirs = ["/mnt/d/models"]   # the roots berth models scans and pull writes into
+
+[library]
+# free_floor = 0.10          # keep this fraction of every root free; 0 turns it off
+
+[[library.root]]             # what a root holds and shares
+path   = "/mnt/d/models"
+shelf  = "image"             # chat | image | audio; beats what the files say
+shared = "windows"           # the other side of a shared root, shown by berth storage
 ```
 
 **Uninstall:** `systemctl --user disable --now berthd berth-harbor`, remove the two unit
@@ -353,13 +369,37 @@ engine's figures are its own claims and are shown apart from what the driver mea
 - **`berth pull hf:ORG/REPO[:QUANT|FILE|GLOB][@REV]`** resolves the revision to one commit,
   picks the GGUF for the quant (every part of a split model, and the vision projector when
   there is one), and downloads to `~/models/<org>/<repo>/`.
+- **`berth pull civitai:VERSION_ID`** resolves a model version (or
+  `civitai:model:MODEL_ID` for its latest, or the site's own URLs), downloads the files it
+  lists to `~/models/civitai/<model>/`, and writes the same manifest. Public models need
+  no key; gated files read `$CIVITAI_API_KEY`.
+- **`berth civitai search QUERY`** and **`berth civitai versions MODEL_ID`** find the ids
+  a pull takes: models by name and asset kind, then a model's versions newest first.
 - **Integrity first.** Each file lands as `.part` and is moved into place only after its size
-  and sha256 match the Hub's published hash. A mismatch deletes it and fails.
+  and sha256 match the source's published hash. A mismatch deletes it and fails.
 - **Resumes.** Run the same command again after an interruption and it continues with a
   range request. A file already present and correct is skipped.
+- **The floor.** Before it downloads, a pull measures the destination root and refuses when
+  its files would leave the root under `[library] free_floor` (a tenth by default, `0`
+  turns it off). A root whose space this platform cannot measure says the floor was not
+  checked, and goes on: a guard that cannot measure does not claim to guard.
+- **Shelves.** `berth models` reads each model for which shelf it is: chat, image, audio,
+  or unshelved when the file states nothing. A root declared in `[library]` (say
+  `shelf = "image"`) declares what it holds, and that beats a file's header. The SHELF
+  column shows it, `--shelf image` lists one shelf, and the totals under the listing say
+  how much of the library each shelf holds.
+- **The floor's view: `berth storage`.** Each root's filesystem (an ntfs3 root shared with
+  Windows reads as ntfs3, on both sides of the share), the space it has left against its
+  floor, what it can share (hard links, symlinks, reflinks), the other operating systems
+  it is shared with, the shelves it holds, and when a berth last scanned it. A root under
+  its floor fails the check.
+- **The in-root catalog.** A scan leaves `<root>/.berth/catalog.json`: what it resolved,
+  from which machine, and when. On a root two operating systems share, the second boot
+  reads the first's resolutions instead of re-guessing them. The scan always recomputes;
+  the file is a snapshot for the other side, never a cache this side trusts.
 - **`berth verify`** re-hashes pulled models against the manifest the pull wrote
-  (`.berth-manifest.json`: repo, commit, every hash), offline, and exits 1 on any change.
-- Gated and private repos read `$HF_TOKEN`.
+  (`.berth-manifest.json`: source, name, ref, every hash), offline, and exits 1 on any change.
+- Gated and private models read `$HF_TOKEN` (Hugging Face) or `$CIVITAI_API_KEY` (CivitAI).
 - **`berth models`** reads every GGUF header (never the weights) in the tools' usual places
   and any `--dir` or `[models] dirs`. Split models list as one; vision projectors and MTP or
   draft heads list with the model they belong to (`--all` shows them on their own).
