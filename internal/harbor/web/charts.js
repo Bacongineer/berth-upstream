@@ -131,6 +131,76 @@ export function armTapTip(wrap, tip, show) {
   }
 }
 
+// ---------------- the chart frame ----------------
+// Every chart here is a fixed viewBox stretched to its container, so anything
+// drawn inside it shrinks with the container: the H1 audit measured the tide's
+// axis numbers at 2.2-2.8px at 375. A chart is therefore an svg of shapes
+// inside .chart-frame plus one .chart-axis overlay of HTML labels. The overlay
+// takes viewBox coordinates, so a builder lays its words out exactly where it
+// lays its grid lines out, and those words render at their CSS font size at
+// every width - no ResizeObserver, no re-layout, and nothing for a stretched
+// viewBox to squash.
+function viewBoxOf(svg) {
+  const v = String(svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+  if (v.length !== 4 || !(v[2] > 0) || !(v[3] > 0)) return { x: 0, y: 0, w: 1, h: 1 };
+  return { x: v[0], y: v[1], w: v[2], h: v[3] };
+}
+
+// CLIP marks the labels whose space is a fixed share of the frame: they take
+// an ellipsis rather than run off the page, and their tooltip keeps the whole
+// name.
+const CLIP = "axis-clip";
+
+// chartAxis(host, svg) returns the chart's .chart-axis overlay, created on
+// first use, with the two ways to put a word in it: axisX centres the label on
+// vx and puts its line at vy (an x-axis tick, a total), axisY right-aligns it
+// to vx and centres it on vy (a y-axis tick, a row label). Both read the
+// svg's viewBox on every call, so a builder that re-sets it (the timeline
+// grows a row) keeps its labels lined up with its grid. The class is appended
+// for the few words CSS anchors differently. aria-hidden stays on the overlay,
+// so a screen reader still hears the chart's own name, not its ticks.
+export function chartAxis(host, svg) {
+  let axis = null;
+  for (const kid of host.children) if (kid.classList.contains("chart-axis")) axis = kid;
+  if (!axis) {
+    axis = document.createElement("div");
+    axis.className = "chart-axis";
+    axis.setAttribute("aria-hidden", "true");
+    host.append(axis);
+  }
+  function put(text, vx, vy, cls, anchor) {
+    const v = viewBoxOf(svg);
+    const s = document.createElement("span");
+    s.className = anchor + (cls ? " " + cls : "");
+    s.textContent = text;
+    const left = (((vx - v.x) / v.w) * 100).toFixed(3) + "%";
+    s.style.left = left;
+    s.style.top = (((vy - v.y) / v.h) * 100).toFixed(3) + "%";
+    if (anchor === "axis-y" && cls && cls.indexOf(CLIP) >= 0) s.style.maxWidth = left;
+    axis.append(s);
+  }
+  return {
+    clear() { axis.replaceChildren(); },
+    axisX: (text, vx, vy, cls) => put(text, vx, vy, cls, "axis-x"),
+    axisY: (text, vx, vy, cls) => put(text, vx, vy, cls, "axis-y"),
+  };
+}
+
+// chartFrame(svg, opts) wraps a chart's svg in the frame its axis overlay
+// floats over and returns { el, clear, axisX, axisY }. opts.class keeps the
+// class the CSS and check.py already know (chart-tide, timeline-wrap); a tide
+// frame in a scaled box still keeps its x geometry with the model timeline.
+// opts.tip is the chart's own tooltip, which stays inside the frame so it goes
+// on positioning over the chart it belongs to.
+export function chartFrame(svg, opts = {}) {
+  const frame = document.createElement("div");
+  frame.className = "chart-wrap chart-frame" + (opts.class ? " " + opts.class : "");
+  frame.append(svg);
+  const ax = chartAxis(frame, svg);
+  if (opts.tip) frame.append(opts.tip);
+  return { el: frame, clear: ax.clear, axisX: ax.axisX, axisY: ax.axisY };
+}
+
 // ---------------- sparkline ----------------
 // sparkline(series, opts) -> { el, set(series) }
 // Fills its box (preserveAspectRatio none). series is numbers, oldest first.
@@ -184,15 +254,11 @@ export function lineChart(series, opts = {}) {
   const padL = 34, padR = 8, padT = 8, padB = o.xLabels ? 18 : 6;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
-  const wrap = document.createElement("div");
-  wrap.className = "chart-wrap";
   const el = S("svg", { class: "chart chart-line", viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: "none" });
   el.setAttribute("aria-hidden", "true");
   const gGrid = S("g", { class: "axis-grid" });
   const gLines = S("g", { class: "lines" });
-  const gLabel = S("g", { class: "axis-label" });
-  const gX = S("g", { class: "axis-label" });
-  el.append(gGrid, gLines, gLabel, gX);
+  el.append(gGrid, gLines);
   let cross = null;
   let tip = null;
   if (o.interactive) {
@@ -200,10 +266,10 @@ export function lineChart(series, opts = {}) {
     cross.setAttribute("visibility", "hidden");
     el.append(cross);
     tip = makeTip();
-    wrap.append(el, tip);
-  } else {
-    wrap.append(el);
   }
+  // shapes in the svg, every word in the overlay (R-01)
+  const frame = chartFrame(el, { tip });
+  const wrap = frame.el;
   const xScale = (i, n) => padL + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
   const yScale = (v, lo, hi) => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
 
@@ -216,15 +282,13 @@ export function lineChart(series, opts = {}) {
     for (const s of data) for (const v of s.data || []) { if (hi !== null && v > hi) hi = v; if (v < lo) lo = v; }
     if (o.yMax == null) { for (const s of data) for (const v of s.data || []) if (v > hi) hi = v; if (hi <= lo) hi = lo + 1; }
     const y = (v) => yScale(v, lo, hi);
-    // grid + y labels
+    // grid in the svg, its numbers and the x labels in the overlay
     gGrid.replaceChildren();
-    gLabel.replaceChildren();
+    frame.clear();
     for (const tv of ticks(lo, hi, o.yTicks)) {
       const gy = y(tv);
       gGrid.append(S("line", { x1: padL, x2: padL + plotW, y1: gy, y2: gy, stroke: PAL.grid, "stroke-width": "1", "vector-effect": "non-scaling-stroke" }));
-      const t = S("text", { x: padL - 5, y: gy + 3, "text-anchor": "end", class: "tick" });
-      t.textContent = o.yFmt ? o.yFmt(tv) : fmtTick(tv);
-      gLabel.append(t);
+      frame.axisY(o.yFmt ? o.yFmt(tv) : fmtTick(tv), padL - 5, gy + 3);
     }
     gLines.replaceChildren();
     for (const s of data) {
@@ -240,18 +304,13 @@ export function lineChart(series, opts = {}) {
         gLines.append(a);
       }
     }
-    gX.replaceChildren();
     if (o.xLabels && o.xLabels.length === n) {
       const every = Math.max(1, Math.ceil(n / 6));
-      for (let i = 0; i < n; i += every) {
-        const t = S("text", { x: xScale(i, n), y: h - 4, "text-anchor": "middle", class: "tick" });
-        t.textContent = o.xLabels[i] || "";
-        gX.append(t);
-      }
+      for (let i = 0; i < n; i += every) frame.axisX(o.xLabels[i] || "", xScale(i, n), h - 4);
     }
     _range = { lo, hi, n };
   }
-  function clear() { gGrid.replaceChildren(); gLines.replaceChildren(); gLabel.replaceChildren(); gX.replaceChildren(); }
+  function clear() { gGrid.replaceChildren(); gLines.replaceChildren(); frame.clear(); }
   let _range = null;
   const ctl = {
     el: wrap,
@@ -310,8 +369,6 @@ export function stackedArea(data, opts = {}) {
   const padL = 46, padR = 18, padT = 12, padB = 22;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
-  const wrap = document.createElement("div");
-  wrap.className = "chart-wrap chart-tide";
   const defs = S("defs");
   const pid = "hatch-" + Math.random().toString(36).slice(2, 8);
   // 4px stripes, the same two-tone hatch the memory bar's .seg-squatter uses
@@ -325,17 +382,17 @@ export function stackedArea(data, opts = {}) {
   const gGrid = S("g", {});
   const gBands = S("g", {});
   const gEvents = S("g", {});
-  const gAxis = S("g", { class: "axis-label" });
-  const gX = S("g", { class: "axis-label" });
   const totalLine = S("line", { class: "total-line", stroke: PAL.rule, "stroke-width": "1", "stroke-dasharray": "5 4", "vector-effect": "non-scaling-stroke" });
-  const totalLabel = S("text", { class: "total-label" });
   const cross = S("line", { class: "crosshair", y1: padT, y2: padT + plotH, stroke: PAL.rule, "stroke-width": "1", "vector-effect": "non-scaling-stroke" });
   cross.setAttribute("visibility", "hidden");
-  el.append(defs, gGrid, gBands, totalLine, totalLabel, gEvents, gAxis, gX, cross);
+  el.append(defs, gGrid, gBands, totalLine, gEvents, cross);
   const hit = S("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent" });
   el.append(hit);
   const tip = makeTip();
-  wrap.append(el, tip);
+  // the tide shares its x geometry with the model timeline, so the frame keeps
+  // the timeline-wrap class's partner (chart-tide) and the svg keeps its own
+  const frame = chartFrame(el, { class: "chart-tide", tip });
+  const wrap = frame.el;
 
   let state = null; // { t, total, series, events, x, y, n }
   const xOf = (t) => padL + ((t - state.t0) / (state.t1 - state.t0)) * plotW;
@@ -343,37 +400,28 @@ export function stackedArea(data, opts = {}) {
   function paint(data) {
     const t = data.t || [];
     const n = t.length;
-    if (n < 2) { gBands.replaceChildren(); gGrid.replaceChildren(); gAxis.replaceChildren(); gX.replaceChildren(); gEvents.replaceChildren(); state = null; return; }
+    if (n < 2) { gBands.replaceChildren(); gGrid.replaceChildren(); gEvents.replaceChildren(); frame.clear(); state = null; return; }
     const total = data.total || 0;
     state = { t, t0: t[0], t1: t[n - 1], total, series: data.series || [], events: data.events || [] };
-    // y grid + labels
+    // y grid in the svg, its numbers, the x times and the total in the overlay
     gGrid.replaceChildren();
-    gAxis.replaceChildren();
+    frame.clear();
     const yTicks = ticks(0, total || 1, 4);
     for (const tv of yTicks) {
       const gy = padT + plotH - (tv / (total || 1)) * plotH;
       gGrid.append(S("line", { x1: padL, x2: padL + plotW, y1: gy, y2: gy, stroke: PAL.grid, "stroke-width": "1", "vector-effect": "non-scaling-stroke" }));
-      const tx = S("text", { x: padL - 6, y: gy + 3, "text-anchor": "end", class: "tick" });
-      tx.textContent = (Math.round(tv * 10) / 10) + "G";
-      gAxis.append(tx);
+      frame.axisY((Math.round(tv * 10) / 10) + "G", padL - 6, gy + 3);
     }
     // x labels
-    gX.replaceChildren();
     const every = Math.max(1, Math.ceil(n / o.xLabels));
-    for (let i = 0; i < n; i += every) {
-      const tx = S("text", { x: xOf(t[i]), y: h - 5, "text-anchor": "middle", class: "tick" });
-      tx.textContent = o.fmtX(t[i]);
-      gX.append(tx);
-    }
-    // total line
+    for (let i = 0; i < n; i += every) frame.axisX(o.fmtX(t[i]), xOf(t[i]), h - 5);
+    // total line (its label is an overlay word anchored by .total-label)
     const gyTotal = padT + plotH - (total / (total || 1)) * plotH;
     totalLine.setAttribute("x1", padL);
     totalLine.setAttribute("x2", padL + plotW);
     totalLine.setAttribute("y1", gyTotal);
     totalLine.setAttribute("y2", gyTotal);
-    totalLabel.setAttribute("x", padL + 4);
-    totalLabel.setAttribute("y", gyTotal - 4);
-    totalLabel.textContent = "TOTAL " + (Math.round(total * 10) / 10) + "G";
+    frame.axisX("TOTAL " + (Math.round(total * 10) / 10) + "G", padL + 4, gyTotal - 4, "total-label");
     // stacked bands, bottom to top
     gBands.replaceChildren();
     const series = state.series;
@@ -493,16 +541,16 @@ export function timelineChart(data, opts = {}) {
   if (!o.fmtTip) o.fmtTip = o.fmtX;
   const w = TL_W; // the tide's viewBox width; fixed, do not override
   const padL = TL_PAD_L, padR = TL_PAD_R; // the tide's pads; fixed, do not override
-  const wrap = document.createElement("div");
-  wrap.className = "chart-wrap timeline-wrap";
   const el = S("svg", { class: "chart timeline-svg", viewBox: `-${LABEL_GUTTER} 0 ${w + LABEL_GUTTER} 80`, preserveAspectRatio: "none" });
   el.setAttribute("aria-hidden", "true");
   const gGrid = S("g", { class: "axis-grid" });
-  const gLabels = S("g", { class: "axis-label" });
   const gRows = S("g", {});
-  el.append(gGrid, gLabels, gRows);
+  el.append(gGrid, gRows);
   const tip = makeTip();
-  wrap.append(el, tip);
+  // the row names leave the viewBox like every other word here; the overlay
+  // spans the frame, the gutter included, so the names keep their column
+  const frame = chartFrame(el, { class: "timeline-wrap", tip });
+  const wrap = frame.el;
   armTapTip(wrap, tip, null);
   const xOf = (t, t0, t1) => padL + ((t1 <= t0 ? 0 : (t - t0) / (t1 - t0)) * (w - padL - padR));
   const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -514,8 +562,8 @@ export function timelineChart(data, opts = {}) {
     const h = o.padT + Math.max(rows.length, 1) * o.rowH + o.padB;
     el.setAttribute("viewBox", `-${LABEL_GUTTER} 0 ${w + LABEL_GUTTER} ${h}`);
     gGrid.replaceChildren();
-    gLabels.replaceChildren();
     gRows.replaceChildren();
+    frame.clear();
     // the tide's x labels sit at every ceil(n/5) sample; the grid lines
     // reuse those positions so the two charts read as one axis
     const tt = data.t || [];
@@ -530,12 +578,10 @@ export function timelineChart(data, opts = {}) {
       const top = o.padT + i * o.rowH;
       const y = top + (o.rowH - 12) / 2;
       // row label in the shared gutter: engine dim above, model bright below;
-      // the hover tooltip carries the untruncated names
-      const eng = S("text", { x: padL - 8, y: top + 12, "text-anchor": "end", class: "tl-eng" });
-      eng.textContent = trunc(row.engine, 12);
-      const mod = S("text", { x: padL - 8, y: top + 25, "text-anchor": "end", class: "tl-model" });
-      mod.textContent = trunc(row.model, 20);
-      gLabels.append(eng, mod);
+      // the gutter is a fixed share of the frame, so a narrow phone clips the
+      // name and the hover/tap tooltip carries the whole of it
+      frame.axisY(trunc(row.engine, 12), padL - 8, top + 12, "tl-eng " + CLIP);
+      frame.axisY(trunc(row.model, 20), padL - 8, top + 25, "tl-model " + CLIP);
       for (const sp of row.spans || []) {
         const s = Math.max(sp.start, t0);
         const eRaw = sp.end == null ? t1 : sp.end;

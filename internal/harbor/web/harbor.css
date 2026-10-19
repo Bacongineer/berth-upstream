@@ -612,8 +612,9 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 
 /* ---------- the model timeline ---------- */
 .timeline-body { display: flex; flex-direction: column; gap: var(--s2); }
-.tl-eng { fill: var(--dim-2); font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; }
-.tl-model { fill: var(--ink-strong); font-family: var(--mono); font-size: 11.5px; }
+/* the row names are overlay words now (R-01), so they take a colour, not a fill */
+.tl-eng { color: var(--dim-2); font-size: var(--fs-micro); letter-spacing: 0.5px; }
+.tl-model { color: var(--ink-strong); font-size: var(--fs-small); }
 @keyframes tl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .tl-live { animation: tl-pulse 2.4s ease-in-out infinite; }
 
@@ -623,8 +624,32 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .chart-wrap:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .chart-wrap.swap svg { opacity: 0.35; }
 .chart-wrap svg { transition: opacity var(--t2) var(--ease); }
-.chart .axis-label text, .chart text.tick { fill: var(--dim-2); font-family: var(--mono); font-size: 11px; }
-.chart text.total-label { fill: var(--dim); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; }
+/* R-01: no word lives inside a scaled viewBox. A chart frame is the shape plus
+   the .chart-axis overlay its numbers live in, so an axis label renders at its
+   own CSS size whatever the container is doing, and the phone band stretches
+   the shape (the svg's own min-height), never the text. */
+.chart-frame { position: relative; }
+.chart-frame svg { width: 100%; height: 100%; display: block; }
+.chart-axis {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  color: var(--dim-2);
+}
+.chart-axis span {
+  position: absolute;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* axisX's word sits above the y it was given and centres on its x; axisY's
+   word right-aligns to its x and centres on its y. .total-label is the one
+   word CSS anchors the other way: its left edge lands on its x. */
+.chart-axis .axis-x { transform: translate(-50%, -100%); }
+.chart-axis .axis-y { transform: translate(-100%, -50%); }
+.chart-axis .total-label { transform: translate(0, -100%); color: var(--dim); letter-spacing: 1px; }
 .chart .total-line { opacity: 0.7; }
 .chart .crosshair { pointer-events: none; }
 .chart-tip {
@@ -1184,11 +1209,9 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   width: 100%;
   height: 100%;
 }
-.residency-svg .tick {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  fill: var(--dim);
-}
+/* the residency numbers are overlay words now (R-01); they keep their own
+   quieter colour and take the axis overlay's type */
+.residency-canvas .chart-axis { color: var(--dim); }
 .res-tip {
   position: absolute;
   z-index: var(--z-tip);
@@ -1606,6 +1629,11 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
      should not have to aim at a 24 px glyph */
   .toast-close { min-width: 40px; min-height: 40px; }
   .conn .retry { min-width: 40px; min-height: 40px; margin: -6px -8px -6px 0; }
+  /* every chart's shape, not its words, takes the phone's minimum height: an
+     axis label has had room to be 13 px since the frame stopped scaling text */
+  .chart-frame { min-height: 160px; }
+  .chart-frame svg { min-height: 160px; }
+  .residency-canvas { height: 160px; }
   .kpi-label { font-size: var(--fs-label); }
   .kpi { flex-basis: 100%; }
   .search { flex: 1 1 100%; }

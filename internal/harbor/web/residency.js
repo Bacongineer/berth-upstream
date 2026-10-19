@@ -5,7 +5,7 @@
 // library.
 import { el, fmtClock, fmtTok, fmtMS, na } from "./util.js";
 import { PAL } from "./palette.js";
-import { armTapTip, armFocusTip, isPinned } from "./charts.js";
+import { armTapTip, armFocusTip, isPinned, chartAxis } from "./charts.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const W = 1200; // logical width; the surface scales to its container
@@ -185,13 +185,14 @@ export class ResidencyView {
     const cw = plotW / n;
     const svg = S("svg", { class: "chart residency-svg", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
     svg.setAttribute("aria-hidden", "true");
-    // y ticks (tokens)
+    // y ticks (tokens): the rule in the svg, its number in the overlay, so the
+    // fixed 120px box scales the columns and not the type (R-01)
+    const ax = chartAxis(this.canvas, svg);
+    ax.clear();
     for (const f of [0, 0.5, 1]) {
       const y = PAD_T + plotH - f * plotH;
       svg.append(S("line", { x1: PAD_L, x2: W - PAD_R, y1: y, y2: y, stroke: PAL.grid, "stroke-width": "1", "vector-effect": "non-scaling-stroke" }));
-      const t = S("text", { x: PAD_L - 4, y: y + 3, "text-anchor": "end", class: "tick" });
-      t.textContent = f === 0 ? "0" : fmtTok(scale * f);
-      svg.append(t);
+      ax.axisY(f === 0 ? "0" : fmtTok(scale * f), PAD_L - 4, y);
     }
     const yOf = (tok) => PAD_T + plotH - (Math.min(tok, scale) / scale) * plotH;
     // the columns: stacked cached + fresh + generated
