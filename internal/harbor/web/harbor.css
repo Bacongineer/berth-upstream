@@ -700,9 +700,10 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   display: flex;
   flex-direction: column;
   gap: var(--s2);
-  /* on a phone the 712 px-min grid scrolls inside the panel instead of
-     pushing the whole page sideways */
+  /* wide-enough screens keep the 7-column grid in its own scroller; a phone
+     turns the same rows into cards (the phone band below) */
   overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 .board-cols {
   display: grid;
@@ -1719,8 +1720,50 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   #main { padding: var(--s4) var(--s4) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s5)); }
   .app-footer { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s4)); }
   .panel { scroll-margin-top: calc(var(--rail-h) + var(--s2)); }
-  .log-row { grid-template-columns: 56px minmax(0, 1fr); }
-  .log-row .ld { grid-column: 1 / -1; }
+  /* R-04: the 760px grid was a silent scroller here (H1 read 469px of a row
+     off the right edge). Each row becomes a card of three short lines - ticket
+     and state, the vessel and its class, then the three numbers - because 275px
+     of card fits neither seven columns nor seven inline labels. The column head
+     is gone on this band, so every cell paints its own label from data-label. */
+  .board { overflow-x: visible; }
+  .board-head { display: none; }
+  .board-row {
+    /* the first track carries the widest label of its column (TICKET at the
+       phone's micro size), so a label never clips in an overflow-hidden cell */
+    grid-template-columns: minmax(50px, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "ticket status status"
+      "vessel vessel cls"
+      "berth  hold   time";
+    gap: var(--s2) var(--s3);
+    padding: var(--s2) 4px var(--s3);
+    border-bottom: 1px solid var(--hair);
+    border-radius: 0;
+  }
+  /* the label floats above the tiles instead of joining their flex line, so a
+     cell stays exactly as wide as its tiles and the tracks size to them */
+  .board-row > .cell { position: relative; padding-top: 15px; }
+  .board-row > .cell::before {
+    content: attr(data-label);
+    position: absolute; top: 0; left: 0; line-height: 1;
+    font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track);
+    color: var(--dim-2);
+  }
+  .board-row > .cell[data-col="ticket"] { grid-area: ticket; }
+  .board-row > .cell[data-col="vessel"] { grid-area: vessel; }
+  .board-row > .cell[data-col="berth"] { grid-area: berth; }
+  .board-row > .cell[data-col="cls"] { grid-area: cls; }
+  .board-row > .cell[data-col="hold"] { grid-area: hold; }
+  .board-row > .cell[data-col="status"] { grid-area: status; }
+  .board-row > .cell[data-col="time"] { grid-area: time; }
+  /* the contested flag is a grid item of the desktop row (it sits over the
+     status column); on the card it gets its own line below the numbers */
+  .board-row > .flag { grid-column: 1 / -1; grid-row: auto; justify-self: start; transform: none; }
+  .board-foot { padding-top: 0; }
+  /* R-03: the 5-column grid clipped the engine and the detail here. Line 1 is
+     time, kind word, engine, bytes; the detail wraps on line 2 and shows whole. */
+  .log-row { grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 2px var(--s3); }
+  .log-row .ld { grid-column: 1 / -1; white-space: normal; overflow: visible; text-overflow: clip; }
   .digit { width: 30px; height: 40px; }
   .reel span { height: 40px; line-height: 40px; font-size: 20px; }
   .chip { min-height: 40px; padding: 8px 12px; }

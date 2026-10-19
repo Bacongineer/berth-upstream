@@ -124,6 +124,7 @@ let ctiles;
 let logList, logNote, logMeta, refusalTallyEl, logCountEl, logWrapEl, logJumpEl, logSearchInput;
 let shortcutsDlg, railMenuDlg;
 let lastLogSig = null; // filter+query+pause signature: repaint only on change, append otherwise
+let clearLogFilter = null; // set by buildLogSearch: the page's Esc reaches it (R-07)
 let lastTick = 0; // the relative-time ticker's own 1 s cadence
 let berthsRoot, stowRoot, notickRoot, machineRoot, machineCharts, machineMeta, socketLine;
 let kpiStripEl, tideEl, tideLegend, tideMeta;
@@ -589,6 +590,11 @@ function wireShortcuts() {
   onKey("r", () => { fetchStatus(); fetchHistory(); });
   onKey("/", (e) => { e.preventDefault(); if (logSearchInput) logSearchInput.focus(); });
   onKey("?", () => showDialog(shortcutsDlg));
+  // R-07: Esc means one thing everywhere. onKey already defers to an open dialog
+  // and to a text field, so this is the layer under them: a typed log filter.
+  onKey("Escape", () => {
+    if (state.logQuery && clearLogFilter) clearLogFilter();
+  });
 }
 // The phone's 56px rail has room for the wordmark, the two state pills, the
 // density and one more control: the menu. Its sheet holds what the wide header
@@ -1928,18 +1934,22 @@ function buildLogSearch() {
     paintLog();
   });
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && input.value) { input.value = ""; state.logQuery = ""; wrap.classList.remove("has-text"); paintLog(); }
+    if (e.key === "Escape" && input.value) clearLogFilter();
     else if (e.key === "Escape") input.blur();
   });
   const clear = el("button", "clear-btn");
   clear.type = "button";
   clear.setAttribute("aria-label", "clear the log filter");
   clear.append(icon("close", 12));
-  clear.addEventListener("click", () => {
+  // one clear for the button, the field's own Esc and the page's Esc (R-07)
+  clearLogFilter = () => {
     input.value = "";
     state.logQuery = "";
     wrap.classList.remove("has-text");
     paintLog();
+  };
+  clear.addEventListener("click", () => {
+    clearLogFilter();
     input.focus();
   });
   wrap.append(input, clear);
@@ -2058,6 +2068,8 @@ function makeLogRow(e) {
   const at = new Date(e.at);
   const row = el("div", "log-row" + (kindCss(e.kind) ? " " + kindCss(e.kind) : ""));
   const detail = el("span", "ld", e.detail || "");
+  // the phone's 2-line row ellipsises both words, so the whole of each rides on title
+  detail.title = e.detail || "";
   if (e.kind === "lease.juggle") {
     const why = el("button", "log-why", "why");
     why.type = "button";
@@ -2070,7 +2082,11 @@ function makeLogRow(e) {
   const ks = kindSi(e.kind);
   if (ks) lk.append(siEl(ks));
   lk.append(kindWord(e.kind));
-  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), lk, el("span", "le", e.engine || e.lease || ""), el("span", "lb", fmtMiB(e.bytes)), detail);
+  const engineText = e.engine || e.lease || "";
+  const engine = el("span", "le", engineText);
+  engine.title = engineText;
+  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), lk, engine,
+    el("span", "lb", fmtMiB(e.bytes)), detail);
   e._row = row;
   return row;
 }

@@ -110,6 +110,65 @@ def phone_checks(pg):
     pad = pg.evaluate("() => getComputedStyle(document.querySelector('#sec-tide')).scrollMarginTop")
     ok("panels keep the rail's scroll margin", pad == "64px", pad)
 
+    # --- the board is cards, not a silent scroller (R-04) --------------------
+    board = pg.evaluate("""() => { const b = document.querySelector('#board');
+      const row = b.querySelector('.board-row'); const foot = b.querySelector('.board-foot');
+      const cells = [...row.querySelectorAll('.cell')];
+      return { over: b.scrollWidth - b.clientWidth, rows: b.querySelectorAll('.board-row').length,
+        wrapped: !!row.closest('.board-rows'), rowsBeforeFoot: !!(row.closest('.board-rows')
+          && row.closest('.board-rows').compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING),
+        footVisible: foot.getClientRects().length > 0 && foot.getAttribute('role') === 'status',
+        headHidden: !document.querySelector('.board-head').getClientRects().length,
+        rowH: Math.round(row.getBoundingClientRect().height),
+        labels: cells.map(c => getComputedStyle(c, '::before').content.replace(/"/g, '')),
+        status: { text: row.querySelector('[data-col="status"]').textContent.trim(),
+          si: row.querySelector('[data-col="status"] .si')
+            ? getComputedStyle(row.querySelector('[data-col="status"] .si')).display !== 'none' : false } }; }""")
+    ok("board does not scroll sideways inside its panel", board["over"] <= 1, board["over"])
+    ok("board rows are wrapped and the foot stays below them", board["wrapped"] and board["rowsBeforeFoot"], board)
+    ok("board foot stays visible as the live region", board["footVisible"], board["footVisible"])
+    ok("column head is hidden on the phone", board["headHidden"])
+    ok("first row reads as a 2-line card", board["rowH"] >= 50, board["rowH"])
+    ok("every cell carries its own label", len(board["labels"]) == 7
+       and all(l in ["TICKET", "VESSEL", "BERTH", "CLASS", "HOLD", "STATUS", "TIME"] for l in board["labels"]),
+       board["labels"])
+    ok("the status word shows with its shape", board["status"]["si"] and board["status"]["text"], board["status"])
+    cells = pg.evaluate("""() => [...document.querySelectorAll('#board .board-row')].flatMap(r =>
+      [...r.querySelectorAll('.cell')].map(c => ({ col: c.dataset.col,
+        h: Math.round(c.getBoundingClientRect().height), over: c.scrollWidth - c.clientWidth })))""")
+    ok("no cell stacks its tiles or clips them", all(c["h"] <= 44 and c["over"] <= 1 for c in cells),
+       [c for c in cells if c["h"] > 44 or c["over"] > 1][:4])
+
+    # --- R-07: Esc clears a typed filter from anywhere ----------------------
+    pg.fill("#log-search", "granted")
+    pg.wait_for_timeout(400)
+    shown = pg.locator("#log-wrap .log-row").count()
+    pg.evaluate("() => document.activeElement.blur()")
+    pg.wait_for_timeout(150)
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(400)
+    after = pg.locator("#log-wrap .log-row").count()
+    ok("Esc from outside the field clears the typed filter",
+       pg.input_value("#log-search") == "" and after > shown, f"{shown} -> {after}")
+
+    # --- the log's 2-line phone row (R-03) ----------------------------------
+    log = pg.evaluate("""() => { const rows = [...document.querySelectorAll('#log-wrap .log-row')];
+      if (!rows.length) return null;
+      const wide = rows.map(r => r.querySelector('.ld')).sort((a, b) =>
+        b.textContent.length - a.textContent.length)[0];
+      const one = rows[0];
+      return { n: rows.length, ws: getComputedStyle(wide).whiteSpace,
+        fits: wide.scrollWidth - wide.clientWidth, hasDetail: wide.textContent.length > 0,
+        wrapped: wide.getBoundingClientRect().height > 1.5 * (parseFloat(getComputedStyle(wide).lineHeight)
+          || 1.2 * parseFloat(getComputedStyle(wide).fontSize)),
+        chars: wide.textContent.trim().length,
+        detailTitle: wide.getAttribute('title') === (wide.firstChild ? wide.firstChild.textContent : ''),
+        engineTitle: one.querySelector('.le').getAttribute('title') === one.querySelector('.le').textContent,
+        rowH: Math.round(one.getBoundingClientRect().height) }; }""")
+    ok("the detail wraps instead of ellipsising", log and log["ws"] == "normal" and log["fits"] <= 1, log)
+    ok("a long detail takes a second line and shows whole", log and log["wrapped"], log)
+    ok("engine and detail carry their full text on title", log and log["detailTitle"] and log["engineTitle"], log)
+
     # --- the menu sheet: open, read, Esc, focus back on the button -----------
     pg.evaluate("() => window.scrollTo(0, 0)")
     pg.click("#menu-btn")
@@ -177,6 +236,18 @@ def wide_checks(pg):
     ok("both density labels show", pg.evaluate("""() => [...document.querySelectorAll('.app-header .mode > .mode-btn')]
       .every(b => b.getClientRects().length > 0)"""))
     ok("sheet stays closed", not pg.locator("#rail-menu").evaluate("d => d.open"))
+    # the phone variants must not follow the row up here
+    board = pg.evaluate("""() => { const b = document.querySelector('#board');
+      const row = b.querySelector('.board-row');
+      return { head: b.querySelector('.board-head').getClientRects().length > 0,
+        rowH: Math.round(row.getBoundingClientRect().height),
+        cellH: Math.round(row.querySelector('.cell').getBoundingClientRect().height),
+        label: getComputedStyle(row.querySelector('.cell'), '::before').content,
+        scrolls: b.scrollWidth >= b.clientWidth }; }""")
+    ok("wide board keeps its head and its one-line rows",
+       board["head"] and board["rowH"] <= 45 and board["cellH"] <= 25 and board["label"] == "none", board)
+    ok("wide log row stays one line", pg.evaluate(
+        "() => getComputedStyle(document.querySelector('.log-row .ld')).whiteSpace === 'nowrap'"))
 
 
 with sync_playwright() as p:

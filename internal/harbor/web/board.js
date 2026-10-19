@@ -85,6 +85,9 @@ function makeRow(key, onOpen) {
   for (const c of COLS) {
     const cell = el("div", c === "ticket" ? "cell lease-id-cell" : "cell");
     cell.dataset.col = c;
+    // the phone's card variant has no column head, so each cell carries its own
+    // label and CSS paints it
+    cell.dataset.label = HEADS[c];
     cell._tiles = [];
     if (c === "status") {
       // Every status word leads with its shape, so the state reads without
@@ -161,7 +164,11 @@ export class Board {
     this.rows = new Map(); // key -> button
     this.prevState = new Map(); // key -> status word, for the change flash
     this.empty = el("div", "board-empty", "No voyages. All berths free.");
-    this.root.append(this.head, this.empty);
+    /* the rows sit in their own box: on a phone the board stops being a
+       horizontal scroller, and the foot (the count and the order, the board's
+       one announcement) stays outside the rows where it is always readable */
+    this.rowsEl = el("div", "board-rows");
+    this.root.append(this.head, this.rowsEl, this.empty);
     // the foot is the board's one announcement: the voyage count and the
     // order, not 200 flapping tiles inside a live region
     this.foot = el("div", "board-foot");
@@ -213,7 +220,7 @@ export class Board {
       row.setAttribute("aria-label", "open ticket " + l.id + ", " + l.engine + ", " + statusText(st).toLowerCase());
       if (l.contested > 0) row.title = "granted while holders without a lease kept " + fmtBytes(l.contested) + " on this card";
       else row.removeAttribute("title");
-      this.root.append(row); // keeps DOM order = display order
+      this.rowsEl.append(row); // keeps DOM order = display order
       i += 1;
     }
     for (const [key, row] of this.rows) {
