@@ -490,6 +490,7 @@ body.mode-basic .adv-only { display: none !important; }
   display: flex;
   align-items: center;
   gap: var(--s3);
+  min-height: var(--s8);
   padding-bottom: var(--s3);
   margin-bottom: var(--s4);
   border-bottom: 1px solid var(--hair);
@@ -572,15 +573,14 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
    in advanced, and the tiles in the last row grow to fill it instead of
    leaving the row ending early */
 .kpi-strip {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--s3);
   margin-top: var(--s4);
   padding-top: var(--s4);
   border-top: 1px solid var(--hair);
 }
 .kpi {
-  flex: 1 1 200px;
   min-width: 0;
   border: 1px solid var(--hair);
   border-radius: var(--r1);
@@ -1758,7 +1758,18 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .chart-frame svg { min-height: 160px; }
   .residency-canvas { height: 160px; }
   .kpi-label { font-size: var(--fs-label); }
-  .kpi { flex-basis: 100%; }
+  /* every panel head becomes the same two lines: the title, then its
+     controls on one thumb-height row; a picker that runs past the width
+     scrolls on the spot instead of stacking another line */
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > .panel-title { min-width: 0; white-space: nowrap; }
+  /* the meta line is a wide-header affordance; on a phone its facts (last
+     successful read, update cadence) live in the menu sheet instead */
+  .panel-head > .panel-meta { display: none; }
+  /* the picker is the only control that gets its own line: chip, meta and the
+     collapse button stay on the title line, the picker row scrolls if needed */
+  .panel-head > .mode { order: 9; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .panel-head > .mode > .mode-btn { flex: none; }
   /* R-09: a joined segment hides where an option ends and 4px between chips is
      under a thumb's aim. Pickers become chips; log chips get 8px. */
   .mode {
