@@ -186,6 +186,24 @@ ollama create does (it takes its own blob), which is why --dry-run exists.`,
 		Run:     runModels,
 	},
 	{
+		Name:    "pull",
+		Summary: "download a model from Hugging Face, checked byte for byte",
+		Args:    "hf:ORG/REPO[:QUANT|FILE|GLOB][@REV] [--dir D] [--dry-run] [--token-env V] [--format F]",
+		Help: `Download model files from the Hugging Face Hub into DIR/<org>/<repo>/
+(~/models by default). A quant name picks the matching GGUF and every part of a
+split model, plus the vision projector when the repo has one; a file name or a
+glob picks exactly that.
+
+Every file comes from one commit, resolved once at the start, and is checked
+against the size and sha256 the Hub publishes before it is moved into place.
+An interrupted pull resumes where it stopped when you run it again, and a file
+already present and correct is not downloaded twice. A manifest beside the
+files records the commit and every hash, so berth verify can re-check them
+later without the network. Gated and private repos read a token from $HF_TOKEN.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runPull,
+	},
+	{
 		Name:    "run",
 		Summary: "start CMD once it holds a berth, stop it when asked",
 		Args:    "--as NAME [flags] -- CMD [ARGS...]",
