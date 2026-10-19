@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/T-Crypt/berth/internal/manifest"
 )
 
 type hub struct {
@@ -160,17 +162,17 @@ func TestPullResumeVerify(t *testing.T) {
 		t.Fatalf("second pull: skipped=%v err=%v gets %d->%d", skipped, err, before, h.gets.Load())
 	}
 
-	if err := WriteManifest(dir, Manifest{Repo: "org/repo", Commit: commit, Files: f}); err != nil {
+	if err := manifest.WriteManifest(dir, manifest.Manifest{Source: manifest.SourceHF, Name: "org/repo", Ref: commit, Files: f}); err != nil {
 		t.Fatal(err)
 	}
-	checks, err := Verify(dir, nil)
+	checks, err := manifest.Verify(dir, nil)
 	if err != nil || len(checks) != 1 || checks[0].Status != "ok" {
 		t.Fatalf("verify = %+v, %v", checks, err)
 	}
 	// Flip a byte on disk: verify must catch it.
 	got[10] ^= 1
 	_ = os.WriteFile(filepath.Join(dir, "m-Q4_K_M.gguf"), got, 0o644)
-	if checks, _ := Verify(dir, nil); checks[0].Status != "hash" {
+	if checks, _ := manifest.Verify(dir, nil); checks[0].Status != "hash" {
 		t.Fatalf("tampered file verified: %+v", checks)
 	}
 }

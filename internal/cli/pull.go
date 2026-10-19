@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/hf"
+	"github.com/T-Crypt/berth/internal/manifest"
 )
 
 // defaultModelsDir is where pulled models land: $BERTH_MODELS, else ~/models.
@@ -162,7 +163,7 @@ func runPull(c *Context) int {
 		}
 		doc.Files[i].Verified, doc.Files[i].Skipped = true, skipped
 	}
-	if err := hf.WriteManifest(dest, hf.Manifest{Repo: ref.Repo, Revision: ref.Revision, Commit: commit, Files: files, Pulled: time.Now().UTC()}); err != nil {
+	if err := manifest.WriteManifest(dest, manifest.Manifest{Source: manifest.SourceHF, Name: ref.Repo, Ref: commit, Files: files, Pulled: time.Now().UTC()}); err != nil {
 		return c.fail(Systemf("write the manifest: %v", err))
 	}
 	if !c.Machine() {
@@ -177,10 +178,10 @@ type verifyDoc struct {
 }
 
 type verifyDir struct {
-	Dir    string     `json:"dir" yaml:"dir"`
-	Repo   string     `json:"repo,omitempty" yaml:"repo,omitempty"`
-	Checks []hf.Check `json:"checks" yaml:"checks"`
-	Error  string     `json:"error,omitempty" yaml:"error,omitempty"`
+	Dir    string           `json:"dir" yaml:"dir"`
+	Name   string           `json:"name,omitempty" yaml:"name,omitempty"`
+	Checks []manifest.Check `json:"checks" yaml:"checks"`
+	Error  string           `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 type verifyView struct{ doc verifyDoc }
@@ -189,7 +190,7 @@ func (v verifyView) Data() any { return v.doc }
 
 func (v verifyView) Human(c *Context, ok bool) error {
 	if len(v.doc.Dirs) == 0 {
-		c.Printf("%s Nothing to verify: no %s under the models directory\n", c.Style.OK(markOK), hf.ManifestName)
+		c.Printf("%s Nothing to verify: no %s under the models directory\n", c.Style.OK(markOK), manifest.Name)
 		return nil
 	}
 	for _, d := range v.doc.Dirs {
@@ -197,7 +198,7 @@ func (v verifyView) Human(c *Context, ok bool) error {
 			c.Printf("%s %s: %s\n", c.Style.Err(markError), d.Dir, d.Error)
 			continue
 		}
-		c.Printf("%s\n", d.Repo+"  "+c.Style.Dim(d.Dir))
+		c.Printf("%s\n", d.Name+"  "+c.Style.Dim(d.Dir))
 		for _, ch := range d.Checks {
 			mark := c.Style.OK(markOK)
 			if ch.Status != "ok" && ch.Status != "unhashed" {
@@ -234,7 +235,7 @@ func runVerify(c *Context) int {
 			if d.IsDir() && strings.Count(strings.TrimPrefix(p, *dir), string(filepath.Separator)) > 3 {
 				return filepath.SkipDir
 			}
-			if d.Name() == hf.ManifestName {
+			if d.Name() == manifest.Name {
 				dirs = append(dirs, filepath.Dir(p))
 			}
 			return nil
@@ -244,10 +245,10 @@ func runVerify(c *Context) int {
 	live := !c.Machine() && isTerminal(c.Err)
 	for _, d := range dirs {
 		vd := verifyDir{Dir: d}
-		if m, err := hf.ReadManifest(d); err == nil {
-			vd.Repo = m.Repo
+		if m, err := manifest.ReadManifest(d); err == nil {
+			vd.Name = m.Name
 		}
-		checks, err := hf.Verify(d, func(file string, done, total int64) {
+		checks, err := manifest.Verify(d, func(file string, done, total int64) {
 			if live {
 				fmt.Fprintf(c.Err, "\rberth: hashing %s  %5.1f%%   ", file, 100*float64(done)/float64(max(total, 1)))
 			}

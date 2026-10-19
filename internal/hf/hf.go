@@ -7,8 +7,6 @@ package hf
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/manifest"
 )
 
 // Endpoint is the Hub; HF_ENDPOINT overrides it (mirrors, tests).
@@ -67,12 +67,9 @@ func ParseRef(s string) (Ref, error) {
 }
 
 // File is one file in a repo at a commit, as the Hub reports it. SHA256 is
-// set for LFS files (every model weight); small git files have none.
-type File struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256,omitempty"`
-}
+// set for LFS files (every model weight); small git files have none. It is
+// the manifest's file, so a tree entry goes straight into a record.
+type File = manifest.File
 
 // Client talks to the Hub. Token is optional (gated and private repos).
 type Client struct {
@@ -277,7 +274,7 @@ func (c *Client) Download(ctx context.Context, repo, commit string, f File, dir 
 		if f.SHA256 == "" {
 			return true, nil
 		}
-		if sum, err := HashFile(dst, nil); err == nil && sum == f.SHA256 {
+		if sum, err := manifest.HashFile(dst, nil); err == nil && sum == f.SHA256 {
 			return true, nil
 		}
 	}
@@ -359,7 +356,7 @@ func (c *Client) fetch(ctx context.Context, repo, commit string, f File, part st
 		return fmt.Errorf("%w: %s is %d bytes, the Hub says %d", ErrIntegrity, f.Path, got, f.Size)
 	}
 	if f.SHA256 != "" {
-		sum, err := HashFile(part, nil)
+		sum, err := manifest.HashFile(part, nil)
 		if err != nil {
 			return err
 		}
@@ -394,46 +391,6 @@ func (c *counter) Write(b []byte) (int, error) {
 	if c.prog != nil && (time.Since(c.last) > 500*time.Millisecond || c.n == c.total) {
 		c.last = time.Now()
 		c.prog(c.file, c.n, c.total)
-	}
-	return n, err
-}
-
-// HashFile is the sha256 of a file, reporting progress as it reads.
-func HashFile(p string, prog func(done, total int64)) (string, error) {
-	f, err := os.Open(p)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	var r io.Reader = f
-	if prog != nil {
-		r = &progReader{r: f, total: st.Size(), prog: prog}
-	}
-	if _, err := io.Copy(h, r); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-type progReader struct {
-	r     io.Reader
-	n     int64
-	total int64
-	prog  func(done, total int64)
-	last  time.Time
-}
-
-func (p *progReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	p.n += int64(n)
-	if time.Since(p.last) > 500*time.Millisecond || err == io.EOF {
-		p.last = time.Now()
-		p.prog(p.n, p.total)
 	}
 	return n, err
 }
