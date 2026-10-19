@@ -50,6 +50,34 @@ materialised, and the environment that decides which file that is.
 		},
 	},
 	{
+		Name:    "civitai",
+		Summary: "search and browse CivitAI, for finding things to pull",
+		Help: `CivitAI is a search and a listing, not a pull: search finds a model and its
+version ids, and a pull takes them: berth pull civitai:<version-id>. A model
+id pulls its latest version: berth pull civitai:model:<model-id>.`,
+		Sub: []*Command{
+			{
+				Name:    "search",
+				Summary: "search CivitAI's models by query and asset kind",
+				Args:    "QUERY [--type T]... [--limit N] [--token-env V] [--format F]",
+				Help: `Ask CivitAI for models matching QUERY. Public models need no key; --token-env
+names the environment variable holding an API key when you want gated results.
+The printed ids are what berth pull takes.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runCivitaiSearch,
+			},
+			{
+				Name:    "versions",
+				Summary: "list a CivitAI model's versions, newest first",
+				Args:    "MODEL_ID [--token-env V] [--format F]",
+				Help: `List the versions of a model, newest first, with the version ids a pull
+takes. The id of the first line is what civitai:model:<MODEL_ID> resolves to.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runCivitaiVersions,
+			},
+		},
+	},
+	{
 		Name:    "daemon",
 		Summary: "run the broker for one card (berthd)",
 		Args:    "[flags]",
