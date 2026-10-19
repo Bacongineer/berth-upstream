@@ -8,9 +8,7 @@ package hf
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,8 +18,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/T-Crypt/berth/internal/dl"
 	"github.com/T-Crypt/berth/internal/manifest"
 )
 
@@ -260,11 +258,19 @@ func Missing(sel []File) []string {
 type Progress func(file string, done, total int64)
 
 // ErrIntegrity marks a file whose size or sha256 does not match the Hub's.
-var ErrIntegrity = errors.New("integrity check failed")
+var ErrIntegrity = dl.ErrIntegrity
 
 // Download fetches f from repo@commit into dir, resuming dir/<path>.part,
 // and renames it into place only after the size and the sha256 match.
 // A file already in place with the right size and hash is skipped.
+func escapePath(p string) string {
+	parts := strings.Split(p, "/")
+	for i, s := range parts {
+		parts[i] = url.PathEscape(s)
+	}
+	return strings.Join(parts, "/")
+}
+
 func (c *Client) Download(ctx context.Context, repo, commit string, f File, dir string, prog Progress) (skipped bool, err error) {
 	dst := filepath.Join(dir, filepath.FromSlash(f.Path))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -278,119 +284,24 @@ func (c *Client) Download(ctx context.Context, repo, commit string, f File, dir 
 			return true, nil
 		}
 	}
-	part := dst + ".part"
-	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case <-time.After(time.Duration(attempt*attempt) * time.Second):
-			}
-		}
-		lastErr = c.fetch(ctx, repo, commit, f, part, prog)
-		if lastErr == nil || errors.Is(lastErr, ErrIntegrity) || ctx.Err() != nil {
-			break
-		}
+	var p func(done, total int64)
+	if prog != nil {
+		p = func(done, total int64) { prog(f.Path, done, total) }
 	}
-	if lastErr != nil {
-		return false, lastErr
+	spec := dl.FetchSpec{
+		URL:    fmt.Sprintf("%s/%s/resolve/%s/%s", c.base(), repo, commit, escapePath(f.Path)),
+		Part:   dst + ".part",
+		Dest:   dst,
+		Size:   f.Size,
+		SHA256: f.SHA256,
+		Prog:   p,
+		Label:  "the Hub",
 	}
-	return false, os.Rename(part, dst)
-}
-
-// fetch appends to part from its current size, then checks the whole file.
-func (c *Client) fetch(ctx context.Context, repo, commit string, f File, part string, prog Progress) error {
-	out, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
+	if c.Token != "" {
+		spec.Header = map[string]string{"Authorization": "Bearer " + c.Token}
 	}
-	defer out.Close()
-	st, err := out.Stat()
-	if err != nil {
-		return err
+	if err := dl.Retry(ctx, c.http(), spec, 5); err != nil {
+		return false, err
 	}
-	have := st.Size()
-	if have > f.Size {
-		// A part longer than the file is from something else: start over.
-		if err := out.Truncate(0); err != nil {
-			return err
-		}
-		have = 0
-	}
-	if have < f.Size {
-		u := fmt.Sprintf("%s/%s/resolve/%s/%s", c.base(), repo, commit, escapePath(f.Path))
-		hdr := map[string]string{}
-		if have > 0 {
-			hdr["Range"] = fmt.Sprintf("bytes=%d-", have)
-		}
-		resp, err := c.get(ctx, u, hdr)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if err := status(resp, repo+"/"+f.Path); err != nil {
-			return err
-		}
-		if have > 0 && resp.StatusCode != http.StatusPartialContent {
-			// The server ignored the range: what follows is the whole file.
-			if err := out.Truncate(0); err != nil {
-				return err
-			}
-			have = 0
-		}
-		w := &counter{w: out, n: have, total: f.Size, file: f.Path, prog: prog}
-		if _, err := io.Copy(w, resp.Body); err != nil {
-			return err
-		}
-	}
-	if err := out.Sync(); err != nil {
-		return err
-	}
-	if st, err := os.Stat(part); err != nil || st.Size() != f.Size {
-		got := int64(-1)
-		if st != nil {
-			got = st.Size()
-		}
-		_ = os.Remove(part)
-		return fmt.Errorf("%w: %s is %d bytes, the Hub says %d", ErrIntegrity, f.Path, got, f.Size)
-	}
-	if f.SHA256 != "" {
-		sum, err := manifest.HashFile(part, nil)
-		if err != nil {
-			return err
-		}
-		if sum != f.SHA256 {
-			_ = os.Remove(part)
-			return fmt.Errorf("%w: %s sha256 %s, the Hub says %s", ErrIntegrity, f.Path, sum, f.SHA256)
-		}
-	}
-	return nil
-}
-
-func escapePath(p string) string {
-	parts := strings.Split(p, "/")
-	for i, s := range parts {
-		parts[i] = url.PathEscape(s)
-	}
-	return strings.Join(parts, "/")
-}
-
-type counter struct {
-	w     io.Writer
-	n     int64
-	total int64
-	file  string
-	prog  Progress
-	last  time.Time
-}
-
-func (c *counter) Write(b []byte) (int, error) {
-	n, err := c.w.Write(b)
-	c.n += int64(n)
-	if c.prog != nil && (time.Since(c.last) > 500*time.Millisecond || c.n == c.total) {
-		c.last = time.Now()
-		c.prog(c.file, c.n, c.total)
-	}
-	return n, err
+	return false, nil
 }
