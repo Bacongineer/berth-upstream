@@ -288,7 +288,7 @@ body.mode-basic .adv-only { display: none !important; }
   z-index: var(--z-rail);
 }
 .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.wordmark { font-family: var(--mono); font-size: 23px; font-weight: 700; letter-spacing: 0.5px; color: var(--ink-strong); line-height: 1; }
+.wordmark { font-family: var(--mono); font-size: clamp(17px, 1.2vw + 12px, 23px); font-weight: 700; letter-spacing: 0.5px; color: var(--ink-strong); line-height: 1; }
 .wordmark .dot { color: var(--amber); }
 .descriptor { color: var(--dim); font-size: var(--fs-label); letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mode { display: inline-flex; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
@@ -325,7 +325,7 @@ body.mode-basic .adv-only { display: none !important; }
   cursor: pointer;
   display: inline-flex; align-items: center; gap: var(--s2);
 }
-.tab:hover { color: var(--ink); }
+.tab:hover { color: var(--ink); background: color-mix(in oklab, var(--ink) 5%, transparent); }
 .tab[aria-current="page"] { color: var(--amber); border-color: var(--hair-2); background: var(--panel); }
 /* the phone's nav marks the active tab with the state vocabulary's own dot above
    the label; two classes so .si's display rule cannot win here. */
@@ -1547,7 +1547,7 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   border: 1px solid var(--edge); border-radius: var(--r2); box-shadow: var(--e1);
   background: var(--panel-3); color: var(--ink); font-size: var(--fs-label);
 }
-.sheet-item:hover { color: var(--ink-strong); border-color: var(--hair-2); }
+.sheet-item:hover { color: var(--ink-strong); border-color: var(--hair-2); background: color-mix(in oklab, var(--ink) 5%, transparent); }
 .sheet-item[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); border-color: var(--cyan-dim); }
 .sheet-hint { margin-left: auto; color: var(--dim-2); font-size: var(--fs-micro); letter-spacing: 0; }
 
@@ -1651,14 +1651,13 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
     box-shadow: var(--e3); backdrop-filter: none;
   }
   .brand { order: 0; flex: none; }
-  .wordmark { font-size: 17px; }
   .header-status { order: 1; flex: 1; min-width: 0; gap: var(--s1); flex-wrap: nowrap; }
   .app-header .mode { order: 2; flex: none; }
   .menu-btn { order: 3; display: inline-flex; width: var(--touch); height: var(--touch); }
   .node-version, .last-update, #keys-btn { display: none; }
   /* dot-compressed pills: the shape and the state word stay, the message and
      the relative age live in the menu sheet */
-  .conn { min-width: 0; min-height: var(--touch); padding: 4px 8px; gap: 5px; }
+  .conn { min-width: 0; min-height: var(--touch); padding: var(--s1) var(--s2); gap: 5px; }
   .conn .msg, .conn .ago { display: none; }
   .conn .word { overflow: hidden; text-overflow: ellipsis; }
   /* the rail shows the mode you are in and the sheet switches it. Scoped to the
@@ -1676,16 +1675,21 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
     z-index: var(--z-tabbar); align-items: stretch;
   }
   .tab {
-    flex: 1 1 0; min-width: 0; min-height: var(--touch); padding: 6px 2px;
+    flex: 1 1 0; min-width: 0; min-height: var(--touch); padding: 6px 2px; position: relative;
     border: 0; border-radius: 0; background: transparent;
     flex-direction: column; justify-content: center; gap: 4px;
     font-size: var(--fs-micro); letter-spacing: var(--track);
   }
   .tab[aria-current="page"] { border: 0; background: transparent; }
+  /* selection gets a hairline bar in the same amber the active tab word uses
+     on the wide header; the state dot below the label stays the tab's state */
+  .tab[aria-current="page"]::before {
+    content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 2px;
+    background: var(--amber); border-radius: 0 0 2px 2px;
+  }
   .tabs .tab-si { width: 6px; height: 6px; }
   .tabs .tab[aria-current="page"] .tab-si { display: inline-block; }
   .tab-long, .tab .count { display: none; }
-  .kpi { flex-basis: 150px; }
   .subnav { margin: 0 calc(-1 * var(--s4)) var(--s3); padding: 6px var(--s4); }
   /* the nav is out of flow, so the page keeps its own clearance below it, and
      anchor jumps clear the rail instead of the wide header */
@@ -1766,7 +1770,6 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
     border: 1px solid var(--edge); border-radius: var(--r2);
     background: var(--panel-3); box-shadow: var(--e1);
   }
-  .mode > .mode-btn + .mode-btn { border-left: 1px solid var(--edge); }
   .log-chips { gap: var(--s2); }
   .search { flex: 1 1 100%; }
   /* 16px or iOS zooms the page when the field takes focus (R-09) */
