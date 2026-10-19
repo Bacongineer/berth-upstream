@@ -327,9 +327,8 @@ body.mode-basic .adv-only { display: none !important; }
 }
 .tab:hover { color: var(--ink); }
 .tab[aria-current="page"] { color: var(--amber); border-color: var(--hair-2); background: var(--panel); }
-/* the phone's bottom nav marks the active tab with the state vocabulary's own
-   dot above the label (spec 4); the wide header keeps the bordered pill look.
-   Two classes because .si's own display rule must not win here. */
+/* the phone's nav marks the active tab with the state vocabulary's own dot above
+   the label; two classes so .si's display rule cannot win here. */
 .tabs .tab-si { display: none; color: var(--amber); border-radius: 50%; }
 /* the menu button is the phone rail's only spare slot; the wide header has no
    room for it and no need of it */
@@ -390,11 +389,9 @@ body.mode-basic .adv-only { display: none !important; }
 
 /* ---------- the status indicator ---------- */
 /* One vocabulary for every state word: an 8px shape in the word's own colour,
-   always followed by the word itself. The shape is load-bearing so no state
-   reads as colour alone: dot = working now, ring = waiting or passive, half =
-   in transition, triangle = needs attention, square = not running or not
-   live. The word never drops, so phones (no hover) and forced colors read the
-   same state. Surfaces that already colour the word need no colour rule here. */
+   then the word. The shape carries the state, so nothing reads as colour alone
+   on a phone or in forced colors: dot now, ring waiting, half in transition,
+   triangle needs attention, square not running. */
 .si {
   display: inline-block;
   flex: none;
@@ -433,9 +430,8 @@ body.mode-basic .adv-only { display: none !important; }
 .si-connecting, .si-stored { color: var(--dim); }
 /* the states that are happening now breathe; reduced motion stops them */
 .si-live, .si-connecting, .si-casting-off { animation: pulse-dot 2.4s ease-in-out infinite; }
-/* the data-source marker: the glyph inside each range option, and the chip in
-   the panel head that names the pressed option's source in words (a phone
-   never sees a title). */
+/* the data-source marker: the glyph in each range option, and the chip naming
+   the pressed option's source in words (a phone never sees a title). */
 .mode-btn .si { opacity: 0.85; }
 .src-chip {
   display: inline-flex; align-items: center; gap: 5px;
@@ -634,9 +630,8 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .chart-wrap.swap svg { opacity: 0.35; }
 .chart-wrap svg { transition: opacity var(--t2) var(--ease); }
 /* R-01: no word lives inside a scaled viewBox. A chart frame is the shape plus
-   the .chart-axis overlay its numbers live in, so an axis label renders at its
-   own CSS size whatever the container is doing, and the phone band stretches
-   the shape (the svg's own min-height), never the text. */
+   the .chart-axis overlay its numbers live in, so a label renders at its own CSS
+   size and the phone band stretches the shape, never the text. */
 .chart-frame { position: relative; }
 .chart-frame svg { width: 100%; height: 100%; display: block; }
 .chart-axis {
@@ -653,9 +648,8 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* axisX's word sits above the y it was given and centres on its x; axisY's
-   word right-aligns to its x and centres on its y. .total-label is the one
-   word CSS anchors the other way: its left edge lands on its x. */
+/* axisX centres on its x and sits above its y; axisY right-aligns to its x and
+   centres on its y. .total-label is anchored the other way: left edge on its x. */
 .chart-axis .axis-x { transform: translate(-50%, -100%); }
 .chart-axis .axis-y { transform: translate(-100%, -50%); }
 .chart-axis .total-label { transform: translate(0, -100%); color: var(--dim); letter-spacing: 1px; }
@@ -1521,58 +1515,37 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
 .sc-row > span:first-child { display: inline-flex; gap: 4px; }
 
 /* ---------- the phone menu sheet ---------- */
-/* The sheet is the phone's home for what the wide header says in text: the
-   node's versions, the last successful read, the retry, the shortcut list,
-   and the detail level the compressed rail can only show. It sits on the
-   bottom edge at --e3 and scrolls inside itself, like every other surface. */
+/* The phone's home for what the wide header says in text. It sits on the bottom
+   edge at --e3 and scrolls inside itself, like every other surface. */
 dialog.sheet {
-  position: fixed;
-  inset: auto 0 0 0;
-  margin: 0;
-  width: 100%;
-  max-width: none;
-  max-height: min(76vh, 560px);
-  padding: 0 0 env(safe-area-inset-bottom);
-  overflow: hidden;
-  border: 1px solid var(--hair);
-  border-bottom: 0;
-  border-radius: var(--r3) var(--r3) 0 0;
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--e3);
+  position: fixed; inset: auto 0 0 0; margin: 0; width: 100%; max-width: none;
+  max-height: min(76vh, 560px); padding: 0 0 env(safe-area-inset-bottom); overflow: hidden;
+  border: 1px solid var(--hair); border-bottom: 0; border-radius: var(--r3) var(--r3) 0 0;
+  background: var(--panel); color: var(--ink); box-shadow: var(--e3);
 }
 dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
+.sheet-head, .sheet-sect, .sheet-meta dt, .sheet-item { font-family: var(--mono); letter-spacing: var(--track); }
 .sheet-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
-  padding: var(--s2) var(--s4);
-  border-bottom: 1px solid var(--hair);
-  font-family: var(--mono); font-size: var(--fs-body); letter-spacing: var(--track);
-  color: var(--ink-strong);
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--hair);
+  font-size: var(--fs-body); color: var(--ink-strong);
 }
 .sheet-close { color: var(--dim); font-family: var(--mono); font-size: var(--fs-micro); width: auto; height: auto; min-width: var(--touch); min-height: var(--touch); padding: 6px 10px; }
 .sheet-body {
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; overflow-y: auto; padding: 0 var(--s4) var(--s4);
   max-height: calc(min(76vh, 560px) - 52px);
-  overflow-y: auto;
-  padding: 0 var(--s4) var(--s4);
 }
-.sheet-sect {
-  margin: var(--s3) 0 var(--s1);
-  font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track);
-  font-weight: 600; color: var(--amber);
-}
+.sheet-sect { margin: var(--s3) 0 var(--s1); font-size: var(--fs-micro); font-weight: 600; color: var(--amber); }
 .sheet-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px var(--s3); margin: 0; }
-.sheet-meta dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--dim); }
+.sheet-meta dt { font-size: var(--fs-micro); color: var(--dim); }
 .sheet-meta dd { margin: 0 0 var(--s2); font-size: var(--fs-body); color: var(--ink-strong); overflow-wrap: anywhere; }
 .sheet-items { display: flex; flex-direction: column; gap: var(--touch-gap); }
 .sheet-item {
   appearance: none; cursor: pointer; text-align: left;
   display: flex; align-items: center; gap: var(--s2);
   min-height: var(--touch); padding: var(--s2) var(--s3);
-  border: 1px solid var(--edge); border-radius: var(--r2);
-  background: var(--panel-3); color: var(--ink);
-  font-family: var(--mono); font-size: var(--fs-label); letter-spacing: var(--track);
-  box-shadow: var(--e1);
+  border: 1px solid var(--edge); border-radius: var(--r2); box-shadow: var(--e1);
+  background: var(--panel-3); color: var(--ink); font-size: var(--fs-label);
 }
 .sheet-item:hover { color: var(--ink-strong); border-color: var(--hair-2); }
 .sheet-item[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); border-color: var(--cyan-dim); }
@@ -1688,9 +1661,8 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .conn { min-width: 0; min-height: var(--touch); padding: 4px 8px; gap: 5px; }
   .conn .msg, .conn .ago { display: none; }
   .conn .word { overflow: hidden; text-overflow: ellipsis; }
-  /* the rail's density segment shows the mode you are in; the sheet switches
-     it. Scoped to the header, because the range pickers are .mode-btn too and
-     every one of their options stays visible on a phone (R-06). */
+  /* the rail shows the mode you are in and the sheet switches it. Scoped to the
+     header: the range pickers are .mode-btn too and keep every option (R-06). */
   .app-header .mode > .mode-btn { min-height: var(--touch); padding: 8px 10px; display: none; }
   .app-header .mode > .mode-btn[aria-pressed="true"] { display: inline-flex; }
   .descriptor { display: none; }
@@ -1720,11 +1692,9 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   #main { padding: var(--s4) var(--s4) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s5)); }
   .app-footer { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s4)); }
   .panel { scroll-margin-top: calc(var(--rail-h) + var(--s2)); }
-  /* R-04: the 760px grid was a silent scroller here (H1 read 469px of a row
-     off the right edge). Each row becomes a card of three short lines - ticket
-     and state, the vessel and its class, then the three numbers - because 275px
-     of card fits neither seven columns nor seven inline labels. The column head
-     is gone on this band, so every cell paints its own label from data-label. */
+  /* R-04: the 760px grid scrolled silently here (H1 read 469px of a row off the
+     edge). 275px of card fits neither seven columns nor seven inline labels, so
+     a row is three short lines and each cell paints its own label. */
   .board { overflow-x: visible; }
   .board-head { display: none; }
   .board-row {
@@ -1767,25 +1737,17 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .digit { width: 30px; height: 40px; }
   .reel span { height: 40px; line-height: 40px; font-size: 20px; }
   /* R-05: every control a thumb can land on clears --touch (44px) on this band,
-     the section rail and the board's sort heads included. The odometer digits
-     above are the read-out, not a control. */
-  .chip { min-height: var(--touch); padding: 8px 12px; }
-  .collapse-btn { width: var(--touch); height: var(--touch); }
-  .log-pause { min-height: var(--touch); padding: 8px 12px; }
-  .log-why { min-height: var(--touch); padding: 8px 12px; }
-  .icon-btn { width: var(--touch); height: var(--touch); }
-  .subnav a { min-height: var(--touch); padding: 8px 14px; }
-  .bhead-btn { min-height: var(--touch); }
-  .board-row { min-height: var(--touch); }
-  .alert-card .alert-dismiss { min-width: var(--touch); min-height: var(--touch); margin: -8px -6px -8px 0; }
-  .jump-btn { min-height: var(--touch); padding: 8px 14px; }
-  .retry-btn { min-height: var(--touch); padding: 8px 12px; }
-  .lth { min-height: var(--touch); }
-  .ticket-act, .ticket-close { min-height: var(--touch); padding: 8px 12px; }
+     the section rail and the board's sort heads included. The digits above are
+     the read-out, not a control. */
+  .chip, .log-pause, .log-why, .retry-btn, .ticket-act, .ticket-close { min-height: var(--touch); padding: 8px 12px; }
+  .jump-btn, .subnav a { min-height: var(--touch); padding: 8px 14px; }
+  .bhead-btn, .lth, .board-row { min-height: var(--touch); }
+  .icon-btn, .collapse-btn, .search .clear-btn { width: var(--touch); height: var(--touch); }
   /* the hit area reaches past the pill's own padding: a thumb on a phone
      should not have to aim at a 24 px glyph */
-  .toast-close { min-width: var(--touch); min-height: var(--touch); }
-  .conn .retry { min-width: var(--touch); min-height: var(--touch); margin: -6px -8px -6px 0; }
+  .toast-close, .conn .retry, .alert-card .alert-dismiss { min-width: var(--touch); min-height: var(--touch); }
+  .alert-card .alert-dismiss { margin: -8px -6px -8px 0; }
+  .conn .retry { margin: -6px -8px -6px 0; }
   /* every chart's shape, not its words, takes the phone's minimum height: an
      axis label has had room to be 13 px since the frame stopped scaling text */
   .chart-frame { min-height: 160px; }
@@ -1793,9 +1755,8 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .residency-canvas { height: 160px; }
   .kpi-label { font-size: var(--fs-label); }
   .kpi { flex-basis: 100%; }
-  /* R-09: the joined segmented look hides where one option ends, and a 4px gap
-     between chips is under a thumb's aim. Pickers become separate chips and the
-     log's chips get 8px between them. */
+  /* R-09: a joined segment hides where an option ends and 4px between chips is
+     under a thumb's aim. Pickers become chips; log chips get 8px. */
   .mode {
     gap: var(--touch-gap); border: 0; background: transparent; box-shadow: none;
     overflow: visible; flex-wrap: wrap;
@@ -1810,7 +1771,7 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .search { flex: 1 1 100%; }
   /* 16px or iOS zooms the page when the field takes focus (R-09) */
   .search input { min-height: var(--touch); padding-right: 48px; font-size: var(--input-fs-phone); }
-  .search .clear-btn { width: var(--touch); height: var(--touch); right: 0; }
+  .search .clear-btn { right: 0; }
   .skip-link { min-height: var(--touch); padding: 10px 14px; }
   .toast-host { right: var(--s2); left: var(--s2); bottom: calc(var(--tabbar-h) + var(--s2)); max-width: none; }
   .trow { grid-template-columns: 110px minmax(0, 1fr); }
