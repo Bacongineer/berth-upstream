@@ -1,6 +1,6 @@
 // The departures board: split-flap tiles, one tile per character.
 // Rows are real buttons so Tab reaches every voyage and Enter opens its ticket.
-import { el, fmtBytes } from "./util.js";
+import { el, fmtBytes, siEl, STATE_SI } from "./util.js";
 import { icon, flash, prefersReduced } from "./ui.js";
 const COLS = ["ticket", "vessel", "berth", "cls", "hold", "status", "time"];
 // Columns the header can sort. The board keeps the broker's queue order
@@ -85,7 +85,16 @@ function makeRow(key, onOpen) {
   for (const c of COLS) {
     const cell = el("div", c === "ticket" ? "cell lease-id-cell" : "cell");
     cell.dataset.col = c;
+    // the phone's card variant has no column head, so each cell carries its own
+    // label and CSS paints it
+    cell.dataset.label = HEADS[c];
     cell._tiles = [];
+    if (c === "status") {
+      // Every status word leads with its shape, so the state reads without
+      // colour. Tiles append after it, so it stays the cell's first child.
+      cell._si = siEl(STATE_SI.active);
+      cell.append(cell._si);
+    }
     btn.append(cell);
     btn._cells[c] = cell;
   }
@@ -112,6 +121,15 @@ function flipTile(tile, ch, delay) {
     tile._endBound = true;
   }
 }
+// the state glyph a status cell leads with: the five words are the vocabulary,
+// so a state never looks one way on the board and another in the log
+function syncSi(cell, st) {
+  const name = STATE_SI[st];
+  if (!cell || !cell._si || !name) return;
+  const cls = "si si-" + name;
+  if (cell._si.className !== cls) cell._si.className = cls;
+}
+
 // Reconcile a cell's tiles with new text. tone: "" | cyan | amber | magenta | dim
 function updateCell(cell, text, tone) {
   const chars = Array.from(String(text));
@@ -146,7 +164,11 @@ export class Board {
     this.rows = new Map(); // key -> button
     this.prevState = new Map(); // key -> status word, for the change flash
     this.empty = el("div", "board-empty", "No voyages. All berths free.");
-    this.root.append(this.head, this.empty);
+    /* the rows sit in their own box: on a phone the board stops being a
+       horizontal scroller, and the foot (the count and the order, the board's
+       one announcement) stays outside the rows where it is always readable */
+    this.rowsEl = el("div", "board-rows");
+    this.root.append(this.head, this.rowsEl, this.empty);
     // the foot is the board's one announcement: the voyage count and the
     // order, not 200 flapping tiles inside a live region
     this.foot = el("div", "board-foot");
@@ -191,13 +213,14 @@ export class Board {
       updateCell(c.cls, fit(CLASS[l.priority] || l.priority || "", WIDTH.cls), "");
       updateCell(c.hold, fit(hold, WIDTH.hold), "");
       // status cell: flip tiles, then the contested flag
+      syncSi(c.status, st);
       updateCell(c.status, fit(statusText(st), WIDTH.status), tone);
       syncContest(c.status, l.contested);
       updateCell(c.time, fit(ageText(l.age_seconds), WIDTH.time), "");
       row.setAttribute("aria-label", "open ticket " + l.id + ", " + l.engine + ", " + statusText(st).toLowerCase());
       if (l.contested > 0) row.title = "granted while holders without a lease kept " + fmtBytes(l.contested) + " on this card";
       else row.removeAttribute("title");
-      this.root.append(row); // keeps DOM order = display order
+      this.rowsEl.append(row); // keeps DOM order = display order
       i += 1;
     }
     for (const [key, row] of this.rows) {

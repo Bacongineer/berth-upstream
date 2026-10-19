@@ -4,7 +4,7 @@
 import {
   $, el, fmtGiB, fmtMiB, fmtAge, fmtClock, fmtDate, fmtClockShort, pad,
   isNA, na, fmtPct, fmtMS, fmtTok, fmtBytes, fmtDayShort,
-  kindWord, kindGroup, kindCss, berthLabel,
+  kindWord, kindGroup, kindCss, berthLabel, kindSi, siEl,
 } from "./util.js";
 import { Board } from "./board.js";
 import { PriorityView } from "./priority.js";
@@ -122,8 +122,9 @@ let connPill, statePill, nodeVersion, lastUpdate, demoStrip, alertStripEl;
 let odometerReels, counterSince, counterMeta;
 let ctiles;
 let logList, logNote, logMeta, refusalTallyEl, logCountEl, logWrapEl, logJumpEl, logSearchInput;
-let shortcutsDlg;
+let shortcutsDlg, railMenuDlg;
 let lastLogSig = null; // filter+query+pause signature: repaint only on change, append otherwise
+let clearLogFilter = null; // set by buildLogSearch: the page's Esc reaches it (R-07)
 let lastTick = 0; // the relative-time ticker's own 1 s cadence
 let berthsRoot, stowRoot, notickRoot, machineRoot, machineCharts, machineMeta, socketLine;
 let kpiStripEl, tideEl, tideLegend, tideMeta;
@@ -157,6 +158,7 @@ function main() {
   logWrapEl = $("log-wrap");
   logJumpEl = $("log-jump");
   shortcutsDlg = $("shortcuts");
+  railMenuDlg = $("rail-menu");
   berthsRoot = $("berths");
   stowRoot = $("stowaways");
   notickRoot = $("noticket");
@@ -229,6 +231,45 @@ function main() {
   }
 }
 
+// ---------------- the data-source marker ----------------
+// Each range picker says where its numbers come from: the live node or its
+// store. The glyph inside the option, its accessible name and the chip in the
+// panel head all read the pressed option's data-src, so the source is stated
+// where a title cannot be read (R-06). "ALL" on the counter is the node's own
+// board, not the store.
+const SRC_WORDS = {
+  "5m": "5 minutes", "15m": "15 minutes", "1h": "1 hour", "6h": "6 hours",
+  "24h": "24 hours", "7d": "7 days", "30d": "30 days", all: "the whole board",
+};
+const SRC_CHIP = { live: "LIVE", stored: "STORED" };
+// wireSourceMarkers gives every range option its glyph and its named source,
+// once at startup: the source of a range never changes.
+function wireSourceMarkers() {
+  for (const b of document.querySelectorAll(".range-group .mode-btn")) {
+    const src = b.dataset.src;
+    if (!src) continue;
+    b.prepend(siEl(src));
+    const words = SRC_WORDS[b.dataset.range] || b.dataset.range;
+    b.setAttribute("aria-label", words + ", " + src);
+  }
+}
+// paintSourceChip names the pressed option's source in words in the panel head,
+// beside the same glyph the option carries.
+function paintSourceChip(groupId, range) {
+  const group = $(groupId);
+  if (!group) return;
+  const btn = group.querySelector('[data-range="' + range + '"]');
+  const src = btn ? btn.dataset.src : "";
+  if (!src) return;
+  let chip = group.nextElementSibling;
+  if (!chip || !chip.classList.contains("src-chip")) {
+    chip = el("span", "src-chip");
+    group.insertAdjacentElement("afterend", chip);
+  }
+  chip.replaceChildren(siEl(src), el("span", null, SRC_CHIP[src] || src.toUpperCase()));
+  chip.classList.toggle("is-live", src === "live");
+}
+
 // ---------------- range pickers ----------------
 // The tide's picker drives /v1/history for the tide and the throughput
 // charts; the leaderboard's drives /v1/insights for the ledger and the
@@ -243,6 +284,7 @@ function wireRangePickers() {
   for (const b of document.querySelectorAll("#counter-range .mode-btn")) {
     b.addEventListener("click", () => setCounterRange(b.dataset.range, true));
   }
+  wireSourceMarkers();
   paintCounterRange();
 }
 function setCounterRange(r, persist) {
@@ -261,6 +303,7 @@ function paintCounterRange() {
   for (const b of document.querySelectorAll("#counter-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.crange));
   }
+  paintSourceChip("counter-range", state.crange);
 }
 async function fetchCounterWindow() {
   if (state.crange === "all") return;
@@ -309,6 +352,7 @@ function paintRange() {
   for (const b of document.querySelectorAll("#tide-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.range));
   }
+  paintSourceChip("tide-range", state.range);
 }
 function setLbRange(r, persist) {
   if (!LB_RANGES.includes(r)) return;
@@ -345,6 +389,7 @@ function paintLbRange() {
   for (const b of document.querySelectorAll("#lb-range .mode-btn")) {
     b.setAttribute("aria-pressed", String(b.dataset.range === state.lbrange));
   }
+  paintSourceChip("lb-range", state.lbrange);
 }
 // The ledger and the leaderboard read from one insights object: the node's
 // live 24 h one by default, the stored range's once the picker leaves it.
@@ -400,8 +445,11 @@ function setMode(m, persist) {
 function applyMode() {
   document.body.classList.toggle("mode-advanced", state.mode === "advanced");
   document.body.classList.toggle("mode-basic", state.mode === "basic");
-  $("mode-basic").setAttribute("aria-pressed", String(state.mode === "basic"));
-  $("mode-advanced").setAttribute("aria-pressed", String(state.mode === "advanced"));
+  // one paint for the header's segment and the menu sheet's copy of it, so the
+  // phone (where only the pressed one shows) can never read stale
+  for (const btn of document.querySelectorAll("[data-mode]")) {
+    btn.setAttribute("aria-pressed", String(btn.dataset.mode === state.mode));
+  }
 }
 
 // ---------------- tabs ----------------
@@ -452,6 +500,7 @@ function wireChrome() {
   buildSubnav($("subnav-engines"), ENGINES_SECTIONS);
   wireCollapse();
   wireShortcuts();
+  wireRailMenu();
   // the header's clock ticks in relative time on its own second
   setInterval(() => {
     const now = Date.now();
@@ -541,6 +590,60 @@ function wireShortcuts() {
   onKey("r", () => { fetchStatus(); fetchHistory(); });
   onKey("/", (e) => { e.preventDefault(); if (logSearchInput) logSearchInput.focus(); });
   onKey("?", () => showDialog(shortcutsDlg));
+  // R-07: Esc means one thing everywhere. onKey already defers to an open dialog
+  // and to a text field, so this is the layer under them: a typed log filter.
+  onKey("Escape", () => {
+    if (state.logQuery && clearLogFilter) clearLogFilter();
+  });
+}
+// The phone's 56px rail has room for the wordmark, the two state pills, the
+// density and one more control: the menu. Its sheet holds what the wide header
+// says in text (the node's versions, the last successful read) plus the retry,
+// the shortcut list and the detail level the rail can only show. It is a native
+// dialog, so Esc closes it and focus returns to the button that opened it.
+function wireRailMenu() {
+  const btn = $("menu-btn");
+  if (btn) {
+    btn.append(icon("menu", 18));
+    btn.addEventListener("click", () => showDialog(railMenuDlg));
+  }
+  if (!railMenuDlg) return;
+  railMenuDlg.querySelector(".sheet-close").addEventListener("click", () => railMenuDlg.close());
+  for (const item of railMenuDlg.querySelectorAll("[data-mode]")) {
+    item.addEventListener("click", () => {
+      setMode(item.dataset.mode, true);
+      railMenuDlg.close();
+    });
+  }
+  const retry = $("sheet-retry");
+  if (retry) retry.addEventListener("click", () => {
+    railMenuDlg.close();
+    fetchStatus();
+    fetchHistory();
+  });
+  const keys = $("sheet-keys");
+  if (keys) keys.addEventListener("click", () => {
+    railMenuDlg.close();
+    showDialog(shortcutsDlg);
+  });
+  paintSheetMeta();
+}
+// The sheet's facts are the header's, painted where a phone can read them.
+function paintSheetMeta() {
+  if (!railMenuDlg) return;
+  const s = state.status;
+  let versions = "no status read yet";
+  if (s) versions = "node " + (s.version || "?") + (s.harbor_version ? " / harbor " + s.harbor_version : "");
+  else if (state.demo) versions = "the demo page reads no node";
+  setText($("sheet-node"), versions);
+  setText($("sheet-read"), state.lastGood
+    ? relTime(state.lastGood) + " (" + fmtClock(new Date(state.lastGood)) + ")"
+    : "no successful read yet");
+  const c = connState();
+  const why = { live: "reading the node live", stale: "no fresh status within 10 seconds",
+    down: (state.nodeDown && state.nodeDown.message) || "node unreachable",
+    demo: "fixtures from demo.json" }[c];
+  setText($("sheet-conn"), CONN_WORD[c] + " - " + why);
 }
 // Loading shimmer in the data panels until the first status lands; every
 // first render replaces its skeleton with real content or an honest note.
@@ -560,7 +663,7 @@ function paintSkeletons() {
   skel($("residency-sessions"), 3);
   skel(storageEl, 5);
 }
-// The harbor tab's voyage count and the engines tab's engine count ride on
+// The card tab's voyage count and the engines tab's engine count ride on
 // the tabs, so a glance at the header says which tab wants attention.
 function paintTabCounts(voyages, engines) {
   setTabCount($("tab-harbor"), voyages);
@@ -591,12 +694,15 @@ function connState() {
   if (Date.now() - state.lastGood > STALE_MS) return "stale";
   return "live";
 }
+// The conn pill's four states, spelled in one place: the pill, and the menu
+// sheet's copy of the same fact, never drift.
+const CONN_WORD = { live: "LIVE", stale: "STALE", down: "NODE DOWN", demo: "DEMO" };
 // The pill is a live region: it is rebuilt only when the connection state
 // itself changes, never once a second because the relative age moved.
 let connSig = null;
 function setConn() {
   const s = connState();
-  const label = { live: "LIVE", stale: "STALE", down: "NODE DOWN", demo: "DEMO" }[s];
+  const label = CONN_WORD[s];
   const down = s === "down" && state.nodeDown;
   const text = down ? label + "  " + state.nodeDown.message : label;
   const title = down ? state.nodeDown.message
@@ -606,7 +712,7 @@ function setConn() {
   connSig = sig;
   connPill.className = "conn " + s;
   connPill.title = title;
-  connPill.replaceChildren(el("span", "dot"), el("span", null, text));
+  connPill.replaceChildren(pillSi(s), el("span", "word", text));
   if (s === "live" || s === "demo") {
     const ago = el("span", "ago");
     ago.id = "conn-ago";
@@ -637,13 +743,14 @@ function paintLastUpdate() {
   if (!lastUpdate) return;
   lastUpdate.textContent = state.lastGood ? "updated " + relTime(state.lastGood) : "never read";
   lastUpdate.title = state.lastGood ? "last successful status read: " + fmtClock(new Date(state.lastGood)) : "last successful status read";
+  paintSheetMeta();
 }
 // overallState is the operator's state, reconciled against the conn pill's
-// transport state: offline when the node is down, degraded on any alert
-// level, a latched engine, or a stale read, live otherwise. The demo page
-// has no special case: the fixture's alert levels and latched engine read
-// as DEGRADED while the conn pill keeps saying DEMO.
+// transport state: DEMO on the fixture page, offline when the node is down,
+// degraded on any alert level, a latched engine, or a stale read, live
+// otherwise.
 function overallState() {
+  if (state.demo) return "demo";
   const c = connState();
   if (c === "down") return "offline";
   const lv = (state.alerts && state.alerts.levels) || {};
@@ -664,8 +771,16 @@ function paintOverall() {
   if (sig === stateSig) return;
   stateSig = sig;
   statePill.className = "conn state state-" + s;
-  statePill.replaceChildren(el("span", "dot"), el("span", null, { live: "LIVE", degraded: "DEGRADED", offline: "OFFLINE" }[s]));
+  statePill.replaceChildren(pillSi(s), el("span", "word", { live: "LIVE", degraded: "DEGRADED", offline: "OFFLINE", demo: "DEMO" }[s]));
   statePill.title = title;
+}
+
+// The conn and state pills show the state's shape. The glyph keeps the pill's
+// .dot class, so the existing .conn.<state> .dot colour rules fill it.
+function pillSi(state) {
+  const g = siEl(state);
+  g.classList.add("dot");
+  return g;
 }
 
 // ---------------- data ----------------
@@ -1027,7 +1142,8 @@ function buildKpiStrip() {
     const tile = el("div", "kpi" + (k.advOnly ? " adv-only" : ""));
     tile.title = k.title;
     const top = el("div", "kpi-top");
-    top.append(el("span", "kpi-label", k.label));
+    const label = el("span", "kpi-label", k.label);
+    top.append(label);
     const unit = el("span", "kpi-unit", k.unit);
     top.append(unit);
     const value = el("div", "kpi-value");
@@ -1040,7 +1156,7 @@ function buildKpiStrip() {
       holder.append(sparkCtl.el);
       tile.append(holder);
     }
-    kpiTiles[k.key] = { tile, value, spark: sparkCtl, unit };
+    kpiTiles[k.key] = { tile, value, spark: sparkCtl, unit, label };
     kpiStripEl.append(tile);
   }
 }
@@ -1088,7 +1204,26 @@ function updateKpiStrip(s) {
     const l = k.alertKey ? lv[k.alertKey] : "";
     t.tile.classList.toggle("lvl-warn", l === "warn");
     t.tile.classList.toggle("lvl-crit", l === "crit");
+    setKpiLevel(t, l);
   }
+}
+// A KPI's level reads as the attention shape beside its word, so warn and crit
+// do not depend on the tile's colour alone.
+function setKpiLevel(t, l) {
+  const want = l === "warn" || l === "crit" ? l : "";
+  let g = t.label._si;
+  if (!want) {
+    if (g) g.hidden = true;
+    return;
+  }
+  if (!g) {
+    g = siEl(want);
+    t.label.prepend(g);
+    t.label._si = g;
+  }
+  g.hidden = false;
+  const cls = "si si-" + want;
+  if (g.className !== cls) g.className = cls;
 }
 
 // ---------------- alerts ----------------
@@ -1226,7 +1361,7 @@ function paintAlerts(s) {
       lastAlertSig = null;
       paintAlerts(state.status || s);
     });
-    card.append(badge, text, when, dismiss);
+    card.append(siEl(lv[k] === "crit" ? "crit" : "warn"), badge, text, when, dismiss);
     alertStripEl.append(card);
   }
 }
@@ -1799,18 +1934,22 @@ function buildLogSearch() {
     paintLog();
   });
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && input.value) { input.value = ""; state.logQuery = ""; wrap.classList.remove("has-text"); paintLog(); }
+    if (e.key === "Escape" && input.value) clearLogFilter();
     else if (e.key === "Escape") input.blur();
   });
   const clear = el("button", "clear-btn");
   clear.type = "button";
   clear.setAttribute("aria-label", "clear the log filter");
   clear.append(icon("close", 12));
-  clear.addEventListener("click", () => {
+  // one clear for the button, the field's own Esc and the page's Esc (R-07)
+  clearLogFilter = () => {
     input.value = "";
     state.logQuery = "";
     wrap.classList.remove("has-text");
     paintLog();
+  };
+  clear.addEventListener("click", () => {
+    clearLogFilter();
     input.focus();
   });
   wrap.append(input, clear);
@@ -1929,6 +2068,8 @@ function makeLogRow(e) {
   const at = new Date(e.at);
   const row = el("div", "log-row" + (kindCss(e.kind) ? " " + kindCss(e.kind) : ""));
   const detail = el("span", "ld", e.detail || "");
+  // the phone's 2-line row ellipsises both words, so the whole of each rides on title
+  detail.title = e.detail || "";
   if (e.kind === "lease.juggle") {
     const why = el("button", "log-why", "why");
     why.type = "button";
@@ -1936,7 +2077,16 @@ function makeLogRow(e) {
     why.addEventListener("click", showPriority);
     detail.append(" ", why);
   }
-  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), el("span", "lk", kindWord(e.kind)), el("span", "le", e.engine || e.lease || ""), el("span", "lb", fmtMiB(e.bytes)), detail);
+  const lk = el("span", "lk");
+  // the kind word leads with the shape of the state it names
+  const ks = kindSi(e.kind);
+  if (ks) lk.append(siEl(ks));
+  lk.append(kindWord(e.kind));
+  const engineText = e.engine || e.lease || "";
+  const engine = el("span", "le", engineText);
+  engine.title = engineText;
+  row.append(el("span", "lt", Number.isNaN(at.getTime()) ? String(e.at || "") : fmtClock(at)), lk, engine,
+    el("span", "lb", fmtMiB(e.bytes)), detail);
   e._row = row;
   return row;
 }

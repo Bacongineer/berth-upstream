@@ -121,15 +121,17 @@ berth harbor                                              # the web UI on http:/
 
 ## Preview
 
-The harbor on an RTX 4090 running NInfer through llama-swap (real data, basic mode). The tide shows
-the card's memory by holder over six hours; the hatched stretch is a stowaway Berth reported while
-the model ran without a lease after a daemon restart.
+The harbor UI (basic mode, served from the built-in demo fixture - every number on the screen
+comes from `demo.json`). The tide shows the card's memory by holder over six hours; the
+hatched stretch is a stowaway the fixture replays: a model that ran without a lease after a
+daemon restart, reported and left alone.
 
-<p align="center"><img src="assets/preview-harbor.png" alt="Berth harbor: ticket counter, request KPIs, the tide of card memory by holder, and the model timeline" width="900"></p>
+<p align="center"><img src="assets/preview-harbor.png" alt="Berth harbor: the CARD tab with ticket counter, request KPIs, the tide of card memory by holder, and the model timeline" width="900"></p>
 
-The Engines &amp; Requests tab: decode throughput, the token ledger and the per-model leaderboard.
+The Engines tab (advanced mode): decode throughput, the token ledger, the per-model
+leaderboard, storage and residency.
 
-<p align="center"><img src="assets/preview-requests.png" alt="Berth harbor Engines and Requests tab: decode throughput per engine, the token ledger and the per-model leaderboard" width="900"></p>
+<p align="center"><img src="assets/preview-requests.png" alt="Berth harbor Engines tab, advanced mode: decode throughput per engine, the token ledger, the per-model leaderboard, storage and residency" width="900"></p>
 
 ## Install
 

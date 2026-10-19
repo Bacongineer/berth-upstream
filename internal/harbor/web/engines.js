@@ -1,10 +1,13 @@
 // Engine cards plus the request analytics (token ledger, leaderboard, recent
 // requests). Engine sparklines are browser-sampled, decoded and prefilled from
 // each poll; the ledger/leaderboard/recent come from the node's insights.
-import { el, fmtGiB, fmtNum, fmtAge, fmtClock, fmtTok, fmtPct, fmtMS, na, fmtClockShort, fmtDayShort } from "./util.js";
+import { el, fmtGiB, fmtNum, fmtAge, fmtClock, fmtTok, fmtPct, fmtMS, na, fmtClockShort, fmtDayShort, siEl } from "./util.js";
 import { PAL } from "./palette.js";
 import { sparkline, lineChart } from "./charts.js";
 const HIST = 60;
+// the state word and its shape, in the shared vocabulary: a dot is working,
+// a ring has gone quiet, a square is not running
+const ENG_SI = { up: "up", latched: "latched", down: "offline", offline: "offline" };
 // The stored pool chart reads the same range words and step notes the tide
 // and throughput panels show, so the engines tab reads as one instrument.
 const RANGE_WORD = { "1h": "last hour", "6h": "last 6h", "24h": "last 24h", "7d": "last 7d", "30d": "last 30d" };
@@ -23,7 +26,12 @@ function makeCard(eng) {
   const top = el("div", "engine-top");
   const name = el("span", "engine-name", eng.name || "?");
   const type = el("span", "engine-type", (eng.type || "").toUpperCase());
-  const updown = el("span", "engine-state", eng.up ? "UP" : "OFFLINE");
+  // the state chip leads with the shape, so up / unresponsive / offline read
+  // without colour; the word beside it never changes
+  const updown = el("span", "engine-state");
+  updown._si = siEl(ENG_SI[eng.up ? "up" : "offline"]);
+  updown._word = el("span", null, eng.up ? "UP" : "OFFLINE");
+  updown.append(updown._si, updown._word);
   top.append(name, type, updown);
   card.append(top);
   const error = el("div", "engine-error", eng.error || "");
@@ -137,7 +145,8 @@ export class EngineView {
       // answering, offline was never confirmed up. Old nodes send no state:
       // derive it.
       const st = eng.state || (eng.up ? "up" : "down");
-      c.updown.textContent = { up: "UP", latched: "UNRESPONSIVE", down: "OFFLINE", offline: "OFFLINE" }[st] || "OFFLINE";
+      c.updown._word.textContent = { up: "UP", latched: "UNRESPONSIVE", down: "OFFLINE", offline: "OFFLINE" }[st] || "OFFLINE";
+      c.updown._si.className = "si si-" + (ENG_SI[st] || "offline");
       c.card.className = "engine-card" + (st === "up" ? "" : st === "latched" ? " latched" : " offline");
       c.card.title = st === "latched" ? "was up; readings stale" : "";
       c.error.textContent = st === "up" ? "" : eng.error || "";

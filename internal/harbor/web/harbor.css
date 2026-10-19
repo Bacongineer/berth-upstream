@@ -16,7 +16,7 @@
   --edge: #5d7ea6; /* control borders: 4.1:1 on panel, 4.4:1 on panel-3 */
   --ink: #cbd8e8;
   --ink-strong: #f0f5fa;
-  --dim: #8ba0b8; /* 6.7:1 on panel, secondary text */
+  --dim: #8ba0b8; /* 6.4:1 on panel, secondary text */
   --dim-2: #7b90a8; /* 5.2:1 on panel, tertiary text */
   --cyan: #7ad4f2;
   --cyan-wash: #25455c; /* pressed fills: cyan text on it is 6.0:1 */
@@ -75,22 +75,51 @@
   --tip-bg: rgba(12, 19, 30, 0.97);
   --scrim: rgba(4, 7, 12, 0.8);
   --chrome: rgba(10, 16, 23, 0.9);
-  --shadow: 0 10px 28px rgba(2, 5, 9, 0.45);
-  --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.68);
+  /* elevation: 4 levels, higher = more hover over the page */
+  --e1: 0 1px 2px rgba(2, 5, 9, 0.42);       /* tiles, chips, segments */
+  --e2: 0 2px 10px rgba(2, 5, 9, 0.50);      /* panels at rest */
+  --e3: 0 10px 28px rgba(2, 5, 9, 0.55);     /* floating: bottom nav, menu, alerts, toasts */
+  --e4: 0 24px 70px rgba(0, 0, 0, 0.68);     /* dialogs */
+  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.035); /* top light on every raised surface */
+  --ring-1: 0 0 0 1px var(--hair);           /* hairline under everything raised */
+  /* --shadow / --shadow-pop are aliases of the scale, so untouched rules survive */
+  --shadow: var(--e2);
+  --shadow-pop: var(--e4);
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --prose: system-ui, "Segoe UI", Roboto, sans-serif;
   /* 8pt spacing scale */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 40px; --s8: 48px;
+  /* spacing rhythm: a component names the rhythm it wants, not the raw step */
+  --pad-page: var(--s5);      /* page gutter; phone: --s4 */
+  --pad-panel: var(--s4);     /* inside a panel; phone: --s3 */
+  --gap-rows: var(--s2);      /* rows inside a board, log or table */
+  --gap-cluster: var(--s3);   /* controls inside a toolbar or panel head */
+  --gap-section: var(--s5);   /* between panels; phone stays --s4 */
   /* radii */
   --r1: 4px; --r2: 8px; --r3: 12px; --r-pill: 999px;
   /* motion */
   --t1: 120ms; --t2: 200ms; --t3: 340ms;
   --ease: cubic-bezier(0.3, 0.7, 0.3, 1);
-  /* type */
+  /* type scale - one ladder, bumped in one place on phones */
   --fs-micro: 10px; --fs-small: 11px; --fs-label: 12px; --fs-body: 13px; --fs-mid: 15px;
+  --fs-num: 26px;   /* odometer reel digits and KPI values; the 18px cvalue is its own step */
+  --track: 2px;     /* uppercase letter-spacing; phones use 1px */
+  /* touch + inputs (phones) */
+  --touch: 44px;        /* minimum phone target */
+  --touch-gap: 4px;     /* gap between joined segments; the halo reaches 8px combined */
+  --input-fs-phone: 16px; /* keeps iOS from zooming a focused input */
   /* chrome */
   --header-h: 60px;
-  --z-tip: 40; --z-toast: 60;
+  --rail-h: 56px;      /* the phone's one top row (R-02) */
+  --tabbar-h: 56px;    /* the phone's fixed bottom nav */
+  /* z scale: dialogs live in the native top layer and need none */
+  --z-sticky: 15;  /* section rail */
+  --z-rail: 20;    /* app header / phone top rail */
+  --z-tabbar: 25;  /* phone bottom nav */
+  --z-menu: 30;    /* rail menu sheet */
+  --z-tip: 40;     /* chart tooltips */
+  --z-toast: 60;
+  --z-skip: 70;    /* skip link */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -124,7 +153,7 @@ body {
   position: absolute;
   left: var(--s3);
   top: -60px;
-  z-index: 70;
+  z-index: var(--z-skip);
   background: var(--panel);
   color: var(--ink-strong);
   border: 1px solid var(--cyan);
@@ -256,10 +285,10 @@ body.mode-basic .adv-only { display: none !important; }
   backdrop-filter: blur(6px);
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--z-rail);
 }
 .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.wordmark { font-family: var(--mono); font-size: 23px; font-weight: 700; letter-spacing: 0.5px; color: var(--ink-strong); line-height: 1; }
+.wordmark { font-family: var(--mono); font-size: clamp(17px, 1.2vw + 12px, 23px); font-weight: 700; letter-spacing: 0.5px; color: var(--ink-strong); line-height: 1; }
 .wordmark .dot { color: var(--amber); }
 .descriptor { color: var(--dim); font-size: var(--fs-label); letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mode { display: inline-flex; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
@@ -274,6 +303,9 @@ body.mode-basic .adv-only { display: none !important; }
   min-height: 32px;
   padding: 6px 14px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .mode-btn + .mode-btn { border-left: 1px solid var(--hair-2); }
 .mode-btn[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); }
@@ -293,8 +325,14 @@ body.mode-basic .adv-only { display: none !important; }
   cursor: pointer;
   display: inline-flex; align-items: center; gap: var(--s2);
 }
-.tab:hover { color: var(--ink); }
+.tab:hover { color: var(--ink); background: color-mix(in oklab, var(--ink) 5%, transparent); }
 .tab[aria-current="page"] { color: var(--amber); border-color: var(--hair-2); background: var(--panel); }
+/* the phone's nav marks the active tab with the state vocabulary's own dot above
+   the label; two classes so .si's display rule cannot win here. */
+.tabs .tab-si { display: none; color: var(--amber); border-radius: 50%; }
+/* the menu button is the phone rail's only spare slot; the wide header has no
+   room for it and no need of it */
+.menu-btn { display: none; }
 .tab .count {
   font-size: var(--fs-micro); color: var(--dim-2);
   border: 1px solid var(--hair-2); border-radius: var(--r-pill);
@@ -345,12 +383,75 @@ body.mode-basic .adv-only { display: none !important; }
 .conn.state.state-degraded .dot { background: var(--amber); }
 .conn.state.state-offline { color: var(--strip-demo-ink); border-color: var(--magenta-dim); }
 .conn.state.state-offline .dot { background: var(--magenta); }
+/* the demo page has no live node, so the state pill says DEMO */
+.conn.state.state-demo { color: var(--strip-demo-ink); border-color: var(--magenta-dim); }
+.conn.state.state-demo .dot { background: var(--magenta); }
+
+/* ---------- the status indicator ---------- */
+/* One vocabulary for every state word: an 8px shape in the word's own colour,
+   then the word. The shape carries the state, so nothing reads as colour alone
+   on a phone or in forced colors: dot now, ring waiting, half in transition,
+   triangle needs attention, square not running. */
+.si {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  vertical-align: baseline;
+  background: currentColor;
+}
+/* dot: working now */
+.si.si-dot, .si.si-docked, .si.si-live, .si.si-up { border-radius: 50%; }
+/* ring: waiting or passive. The shapes are masks and clip paths, never a
+   background of their own, so the surface's colour rule still fills them. */
+.si.si-ring, .si.si-boarding, .si.si-adrift, .si.si-stale, .si.si-latched, .si.si-connecting {
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 0 40%, #000 45%);
+  mask: radial-gradient(circle, transparent 0 40%, #000 45%);
+}
+/* half: in transition */
+.si.si-half, .si.si-casting-off {
+  border-radius: 50%;
+  -webkit-mask: conic-gradient(#000 0 50%, transparent 50% 100%);
+  mask: conic-gradient(#000 0 50%, transparent 50% 100%);
+}
+/* triangle: needs attention */
+.si.si-tri, .si.si-aground, .si.si-down, .si.si-degraded, .si.si-warn, .si.si-crit {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+/* square: not running or not live */
+.si.si-square, .si.si-demo, .si.si-offline, .si.si-stored { border-radius: 1px; }
+/* colour only where the word beside the glyph is not already the state's own */
+.si-docked { color: var(--cyan); }
+.si-live, .si-up { color: var(--green); box-shadow: 0 0 6px var(--glow-green); }
+.si-boarding, .si-casting-off, .si-stale, .si-latched, .si-degraded, .si-warn { color: var(--amber); }
+.si-aground, .si-down, .si-demo, .si-crit { color: var(--magenta); }
+.si-adrift, .si-offline { color: var(--dim-2); }
+.si-connecting, .si-stored { color: var(--dim); }
+/* the states that are happening now breathe; reduced motion stops them */
+.si-live, .si-connecting, .si-casting-off { animation: pulse-dot 2.4s ease-in-out infinite; }
+/* the data-source marker: the glyph in each range option, and the chip naming
+   the pressed option's source in words (a phone never sees a title). */
+.mode-btn .si { opacity: 0.85; }
+.src-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 1px;
+  color: var(--dim); white-space: nowrap;
+}
+.src-chip.is-live { color: var(--green); }
+/* the glyph a board status cell and a log kind word lead with */
+.board-row .cell .si { align-self: center; margin-right: 3px; }
+.log-row .lk { display: inline-flex; align-items: center; gap: 5px; }
+.log-row .lk .si { vertical-align: 0; }
+.engine-state { display: inline-flex; align-items: center; gap: 5px; }
+.alert-card .si { align-self: center; }
+.kpi-label { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---------- section sub-navigation ---------- */
 .subnav {
   position: sticky;
   top: var(--header-h);
-  z-index: 15;
+  z-index: var(--z-sticky);
   display: flex; gap: 2px;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -389,6 +490,7 @@ body.mode-basic .adv-only { display: none !important; }
   display: flex;
   align-items: center;
   gap: var(--s3);
+  min-height: var(--s8);
   padding-bottom: var(--s3);
   margin-bottom: var(--s4);
   border-bottom: 1px solid var(--hair);
@@ -404,7 +506,7 @@ body.mode-basic .adv-only { display: none !important; }
 }
 /* the range pickers share the mode switch's segmented style; the inset reads
    as a well the pressed half sits in */
-.range-group { display: inline-flex; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.range-group { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--edge); border-radius: var(--r2); overflow: hidden; background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
 .panel-meta {
   font-family: var(--mono); font-size: var(--fs-small); color: var(--dim);
   letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
@@ -432,7 +534,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 /* ---------- ticket counter ---------- */
 .counter-row { display: flex; gap: var(--s5); align-items: flex-start; }
 .odometer-block { display: flex; flex-direction: column; gap: var(--s2); flex: none; }
-.odometer-label { font-family: var(--mono); font-size: var(--fs-small); letter-spacing: 2px; color: var(--amber); }
+.odometer-label { font-family: var(--mono); font-size: var(--fs-small); letter-spacing: var(--track); color: var(--amber); }
 .odometer { display: flex; gap: 3px; }
 .digit {
   width: 40px; height: 52px;
@@ -444,7 +546,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 }
 .digit::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; opacity: 0.55; pointer-events: none; }
 .reel { display: flex; flex-direction: column; transition: transform 480ms cubic-bezier(0.3, 0.7, 0.3, 1); will-change: transform; }
-.reel span { height: 52px; line-height: 52px; text-align: center; font-family: var(--mono); font-size: 26px; color: var(--amber); font-variant-numeric: tabular-nums; }
+.reel span { height: 52px; line-height: 52px; text-align: center; font-family: var(--mono); font-size: var(--fs-num); color: var(--amber); font-variant-numeric: tabular-nums; }
 .counter-since { font-family: var(--mono); font-size: var(--fs-small); color: var(--dim); }
 .counter-tiles { display: grid; flex: 1; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 /* the panel holds seven tiles, so the seventh closes the row instead of
@@ -463,7 +565,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   transition: border-color var(--t1) var(--ease);
 }
 .ctile:hover { border-color: var(--edge); }
-.ctile .clabel { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 2px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctile .clabel { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctile .cvalue { font-family: var(--mono); font-size: 18px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 
 /* ---------- KPI strip ---------- */
@@ -471,15 +573,14 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
    in advanced, and the tiles in the last row grow to fill it instead of
    leaving the row ending early */
 .kpi-strip {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--s3);
   margin-top: var(--s4);
   padding-top: var(--s4);
   border-top: 1px solid var(--hair);
 }
 .kpi {
-  flex: 1 1 200px;
   min-width: 0;
   border: 1px solid var(--hair);
   border-radius: var(--r1);
@@ -493,9 +594,9 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 }
 .kpi:hover { border-color: var(--edge); }
 .kpi-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); }
-.kpi-label { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 2px; color: var(--dim); }
+.kpi-label { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--dim); }
 .kpi-unit { font-family: var(--mono); font-size: var(--fs-micro); color: var(--dim-2); }
-.kpi-value { font-family: var(--mono); font-size: 26px; font-weight: 600; color: var(--ink-strong); font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.75px; }
+.kpi-value { font-family: var(--mono); font-size: var(--fs-num); font-weight: 600; color: var(--ink-strong); font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.75px; }
 .kpi-spark { height: 26px; margin-top: 2px; }
 .kpi-spark svg, .kpi .chart-spark { width: 100%; height: 26px; display: block; }
 /* alert levels come from the node's sticky state: the page colors, it never re-derives */
@@ -516,8 +617,9 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 
 /* ---------- the model timeline ---------- */
 .timeline-body { display: flex; flex-direction: column; gap: var(--s2); }
-.tl-eng { fill: var(--dim-2); font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px; }
-.tl-model { fill: var(--ink-strong); font-family: var(--mono); font-size: 11.5px; }
+/* the row names are overlay words now (R-01), so they take a colour, not a fill */
+.tl-eng { color: var(--dim-2); font-size: var(--fs-micro); letter-spacing: 0.5px; }
+.tl-model { color: var(--ink-strong); font-size: var(--fs-small); }
 @keyframes tl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .tl-live { animation: tl-pulse 2.4s ease-in-out infinite; }
 
@@ -527,8 +629,30 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .chart-wrap:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .chart-wrap.swap svg { opacity: 0.35; }
 .chart-wrap svg { transition: opacity var(--t2) var(--ease); }
-.chart .axis-label text, .chart text.tick { fill: var(--dim-2); font-family: var(--mono); font-size: 11px; }
-.chart text.total-label { fill: var(--dim); font-family: var(--mono); font-size: 11px; letter-spacing: 1px; }
+/* R-01: no word lives inside a scaled viewBox. A chart frame is the shape plus
+   the .chart-axis overlay its numbers live in, so a label renders at its own CSS
+   size and the phone band stretches the shape, never the text. */
+.chart-frame { position: relative; }
+.chart-frame svg { width: 100%; height: 100%; display: block; }
+.chart-axis {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: var(--fs-small);
+  color: var(--dim-2);
+}
+.chart-axis span {
+  position: absolute;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* axisX centres on its x and sits above its y; axisY right-aligns to its x and
+   centres on its y. .total-label is anchored the other way: left edge on its x. */
+.chart-axis .axis-x { transform: translate(-50%, -100%); }
+.chart-axis .axis-y { transform: translate(-100%, -50%); }
+.chart-axis .total-label { transform: translate(0, -100%); color: var(--dim); letter-spacing: 1px; }
 .chart .total-line { opacity: 0.7; }
 .chart .crosshair { pointer-events: none; }
 .chart-tip {
@@ -570,9 +694,10 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   display: flex;
   flex-direction: column;
   gap: var(--s2);
-  /* on a phone the 712 px-min grid scrolls inside the panel instead of
-     pushing the whole page sideways */
+  /* wide-enough screens keep the 7-column grid in its own scroller; a phone
+     turns the same rows into cards (the phone band below) */
   overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 .board-cols {
   display: grid;
@@ -581,7 +706,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   align-items: center;
   padding: 2px 4px;
 }
-.board-head { color: var(--dim-2); font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 2px; }
+.board-head { color: var(--dim-2); font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track); }
 .bhead-btn {
   appearance: none; background: transparent; border: 0; padding: 4px 2px;
   color: inherit; font: inherit; letter-spacing: inherit;
@@ -699,7 +824,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .log-pause[aria-pressed="true"] { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-wash); }
 .log-count { font-family: var(--mono); font-size: var(--fs-small); color: var(--dim-2); white-space: nowrap; }
 .refusal-tally { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: var(--fs-small); margin-bottom: var(--s2); }
-.rt-label { font-size: var(--fs-micro); letter-spacing: 2px; color: var(--magenta); }
+.rt-label { font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--magenta); }
 .rt-item { color: var(--dim); }
 .rt-sep { color: var(--dim-2); }
 .log-why {
@@ -833,8 +958,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .mini-chart { border: 1px solid var(--hair); border-radius: var(--r1); background: var(--panel-3); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .mini-chart svg, .mini-chart .chart-spark { width: 100%; height: 22px; display: block; }
 .mc-label { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 1px; color: var(--dim); }
-.mc-val { font-family: var(--mono);
-...[truncated 20887 chars] font-size: var(--fs-body); color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.mc-val { font-family: var(--mono); font-size: var(--fs-body); color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 .berth-occupants { display: flex; flex-direction: column; gap: 2px; }
 .occ { display: flex; justify-content: space-between; gap: var(--s2); font-family: var(--mono); font-size: var(--fs-small); color: var(--dim); }
 .occ .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -986,7 +1110,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .recent-wrap { max-height: 460px; overflow: auto; }
 .ptable { border-collapse: collapse; font-family: var(--mono); font-size: var(--fs-label); }
 .ptable th, .ptable td { text-align: left; padding: 4px 14px 4px 0; color: var(--dim); }
-.ptable th { font-size: var(--fs-micro); letter-spacing: 2px; color: var(--dim); }
+.ptable th { font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--dim); }
 .ptable td.num, .ptable th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .priority-note { font-size: var(--fs-label); color: var(--dim); margin-bottom: var(--s2); max-width: 70ch; }
 
@@ -1089,11 +1213,9 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   width: 100%;
   height: 100%;
 }
-.residency-svg .tick {
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  fill: var(--dim);
-}
+/* the residency numbers are overlay words now (R-01); they keep their own
+   quieter colour and take the axis overlay's type */
+.residency-canvas .chart-axis { color: var(--dim); }
 .res-tip {
   position: absolute;
   z-index: var(--z-tip);
@@ -1333,7 +1455,7 @@ dialog#ticket::backdrop { background: var(--scrim); backdrop-filter: blur(3px); 
 .ticket-act:hover { background: var(--cream-wash); }
 .ticket-body { display: flex; flex-direction: column; gap: 6px; font-family: var(--mono); }
 .trow { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; align-items: baseline; }
-.tlabel { font-size: var(--fs-micro); letter-spacing: 2px; color: var(--paper-dim); }
+.tlabel { font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--paper-dim); }
 .tvalue { font-size: var(--fs-body); color: var(--paper-ink); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .stamps { display: flex; align-items: center; gap: 12px; margin-top: auto; padding: 6px 0 2px 4px; }
 .stamp {
@@ -1391,6 +1513,43 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
 .sc-list { padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
 .sc-row { display: flex; justify-content: space-between; gap: var(--s4); font-size: var(--fs-body); color: var(--dim); }
 .sc-row > span:first-child { display: inline-flex; gap: 4px; }
+
+/* ---------- the phone menu sheet ---------- */
+/* The phone's home for what the wide header says in text. It sits on the bottom
+   edge at --e3 and scrolls inside itself, like every other surface. */
+dialog.sheet {
+  position: fixed; inset: auto 0 0 0; margin: 0; width: 100%; max-width: none;
+  max-height: min(76vh, 560px); padding: 0 0 env(safe-area-inset-bottom); overflow: hidden;
+  border: 1px solid var(--hair); border-bottom: 0; border-radius: var(--r3) var(--r3) 0 0;
+  background: var(--panel); color: var(--ink); box-shadow: var(--e3);
+}
+dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
+.sheet-head, .sheet-sect, .sheet-meta dt, .sheet-item { font-family: var(--mono); letter-spacing: var(--track); }
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--hair);
+  font-size: var(--fs-body); color: var(--ink-strong);
+}
+.sheet-close { color: var(--dim); font-family: var(--mono); font-size: var(--fs-micro); width: auto; height: auto; min-width: var(--touch); min-height: var(--touch); padding: 6px 10px; }
+.sheet-body {
+  display: flex; flex-direction: column; overflow-y: auto; padding: 0 var(--s4) var(--s4);
+  max-height: calc(min(76vh, 560px) - 52px);
+}
+.sheet-sect { margin: var(--s3) 0 var(--s1); font-size: var(--fs-micro); font-weight: 600; color: var(--amber); }
+.sheet-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px var(--s3); margin: 0; }
+.sheet-meta dt { font-size: var(--fs-micro); color: var(--dim); }
+.sheet-meta dd { margin: 0 0 var(--s2); font-size: var(--fs-body); color: var(--ink-strong); overflow-wrap: anywhere; }
+.sheet-items { display: flex; flex-direction: column; gap: var(--touch-gap); }
+.sheet-item {
+  appearance: none; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: var(--touch); padding: var(--s2) var(--s3);
+  border: 1px solid var(--edge); border-radius: var(--r2); box-shadow: var(--e1);
+  background: var(--panel-3); color: var(--ink); font-size: var(--fs-label);
+}
+.sheet-item:hover { color: var(--ink-strong); border-color: var(--hair-2); background: color-mix(in oklab, var(--ink) 5%, transparent); }
+.sheet-item[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-wash); border-color: var(--cyan-dim); }
+.sheet-hint { margin-left: auto; color: var(--dim-2); font-size: var(--fs-micro); letter-spacing: 0; }
 
 /* ---------- about ---------- */
 .about {
@@ -1470,48 +1629,165 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
   .storage-row { grid-template-columns: 1fr; gap: var(--s1); }
 }
 @media (max-width: 700px) {
+  /* phone type bump (R-08): one edit at the token, so control text lands at
+     13-14px and uppercase micro-labels at 12px with 1px tracking */
+  :root {
+    --fs-micro: 12px; --fs-small: 13px; --fs-label: 14px; --fs-body: 14px; --fs-num: 24px;
+    --track: 1px;
+    --pad-page: var(--s4);
+    --pad-panel: var(--s3);
+  }
   /* phone width: the wordmark alone identifies the app and the tabs take
      their own line; the KPI tiles go full width at this basis, and a log row
      is a two-line clock + kind with the detail on its own full-width line */
+  /* R-02: one 56px rail and one 56px bottom nav. H1 measured 232px of sticky
+     chrome here (28.6% of the screen), which put the counter below the fold. */
+  html { scroll-padding-top: calc(var(--rail-h) + var(--s2)); }
+  /* backdrop-filter would make the header the containing block of the fixed
+     bottom nav, i.e. the nav would land on the rail instead of the page's */
+  .app-header {
+    height: var(--rail-h); min-height: var(--rail-h); gap: var(--s2);
+    padding: 0 var(--s3); flex-wrap: nowrap; overflow: visible;
+    box-shadow: var(--e3); backdrop-filter: none;
+  }
+  .brand { order: 0; flex: none; }
+  .header-status { order: 1; flex: 1; min-width: 0; gap: var(--s1); flex-wrap: nowrap; }
+  .app-header .mode { order: 2; flex: none; }
+  .menu-btn { order: 3; display: inline-flex; width: var(--touch); height: var(--touch); }
+  .node-version, .last-update, #keys-btn { display: none; }
+  /* dot-compressed pills: the shape and the state word stay, the message and
+     the relative age live in the menu sheet */
+  .conn { min-width: 0; min-height: var(--touch); padding: var(--s1) var(--s2); gap: 5px; }
+  .conn .msg, .conn .ago { display: none; }
+  .conn .word { overflow: hidden; text-overflow: ellipsis; }
+  /* the rail shows the mode you are in and the sheet switches it. Scoped to the
+     header: the range pickers are .mode-btn too and keep every option (R-06). */
+  .app-header .mode > .mode-btn { min-height: var(--touch); padding: 8px 10px; display: none; }
+  .app-header .mode > .mode-btn[aria-pressed="true"] { display: inline-flex; }
   .descriptor { display: none; }
-  .tabs { order: 4; width: 100%; }
-  .kpi { flex-basis: 150px; }
+  /* the bottom nav is the same .tabs element, out of flow on the bottom edge */
+  .tabs {
+    order: 4; position: fixed; inset: auto 0 0 0; margin: 0; gap: 0; width: 100%;
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--chrome); backdrop-filter: blur(6px);
+    border-top: 1px solid var(--hair); box-shadow: var(--e3);
+    z-index: var(--z-tabbar); align-items: stretch;
+  }
+  .tab {
+    flex: 1 1 0; min-width: 0; min-height: var(--touch); padding: 6px 2px; position: relative;
+    border: 0; border-radius: 0; background: transparent;
+    flex-direction: column; justify-content: center; gap: 4px;
+    font-size: var(--fs-micro); letter-spacing: var(--track);
+  }
+  .tab[aria-current="page"] { border: 0; background: transparent; }
+  /* selection gets a hairline bar in the same amber the active tab word uses
+     on the wide header; the state dot below the label stays the tab's state */
+  .tab[aria-current="page"]::before {
+    content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 2px;
+    background: var(--amber); border-radius: 0 0 2px 2px;
+  }
+  .tabs .tab-si { width: 6px; height: 6px; }
+  .tabs .tab[aria-current="page"] .tab-si { display: inline-block; }
+  .tab-long, .tab .count { display: none; }
   .subnav { margin: 0 calc(-1 * var(--s4)) var(--s3); padding: 6px var(--s4); }
-  #main { padding: var(--s4) var(--s4) var(--s8); }
-  .log-row { grid-template-columns: 56px minmax(0, 1fr); }
-  .log-row .ld { grid-column: 1 / -1; }
+  /* the nav is out of flow, so the page keeps its own clearance below it, and
+     anchor jumps clear the rail instead of the wide header */
+  #main { padding: var(--s4) var(--s4) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s5)); }
+  .app-footer { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s4)); }
+  .panel { scroll-margin-top: calc(var(--rail-h) + var(--s2)); }
+  /* R-04: the 760px grid scrolled silently here (H1 read 469px of a row off the
+     edge). 275px of card fits neither seven columns nor seven inline labels, so
+     a row is three short lines and each cell paints its own label. */
+  .board { overflow-x: visible; }
+  .board-head { display: none; }
+  .board-row {
+    /* the first track carries the widest label of its column (TICKET at the
+       phone's micro size), so a label never clips in an overflow-hidden cell */
+    grid-template-columns: minmax(50px, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "ticket status status"
+      "vessel vessel cls"
+      "berth  hold   time";
+    gap: var(--s2) var(--s3);
+    padding: var(--s2) 4px var(--s3);
+    border-bottom: 1px solid var(--hair);
+    border-radius: 0;
+  }
+  /* the label floats above the tiles instead of joining their flex line, so a
+     cell stays exactly as wide as its tiles and the tracks size to them */
+  .board-row > .cell { position: relative; padding-top: 15px; }
+  .board-row > .cell::before {
+    content: attr(data-label);
+    position: absolute; top: 0; left: 0; line-height: 1;
+    font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: var(--track);
+    color: var(--dim-2);
+  }
+  .board-row > .cell[data-col="ticket"] { grid-area: ticket; }
+  .board-row > .cell[data-col="vessel"] { grid-area: vessel; }
+  .board-row > .cell[data-col="berth"] { grid-area: berth; }
+  .board-row > .cell[data-col="cls"] { grid-area: cls; }
+  .board-row > .cell[data-col="hold"] { grid-area: hold; }
+  .board-row > .cell[data-col="status"] { grid-area: status; }
+  .board-row > .cell[data-col="time"] { grid-area: time; }
+  /* the contested flag is a grid item of the desktop row (it sits over the
+     status column); on the card it gets its own line below the numbers */
+  .board-row > .flag { grid-column: 1 / -1; grid-row: auto; justify-self: start; transform: none; }
+  .board-foot { padding-top: 0; }
+  /* R-03: the 5-column grid clipped the engine and the detail here. Line 1 is
+     time, kind word, engine, bytes; the detail wraps on line 2 and shows whole. */
+  .log-row { grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 2px var(--s3); }
+  .log-row .ld { grid-column: 1 / -1; white-space: normal; overflow: visible; text-overflow: clip; }
   .digit { width: 30px; height: 40px; }
   .reel span { height: 40px; line-height: 40px; font-size: 20px; }
-  .odometer-label { letter-spacing: 2px; }
-  .mode-btn { min-height: 40px; padding: 8px 16px; }
-  .tab { min-height: 44px; padding: 10px 14px; }
-  .chip { min-height: 40px; padding: 8px 12px; }
-  .collapse-btn { width: 40px; height: 40px; }
-  .log-pause { min-height: 40px; padding: 8px 12px; }
-  .log-why { min-height: 40px; padding: 8px 4px; }
-  /* every control a thumb can land on clears 40 px here, the section rail and
-     the board's sort heads included */
-  .icon-btn { width: 40px; height: 40px; }
-  .subnav a { min-height: 40px; padding: 8px 14px; }
-  .bhead-btn { min-height: 40px; }
-  .board-row { min-height: 40px; }
-  .alert-card .alert-dismiss { min-width: 40px; min-height: 40px; margin: -8px -6px -8px 0; }
-  .jump-btn { min-height: 40px; padding: 8px 14px; }
-  .retry-btn { min-height: 40px; padding: 8px 12px; }
-  .lth { min-height: 40px; }
-  .ticket-act, .ticket-close { min-height: 40px; padding: 8px 12px; }
+  /* R-05: every control a thumb can land on clears --touch (44px) on this band,
+     the section rail and the board's sort heads included. The digits above are
+     the read-out, not a control. */
+  .chip, .log-pause, .log-why, .retry-btn, .ticket-act, .ticket-close { min-height: var(--touch); padding: 8px 12px; }
+  .jump-btn, .subnav a { min-height: var(--touch); padding: 8px 14px; }
+  .bhead-btn, .lth, .board-row { min-height: var(--touch); }
+  .icon-btn, .collapse-btn, .search .clear-btn { width: var(--touch); height: var(--touch); }
   /* the hit area reaches past the pill's own padding: a thumb on a phone
      should not have to aim at a 24 px glyph */
-  .toast-close { min-width: 40px; min-height: 40px; }
-  .conn .retry { min-width: 40px; min-height: 40px; margin: -6px -8px -6px 0; }
-  .kpi-value { font-size: 28px; }
+  .toast-close, .conn .retry, .alert-card .alert-dismiss { min-width: var(--touch); min-height: var(--touch); }
+  .alert-card .alert-dismiss { margin: -8px -6px -8px 0; }
+  .conn .retry { margin: -6px -8px -6px 0; }
+  /* every chart's shape, not its words, takes the phone's minimum height: an
+     axis label has had room to be 13 px since the frame stopped scaling text */
+  .chart-frame { min-height: 160px; }
+  .chart-frame svg { min-height: 160px; }
+  .residency-canvas { height: 160px; }
   .kpi-label { font-size: var(--fs-label); }
-  .kpi { flex-basis: 100%; }
+  /* every panel head becomes the same two lines: the title, then its
+     controls on one thumb-height row; a picker that runs past the width
+     scrolls on the spot instead of stacking another line */
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > .panel-title { min-width: 0; white-space: nowrap; }
+  /* the meta line is a wide-header affordance; on a phone its facts (last
+     successful read, update cadence) live in the menu sheet instead */
+  .panel-head > .panel-meta { display: none; }
+  /* the picker is the only control that gets its own line: chip, meta and the
+     collapse button stay on the title line, the picker row scrolls if needed */
+  .panel-head > .mode { order: 9; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .panel-head > .mode > .mode-btn { flex: none; }
+  /* R-09: a joined segment hides where an option ends and 4px between chips is
+     under a thumb's aim. Pickers become chips; log chips get 8px. */
+  .mode {
+    gap: var(--touch-gap); border: 0; background: transparent; box-shadow: none;
+    overflow: visible; flex-wrap: wrap;
+  }
+  .mode > .mode-btn {
+    min-height: var(--touch); padding: 8px 12px;
+    border: 1px solid var(--edge); border-radius: var(--r2);
+    background: var(--panel-3); box-shadow: var(--e1);
+  }
+  .log-chips { gap: var(--s2); }
   .search { flex: 1 1 100%; }
-  .search input { min-height: 40px; padding-right: 48px; }
-  .search .clear-btn { width: 40px; height: 40px; right: 0; }
-  .skip-link { padding: 10px 14px; }
-  .toast-host { right: var(--s2); left: var(--s2); bottom: var(--s2); max-width: none; }
+  /* 16px or iOS zooms the page when the field takes focus (R-09) */
+  .search input { min-height: var(--touch); padding-right: 48px; font-size: var(--input-fs-phone); }
+  .search .clear-btn { right: 0; }
+  .skip-link { min-height: var(--touch); padding: 10px 14px; }
+  .toast-host { right: var(--s2); left: var(--s2); bottom: calc(var(--tabbar-h) + var(--s2)); max-width: none; }
   .trow { grid-template-columns: 110px minmax(0, 1fr); }
   .ticket-stub { display: none; }
   .ticket-paper { --fold-x: 100%; }
@@ -1529,6 +1805,7 @@ dialog#shortcuts::backdrop { background: var(--scrim); backdrop-filter: blur(3px
   /* the infinite ones must stop, not just run faster: getAnimations lists
      a 0.001ms loop as still running */
   .tl-live, .conn.live .dot, .skel { animation: none; }
+  .si-live, .si-connecting, .si-casting-off { animation: none; }
   * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
 body.reduced-motion .reel { transition: none; }
@@ -1537,14 +1814,16 @@ body.reduced-motion dialog[open] .stamp { animation: none; }
 body.reduced-motion .toast { animation: none; }
 body.reduced-motion .board-row.row-changed { animation: none; }
 body.reduced-motion .tl-live, body.reduced-motion .conn.live .dot, body.reduced-motion .skel { animation: none; }
+body.reduced-motion .si-live, body.reduced-motion .si-connecting, body.reduced-motion .si-casting-off { animation: none; }
 @media (forced-colors: active) {
   .conn .dot, .res-dot { forced-color-adjust: none; }
+  .si { forced-color-adjust: none; }
   .tile { border: 1px solid ButtonText; }
   .chart-tip, .res-tip, .toast { border: 1px solid CanvasText; }
 }
 @media print {
   .app-header .mode, .app-header .tabs, .subnav, .toast-host, .jump-btn,
-  .log-toolbar, .collapse-btn, .ticket-actions, #shortcuts { display: none !important; }
+  .log-toolbar, .collapse-btn, .ticket-actions, #shortcuts, #rail-menu { display: none !important; }
   body { background: #fff; }
   .panel { break-inside: avoid; box-shadow: none; }
   .log { max-height: none; overflow: visible; }
