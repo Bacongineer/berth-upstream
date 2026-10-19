@@ -252,6 +252,22 @@ board. Read only: nothing here changes the node.`,
 		Run:     runStatus,
 	},
 	{
+		Name:    "storage",
+		Summary: "the model roots: their filesystems, space, floors and shelves",
+		Args:    "[--dir D]... [--format F]",
+		Help: `Check each model root: the filesystem it sits on, the space it has left,
+what it supports (hard links, symlinks, reflinks), which other operating
+systems it is shared with, and how much of it each shelf (chat, image,
+audio) holds. A root that is under its floor marks the check failed; the
+floor is [library] free_floor, a tenth of the root by default.
+
+Roots come from --dir, else the [models] dirs and the [library] roots in
+the config, else the usual stores. The catalog age is how long ago a berth
+last scanned the root.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runStorage,
+	},
+	{
 		Name:    "verify",
 		Summary: "re-check pulled models against their recorded hashes",
 		Args:    "[DIR...] [--dir D] [--format F]",
