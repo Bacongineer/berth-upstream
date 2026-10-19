@@ -833,8 +833,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .mini-chart { border: 1px solid var(--hair); border-radius: var(--r1); background: var(--panel-3); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .mini-chart svg, .mini-chart .chart-spark { width: 100%; height: 22px; display: block; }
 .mc-label { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 1px; color: var(--dim); }
-.mc-val { font-family: var(--mono);
-...[truncated 20887 chars] font-size: var(--fs-body); color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.mc-val { font-family: var(--mono); font-size: var(--fs-body); color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 .berth-occupants { display: flex; flex-direction: column; gap: 2px; }
 .occ { display: flex; justify-content: space-between; gap: var(--s2); font-family: var(--mono); font-size: var(--fs-small); color: var(--dim); }
 .occ .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
