@@ -234,6 +234,17 @@ board. Read only: nothing here changes the node.`,
 		Run:     runStatus,
 	},
 	{
+		Name:    "verify",
+		Summary: "re-check pulled models against their recorded hashes",
+		Args:    "[DIR...] [--dir D] [--format F]",
+		Help: `Re-hash every file berth pull fetched and compare it with the size and
+sha256 in its manifest. No DIR checks every pulled model under the models
+directory. Exit 1 when a file is missing, truncated or changed; pulling the
+same reference again repairs only what does not match.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runVerify,
+	},
+	{
 		Name:    "version",
 		Summary: "print the version",
 		Args:    "[--format F]",

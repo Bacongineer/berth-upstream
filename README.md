@@ -4,30 +4,88 @@
 
 # Berth
 
-Run a chat model in llama-swap, an image pipeline in ComfyUI and a game on one GPU, and
-sooner or later two of them load at once and one dies with an out-of-memory error.
+Berth decides who gets your GPU. Chat models, image pipelines, voice engines, games and
+GPU apps lease the card instead of grabbing it, so two of them never load at once and
+crash each other with an out-of-memory error. One Go binary, no cloud account, nothing else
+to install.
 
-Berth puts a harbormaster on the card. Your engines lease the GPU instead of grabbing it.
-When another engine needs the card, Berth asks the holder to unload (ComfyUI finishes its
-current jobs first), waits until the driver reports the memory free, then lets the next one
-in. A process holding VRAM without a lease shows up as a stowaway; Berth reports it and
-leaves it running.
+## What Berth does
 
-The same daemon reads every inference engine on the machine (llama.cpp, llama-swap, Ollama,
-vLLM, SGLang, ComfyUI, LM Studio and more, found on their default ports without config) and
-the harbor web UI shows the card, the leases, the engines, every request and a token ledger
-in one place. One Go binary, no cloud account, nothing else to install.
+**Shares one card between everything**
+- **Engines take turns.** You start each one through `berth run`. When another needs the
+  card, Berth unloads the holder (its own unload, then SIGTERM, then SIGKILL) and lets the
+  next one in only after the driver shows the memory free.
+- **Priorities.** `foreground`, `interactive`, `batch`, and `hold` above them all. A lower
+  request waits and gets a reason naming the holder, never an OOM crash.
+- **No ping-pong.** When two clients ask for different engines at once, a ranking picks one
+  and the other waits, so the card stays put.
+- **ComfyUI at a job boundary.** Berth waits for the running image job to finish before the handoff.
+- **Survives restarts.** Upgrade or restart the daemon and your running engines stay up and
+  re-attach.
 
-And you switch engines by naming a model. `berth gateway` gives every engine on the machine one
-OpenAI-compatible port. Ask it for a model whose engine is down and it starts that engine under a
-lease, drains whichever engine holds the card, waits for the new one to load, and streams the answer.
-Point your agent harness at the gateway, and a switch from a llama-swap model to Strata and back takes as
-long as the engines take to load.
+**Games and other apps**
+- **Games take the card while you play.** Launch a Steam, Lutris or gamescope game on Linux,
+  or a Steam, Epic, GOG, EA, Ubisoft, Xbox or Battle.net game on Windows, and Berth drains your
+  AI engines until you quit.
+- **Creative apps keep their memory.** Berth names what Blender, DaVinci Resolve, OBS,
+  Kdenlive, Premiere and After Effects hold and counts it against the card, without a
+  stowaway report.
+- **Your own rules.** `[[claim]]` in `berth.toml` covers anything else: a training run, a
+  render farm job, a cracking session, by name, command line or launcher.
+- **`berth hold`** frees the card for a call or a game you start yourself. Ctrl-C gives it back.
+- **`berth run --pinned`** for an app that must never be stopped mid-work.
 
-> **Status: alpha (v0.1).** Linux + NVIDIA. Runs daily on an RTX 4090 workstation alongside
-> llama-swap, NInfer and Strata. *Capabilities* lists what works and has tests; the *Roadmap*
-> lists what does not exist yet.
+**One API for your engines** *(preview)*
+- **`berth gateway`**: one OpenAI-compatible port. Name a model and Berth starts its engine,
+  unloads whatever holds the card, waits for the load and streams the answer.
+- It proxies ComfyUI's workflow API too, so an image request queues behind the same lease.
+- Bearer key on every route, loopback only, browser origins refused.
 
+**Models**
+- **`berth pull hf:org/repo:Q4_K_M`** downloads from Hugging Face, resumes where it stopped,
+  and checks every file against the size and sha256 the Hub publishes before using it.
+- **`berth verify`** re-checks pulled models offline and names any file that changed.
+- **`berth models`** lists every model on the machine (GGUF, safetensors, the Hugging Face
+  cache, LM Studio and Ollama's stores) with quant, size, parameters, context and when each
+  was last used, so you can see what earns its disk space.
+- **`berth models export ollama`** turns a GGUF you already have into an Ollama model.
+
+**Sees everything on the card**
+- **Finds your engines.** Berth reads llama.cpp, llama-swap, Ollama, vLLM, SGLang, ComfyUI,
+  Kokoro, LM Studio, KoboldCpp, TabbyAPI, LocalAI and more on their default ports, plus any
+  OpenAI-compatible or custom server you name.
+- **Stowaways.** Berth reports any process holding VRAM without a lease, with its PID, name
+  and memory, and leaves it running.
+- **Built-in telemetry.** Per-card memory, load, temperature, power and clocks; tokens per
+  second, queue, latency percentiles, KV cache use, a token ledger and a per-model
+  leaderboard; 30 days of history on disk.
+- **The harbor web UI** (`berth harbor`): a departures board of leases, a collisions-avoided
+  counter, charts and the event log. Read-only, loopback by default.
+- **Alerts** to the desktop or a webhook, `/metrics` for Prometheus, and `berth export` for
+  CSV or JSON.
+
+**Built for agents and scripts**
+- **`berth skill install`** teaches Claude Code, Codex, OpenCode and other agents to ask Berth
+  for the card instead of killing GPU processes.
+- Every command takes `--format json|yaml`, keeps results on stdout and diagnostics on stderr,
+  and exits 0, 1 or 2 by one rule.
+
+**Runs on** Linux with an NVIDIA GPU (supported) and Windows 10/11 with an NVIDIA GPU
+(experimental). Apache-2.0.
+
+> **Status: alpha (v0.1).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
+> [Roadmap](#roadmap) lists what does not exist yet.
+
+## Quick start
+
+```sh
+go install github.com/T-Crypt/berth/cmd/berth@latest      # or a release binary, see Install
+berth daemon &                                            # the broker for this card
+berth status                                              # the card, leases, engines found
+berth run --as llama --priority foreground -- llama-server -m model.gguf --port 8080
+berth harbor                                              # the web UI on http://127.0.0.1:9798/
+```
 
 ## Preview
 
@@ -40,74 +98,6 @@ the model ran without a lease after a daemon restart.
 The Engines &amp; Requests tab: decode throughput, the token ledger and the per-model leaderboard.
 
 <p align="center"><img src="assets/preview-requests.png" alt="Berth harbor Engines and Requests tab: decode throughput per engine, the token ledger and the per-model leaderboard" width="900"></p>
-
-## Switch engines by naming a model (gateway, preview)
-
-Two engines that each want the whole card can't run together, and most harnesses can't start an engine
-before they call it. `berth gateway` starts it for them. Give an engine a `start` command and the model names it
-`serves` in `berth.toml`:
-
-```toml
-[[engine]]
-name     = "strata"
-type     = "llamacpp"
-url      = "http://127.0.0.1:8080"
-start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata",
-            "--config", "strata-262k.json", "--port", "8080"]
-serves   = ["router-strata", "qwen3.8-flash-next-iq2_xs"]
-priority = "foreground"   # equal to the engine it replaces, so the last model you ask for wins
-```
-
-Run `berth gateway` (loopback `127.0.0.1:9799`; a user unit is in `contrib/berth-gateway.service`) and send
-your requests there with the node's API key as the bearer token. The gateway creates the key on first start
-(`~/.config/berth/api.key`, mode 600) and `berth key` prints it, so a client that runs commands for its key
-never has the secret written into its config:
-
-```json
-{ "baseUrl": "http://127.0.0.1:9799/v1", "apiKey": "!berth key" }
-```
-
-For each request the gateway:
-
-1. reads the model name from the body;
-2. hands the request straight to an engine that is up and lists that model (llama-swap and Ollama load
-   their own models under their own leases);
-3. otherwise starts the engine that `serves` it through the same path as `berth run`: it takes a lease,
-   Berth drains the holder (llama-swap through its unload URL once its slots are idle, then SIGTERM, then SIGKILL), and the
-   gateway waits until the new engine answers `/v1/models`;
-4. proxies the request and streams tokens as the engine sends them.
-
-Requests that arrive during a start wait on that one start. A model no engine serves gets a 404, and a
-start the broker refuses comes back as a 503 with the broker's reason. A start waits for the card no longer
-than `--ready` (10 minutes); if the holder has not left by then, the request fails and the start is
-dropped, so it cannot take the card hours later. Asking llama-swap for one of its
-models later drains the gateway's engine the same way, so either side can take the card back.
-
-Measured on the reference RTX 4090 with an agent harness switching models between NInfer (through
-llama-swap) and Strata (262K context):
-
-| Switch | Drain of the holder | Request answered after |
-|---|---|---|
-| Strata on an empty card | none | 106 s (Strata's own cold load) |
-| Strata to NInfer | Strata released in 2 s | 41 s |
-| NInfer to Strata | NInfer released in 0.6 s | 110 s |
-
-At no point did the two engines hold the card at the same time.
-
-**Long waits and idle clients.** Cold starts take 41-110 s (table above), and `forward` writes zero
-bytes while `ensure` drains the holder and starts the engine: both proxies stream once the engine sends
-bytes (`FlushInterval = -1`) but send no keep-alive during the wait, and flushing a 200 early is unsafe
-for non-streamed bodies. If a client with an idle-connection timeout (OpenWebUI's is ~40 s) drops the
-wait first, raise its read timeout and prefer streamed requests. A stream-aware early flush needs its
-own ticket. The gateway serves `/v1/chat/completions`,
-`/v1/completions`, `/v1/embeddings` and a merged `/v1/models`, plus the ComfyUI surface: `POST /prompt`
-queues a workflow (starting ComfyUI under a lease when it is down, holding the request until its `/queue`
-answers), while `/ws`, `/queue`, `/history/`, `/view` and `/upload/` proxy to a running ComfyUI. Every route
-needs the key. The gateway listens
-on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
-carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
-
----
 
 ## Install
 
@@ -291,6 +281,61 @@ engine's figures are its own claims and are shown apart from what the driver mea
   model under its own name, so give each `--group llama-swap`. `berth status` shows the ranking
   and a count of juggles stopped; the harbor log shows each one with the reason.
 
+### Games, apps and holds
+- **Claims cover work Berth does not start.** berthd scans the process table every 2 s.
+  A *hold* claim keeps the card while its process runs: engines are drained and wait, with a
+  15 s linger so a launcher restarting the game does not bounce the card back. A *track*
+  claim names an app's card memory so it counts against the card without being reported as a
+  stowaway; nothing waits on it.
+- **Built-in pack, on by default.** Holds: Steam games (anything under Steam's `reaper`),
+  Lutris and gamescope on Linux; Steam libraries (`steamapps\common`), Epic, GOG, EA,
+  Ubisoft, Xbox and Battle.net games on Windows, with launchers, Wallpaper Engine and
+  Lossless Scaling left out. Tracks: Blender, DaVinci Resolve, OBS, Kdenlive, Premiere,
+  After Effects. `berth claims` shows every rule and what it matches now.
+- **Your own rules:**
+
+  ```toml
+  [[claim]]
+  name = "training"
+  cmdline = 'train\.py'      # regex; on Windows it sees the exe's full path
+  action = "hold"            # or "track"
+  linger = "30s"
+
+  [claims]
+  builtin = false            # turn the built-in pack off
+  ```
+
+  A rule can also match `exe` names (globs, `.exe` optional), a launcher `parent`, and
+  exclude with `not_cmdline`.
+- **`berth hold [--for 2h] [--reason game]`** takes the card for you. It is a pinned lease at
+  the top priority, so nothing drains it, and it ends on Ctrl-C, after `--for`, or when the
+  process dies.
+- **`berth run --pinned`** gives an app a lease that is never drained (it keeps the card until
+  it exits).
+- A hold cannot free memory held by something outside Berth: that memory is still reported,
+  as contested.
+
+### Models
+- **`berth pull hf:ORG/REPO[:QUANT|FILE|GLOB][@REV]`** resolves the revision to one commit,
+  picks the GGUF for the quant (every part of a split model, and the vision projector when
+  there is one), and downloads to `~/models/<org>/<repo>/`.
+- **Integrity first.** Each file lands as `.part` and is moved into place only after its size
+  and sha256 match the Hub's published hash. A mismatch deletes it and fails.
+- **Resumes.** Run the same command again after an interruption and it continues with a
+  range request. A file already present and correct is skipped.
+- **`berth verify`** re-hashes pulled models against the manifest the pull wrote
+  (`.berth-manifest.json`: repo, commit, every hash), offline, and exits 1 on any change.
+- Gated and private repos read `$HF_TOKEN`.
+- **`berth models`** reads every GGUF header (never the weights) in the tools' usual places
+  and any `--dir` or `[models] dirs`. Split models list as one; vision projectors and MTP or
+  draft heads list with the model they belong to (`--all` shows them on their own).
+  `--usage 30d` adds requests and tokens per file from the harbor's request log, matched
+  through llama-swap's config when that is how the model is served.
+- **`berth models show NAME`** prints one model's header: architecture, context, tensor
+  types, chat template.
+- **`berth models export ollama NAME [--dry-run]`** writes a Modelfile and runs `ollama
+  create`; a split model needs `llama-gguf-split --merge` first.
+
 ### Gateway (preview)
 - **One port for every engine.** `berth gateway` proxies OpenAI-style requests to the engine
   that serves the requested model, streaming.
@@ -308,6 +353,72 @@ engine's figures are its own claims and are shown apart from what the driver mea
   `serves` by two engines fails `berth config check`.
 - **API key.** Bearer token on every route; `berth key` prints it (created on first use, mode
   600). Loopback only; browser origins and non-loopback Host names are refused.
+
+#### Switch engines by naming a model
+
+Two engines that each want the whole card can't run together, and most harnesses can't start an engine
+before they call it. `berth gateway` starts it for them. Give an engine a `start` command and the model names it
+`serves` in `berth.toml`:
+
+```toml
+[[engine]]
+name     = "strata"
+type     = "llamacpp"
+url      = "http://127.0.0.1:8080"
+start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata",
+            "--config", "strata-262k.json", "--port", "8080"]
+serves   = ["router-strata", "qwen3.8-flash-next-iq2_xs"]
+priority = "foreground"   # equal to the engine it replaces, so the last model you ask for wins
+```
+
+Run `berth gateway` (loopback `127.0.0.1:9799`; a user unit is in `contrib/berth-gateway.service`) and send
+your requests there with the node's API key as the bearer token. The gateway creates the key on first start
+(`~/.config/berth/api.key`, mode 600) and `berth key` prints it, so a client that runs commands for its key
+never has the secret written into its config:
+
+```json
+{ "baseUrl": "http://127.0.0.1:9799/v1", "apiKey": "!berth key" }
+```
+
+For each request the gateway:
+
+1. reads the model name from the body;
+2. hands the request straight to an engine that is up and lists that model (llama-swap and Ollama load
+   their own models under their own leases);
+3. otherwise starts the engine that `serves` it through the same path as `berth run`: it takes a lease,
+   Berth drains the holder (llama-swap through its unload URL once its slots are idle, then SIGTERM, then SIGKILL), and the
+   gateway waits until the new engine answers `/v1/models`;
+4. proxies the request and streams tokens as the engine sends them.
+
+Requests that arrive during a start wait on that one start. A model no engine serves gets a 404, and a
+start the broker refuses comes back as a 503 with the broker's reason. A start waits for the card no longer
+than `--ready` (10 minutes); if the holder has not left by then, the request fails and the start is
+dropped, so it cannot take the card hours later. Asking llama-swap for one of its
+models later drains the gateway's engine the same way, so either side can take the card back.
+
+Measured on the reference RTX 4090 with an agent harness switching models between NInfer (through
+llama-swap) and Strata (262K context):
+
+| Switch | Drain of the holder | Request answered after |
+|---|---|---|
+| Strata on an empty card | none | 106 s (Strata's own cold load) |
+| Strata to NInfer | Strata released in 2 s | 41 s |
+| NInfer to Strata | NInfer released in 0.6 s | 110 s |
+
+At no point did the two engines hold the card at the same time.
+
+**Long waits and idle clients.** Cold starts take 41-110 s (table above), and `forward` writes zero
+bytes while `ensure` drains the holder and starts the engine: both proxies stream once the engine sends
+bytes (`FlushInterval = -1`) but send no keep-alive during the wait, and flushing a 200 early is unsafe
+for non-streamed bodies. If a client with an idle-connection timeout (OpenWebUI's is ~40 s) drops the
+wait first, raise its read timeout and prefer streamed requests. A stream-aware early flush needs its
+own ticket. The gateway serves `/v1/chat/completions`,
+`/v1/completions`, `/v1/embeddings` and a merged `/v1/models`, plus the ComfyUI surface: `POST /prompt`
+queues a workflow (starting ComfyUI under a lease when it is down, holding the request until its `/queue`
+answers), while `/ws`, `/queue`, `/history/`, `/view` and `/upload/` proxy to a running ComfyUI. Every route
+needs the key. The gateway listens
+on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
+carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
@@ -360,9 +471,10 @@ engine's figures are its own claims and are shown apart from what the driver mea
 
 ### Interfaces
 - **CLI:** one command tree with one output contract. `berth status`, `berth events -f`,
-  `berth run`, `berth wire llama-swap`, `berth engine check`, `berth config check`,
-  `berth config show`, `berth export`, `berth gateway`, `berth key`, `berth version`. Berth
-  runs fully headless.
+  `berth run`, `berth hold`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
+  `berth wire llama-swap`, `berth engine check`, `berth config check`, `berth config show`,
+  `berth export`, `berth key`, `berth skill install`, `berth version`. Berth runs fully
+  headless.
 
   ```sh
   berth wire llama-swap --config cfg.yaml          # plan: which models lack a wrapper
@@ -397,7 +509,7 @@ engine's figures are its own claims and are shown apart from what the driver mea
   (`127.0.0.1:9798`); passing a non-loopback `--listen` address (e.g. `0.0.0.0:9798`;
   a specific interface IP works too) is the explicit opt-in to expose it on your
   network: the startup logs a warning and the page shows a banner on every screen while
-  exposed. There is no authentication in this release — expose it only on a network you
+  exposed. There is no authentication in this release: expose it only on a network you
   trust; phones on that network get the full read-only dashboard. To reach it from elsewhere
   without exposing it, keep the loopback listener and put a same-machine reverse proxy in
   front (`tailscale serve`, caddy), passing the proxy's hostname with `--allow-host`. A systemd user unit is
@@ -413,7 +525,7 @@ engine's figures are its own claims and are shown apart from what the driver mea
 | Platform | Status |
 |---|---|
 | Linux + NVIDIA | Supported |
-| Windows + NVIDIA | Experimental (builds; process-tree attribution and named pipes pending) |
+| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work; no installer yet, and the driver reports no per-process memory under WDDM, so use whole-card leases |
 | AMD, Intel, Apple | Not supported yet (the telemetry layer is an interface for later backends) |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
 
@@ -426,19 +538,20 @@ engine's figures are its own claims and are shown apart from what the driver mea
 | P0 | Safety core: identity, measured release, stuck and contested detection, unprotected runs | **Done** |
 | P1 | Node API: event log, collisions board, config, engine readers, `/metrics`, light probe | **Done** |
 | P2 | Harbor web UI; native telemetry, request KPIs, ledger, leaderboard, stored history, measured against Speculum parity | **Done** |
-| P3 | Actions: drain, `berth hold` / resume (for games and calls), behind authentication | Planned |
+| P3 | `berth hold` and claims for games and apps (**done**); drain and hold from the harbor, behind authentication (planned) | Partly done |
 | P3.5 | Node gateway: one OpenAI-compatible port; engines start on demand under a lease and drain each other | **Preview** |
 | P4 | Restart reconciliation: engines re-attach after a daemon restart, nothing left unprotected | **Done** |
 | P5 | Fleet: `berth install --harbor <addr> --join <token>` on every machine; nodes push metrics into the harbor's store (already built for one box in P2) | Planned |
-| P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (next); first Windows node (planned) | Partly done |
+| P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (**done**); Windows node (**experimental**) | Partly done |
 | P7 | Offers: a waiting request can offer for an idle card on another machine; the holder decides | Planned |
 | P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Planned |
 | P9 | Organisations: single sign-on, roles, audit log, regional harbors | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 | P11 | A staffed harbor: a local model routes leases and offers, seeing only VRAM metadata | Later |
 
-P0, P1, P2 and P4 are done, ComfyUI on Linux from P6, and the gateway (P3.5) runs as a preview, with
-a reader for every engine in the table above.
+Next, in this order: a model library (`berth models`, with usage and Ollama export), Berth
+starting and swapping models itself the way llama-swap does, one gateway for every engine
+type on the machine, and engine install and update from upstream.
 
 ## What Berth never does
 
