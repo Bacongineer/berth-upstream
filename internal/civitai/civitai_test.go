@@ -211,8 +211,8 @@ func TestSlug(t *testing.T) {
 		"###":             "model",
 		"Checkpoint v2.0": "checkpoint-v2-0",
 	} {
-		if got := slug(in); got != want {
-			t.Errorf("slug(%q) = %q, want %q", in, got, want)
+		if got := Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

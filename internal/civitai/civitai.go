@@ -289,9 +289,9 @@ func (c *Client) Download(ctx context.Context, v Version, f File, destDir string
 	return false, nil
 }
 
-// slug is a directory name for a version: its model name, lowered and
+// Slug is a directory name for a version: its model name, lowered and
 // squashed to safe characters, runs of separators folded to one dash.
-func slug(s string) string {
+func Slug(s string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(s) {
