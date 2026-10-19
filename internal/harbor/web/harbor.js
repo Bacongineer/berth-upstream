@@ -663,7 +663,7 @@ function paintSkeletons() {
   skel($("residency-sessions"), 3);
   skel(storageEl, 5);
 }
-// The harbor tab's voyage count and the engines tab's engine count ride on
+// The card tab's voyage count and the engines tab's engine count ride on
 // the tabs, so a glance at the header says which tab wants attention.
 function paintTabCounts(voyages, engines) {
   setTabCount($("tab-harbor"), voyages);

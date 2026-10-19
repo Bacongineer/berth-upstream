@@ -279,18 +279,18 @@
         </dl>
 
         <h2 class="section-title">GETTING AROUND</h2>
-        <p>A section rail under the header jumps to any panel on the tab and marks the one in view. Every panel folds from the chevron in its head and stays folded between visits. The harbor tab counts voyages and the engines tab counts engines, so the header says which tab wants attention. Times read relative, with the exact clock in the title. When a read goes stale a retry appears on the conn pill that reads the node now instead of waiting out the poll.</p>
+        <p>A section rail under the header jumps to any panel on the tab and marks the one in view. Every panel folds from the chevron in its head and stays folded between visits. The card tab counts voyages and the engines tab counts engines, so the header says which tab wants attention. On a phone the nav sits along the bottom edge with the tab you are on marked, and the menu button opens the node's versions, the last successful read, the detail level, the retry and this list. Times read relative, with the exact clock in the title. When a read goes stale a retry appears on the conn pill that reads the node now instead of waiting out the poll.</p>
         <p>The log's filter box matches the kind word, the engine and the detail; the chips carry live counts and the count line names what is shown. LATEST jumps back to the newest row. The board's headers sort by vessel, hold, status and age, and the foot names the order. Alert cards dismiss until they clear or change level. The ticket copies its JSON or a deep link to this exact voyage.</p>
 
         <h2 class="section-title">KEYBOARD</h2>
         <dl class="about-dl">
-          <dt>1 / 2 / 3</dt><dd>harbor, engines, about</dd>
+          <dt>1 / 2 / 3</dt><dd>card, engines, about</dd>
           <dt>B / A</dt><dd>basic, advanced mode</dd>
           <dt>P</dt><dd>pause or resume the log</dd>
           <dt>/</dt><dd>filter the log</dd>
           <dt>R</dt><dd>read the node now</dd>
           <dt>?</dt><dd>the shortcut list</dd>
-          <dt>ESC</dt><dd>close dialogs, clear the filter</dd>
+          <dt>ESC</dt><dd>close a dialog, else clear the log filter</dd>
         </dl>
 
         <h2 class="section-title">THE STATUS WORDS</h2>
@@ -345,6 +345,12 @@
           <li>DRAIN (coming): order the holder to give the berth back from here</li>
           <li>BERTH HOLD (coming): pin the card for a known window</li>
           <li>OFFERS (coming): barter a waiting claim with a holder, consent first, never taken without acceptance</li>
+          <li>LIBRARY (coming): every model file on the machine - shelves, roots, verify state, update offers and the migration plan. Nothing applies on its own.</li>
+          <li>ENGINE MANAGEMENT (coming): each engine's installed version, with install, update and rollback beside it</li>
+          <li>GATEWAY (coming): the one local API's routes, the requests it served and refused, and the client keys that made them</li>
+          <li>SCENES (coming): the node's scene definitions, and the switch that moves the card from one to another</li>
+          <li>JOURNAL (coming): the entries behind changes, each with its dry-run flag and its exact reverse</li>
+          <li>GUI PLANE (coming): engines with a UI start from that app on its own address; this page links to it and never proxies it</li>
         </ul>
         <p>Until then, everything the page shows is also on the terminal:</p>
         <pre class="about-pre">berth status
@@ -413,13 +419,13 @@ berth config check</pre>
   <dialog id="shortcuts" aria-label="keyboard shortcuts">
     <div class="sc-head">KEYBOARD SHORTCUTS<button class="ticket-close sc-close" type="button" data-autofocus aria-label="close shortcuts">close</button></div>
     <div class="sc-list">
-      <div class="sc-row"><span><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></span><span>Harbor, engines, about</span></div>
+      <div class="sc-row"><span><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></span><span>Card, engines, about</span></div>
       <div class="sc-row"><span><span class="kbd">B</span> <span class="kbd">A</span></span><span>Basic, advanced mode</span></div>
       <div class="sc-row"><span><span class="kbd">P</span></span><span>Pause or resume the log</span></div>
       <div class="sc-row"><span><span class="kbd">/</span></span><span>Filter the log</span></div>
       <div class="sc-row"><span><span class="kbd">R</span></span><span>Read the node now</span></div>
       <div class="sc-row"><span><span class="kbd">?</span></span><span>This list</span></div>
-      <div class="sc-row"><span><span class="kbd">Esc</span></span><span>Close dialogs, stop filtering</span></div>
+      <div class="sc-row"><span><span class="kbd">Esc</span></span><span>Close a dialog, else clear the log filter</span></div>
     </div>
   </dialog>
 
