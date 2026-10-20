@@ -10,6 +10,7 @@ import { Board } from "./board.js";
 import { PriorityView } from "./priority.js";
 import { Ticket } from "./ticket.js";
 import { EngineView } from "./engines.js";
+import { LibraryView } from "./library.js";
 import { ResidencyView } from "./residency.js";
 import { sparkline, lineChart, stackedArea, timelineChart } from "./charts.js";
 import { PAL } from "./palette.js";
@@ -41,6 +42,9 @@ const COUNTER_WORDS = { "5m": "5 min", "15m": "15 min", "1h": "hour", "24h": "24
 const CRANGE_KEY = "berth-harbor-crange";
 // the 1 h live window is re-fetched on this gate; the node samples every 5 s
 const LIVE_POLL_MS = 10000;
+// the library's scan stats every file in every root; /v1/models caches one
+// walk for 30 s server-side, so the page asks no faster
+const MODEL_POLL_MS = 30000;
 
 // A fixed, muted palette for the tide's holder bands. Cyan leads so the main
 // engine always reads as the dominant colour.
@@ -64,6 +68,7 @@ const state = {
   insights: null, // the stored range's ledger/leaderboard/recent, when the leaderboard is off its 24 h default
   storage: null,  // /v1/storage, or the demo fixture
   spans: null,    // /v1/spans: { from, to, spans: [{engine, model, start, end (null = open)}] }
+  models: null,   // /v1/models payload, or the demo fixture
   lastGood: 0,
   lastHeavy: 0, // the KPIs, ledger, recent and residency repaint on the 10 s live gate, not every 3 s poll
   lastHist: 0, lastIns: 0, lastStorage: 0, lastSpans: 0, // the long ranges refresh at most once a minute
@@ -117,7 +122,7 @@ function initialLbRange() {
   return "24h";
 }
 
-let board, ticket, engineView, residency, priorityView;
+let board, ticket, engineView, residency, priorityView, libraryView;
 let connPill, statePill, nodeVersion, lastUpdate, demoStrip, alertStripEl;
 let odometerReels, counterSince, counterMeta;
 let ctiles;
@@ -186,6 +191,7 @@ function main() {
   board = new Board($("board"), (key) => openTicket(key), (sort) => setBoardSort(sort));
   ticket = new Ticket($("ticket"), board);
   priorityView = new PriorityView($("priority"), $("priority-meta"));
+  libraryView = new LibraryView($("library-root"), $("library-meta"), () => fetchModels(true));
   engineView = new EngineView($("engine-grid"), $("ledger"), $("leaderboard"), $("recent"), $("recent-meta"), lbMeta, $("kv-pool"), $("pool-chart"), $("pool-meta"));
   // the pool panel colors its cells like the tide colors its bands
   engineView.colorOf = (name) => engineColor(name);
@@ -214,8 +220,9 @@ function main() {
     fetchStatus();
     fetchHistory();
     fetchSpans();
+    fetchModels();
     startEvents();
-    setInterval(() => { if (!document.hidden) { tick(); pollHistory(); pollStorage(); pollInsights(); pollSpans(); } }, POLL_MS);
+    setInterval(() => { if (!document.hidden) { tick(); pollHistory(); pollStorage(); pollInsights(); pollSpans(); pollModels(); } }, POLL_MS);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         tick();
@@ -223,6 +230,7 @@ function main() {
         pollStorage();
         pollInsights();
         pollSpans();
+        pollModels();
         startEvents();
       }
     });
@@ -230,6 +238,7 @@ function main() {
     refreshDemoHistory();
   }
 }
+
 
 // ---------------- the data-source marker ----------------
 // Each range picker says where its numbers come from: the live node or its
@@ -487,7 +496,7 @@ const HARBOR_SECTIONS = [
   ["sec-machine", "Machine"], ["sec-stow", "Stowaways"], ["sec-noticket", "No ticket"],
 ];
 const ENGINES_SECTIONS = [
-  ["sec-engines", "Engines"], ["priority-panel", "Ranking"], ["sec-pool", "KV pool"],
+  ["sec-engines", "Engines"], ["sec-library", "Library"], ["priority-panel", "Ranking"], ["sec-pool", "KV pool"],
   ["sec-throughput", "Throughput"], ["sec-ledger", "Ledger"], ["sec-lb", "Leaderboard"],
   ["sec-recent", "Recent"], ["sec-residency", "Residency"], ["sec-storage", "Storage"],
 ];
@@ -550,6 +559,8 @@ function markSection(links, target) {
     else a.removeAttribute("aria-current");
   }
 }
+// The library panel's retry lives on its own note when the ask fails; keep
+// wireCollapse's loop untouched here.
 function wireCollapse() {
   for (const panel of document.querySelectorAll(".panel")) {
     const head = panel.querySelector(":scope > .panel-head");
@@ -656,6 +667,7 @@ function paintSkeletons() {
   skel(stowRoot, 2);
   skel(notickRoot, 2);
   skel($("engine-grid"), 2);
+  skel($("library-root"), 4);
   skel($("kv-pool"), 3);
   skel($("ledger"), 2);
   skel($("leaderboard"), 4);
@@ -847,6 +859,29 @@ function pollSpans() {
   if (state.demo || document.hidden) return;
   fetchSpans();
 }
+// The library is the models view's data: one walk of the roots, cached 30 s
+// server-side, so the page's ask is bounded by the walk's cost, not the poll.
+// A failed ask keeps the last listing, or shows its own retry note.
+async function fetchModels(force) {
+  if (state.demo) return;
+  if (!force && Date.now() - state.lastModels < MODEL_POLL_MS) return;
+  state.lastModels = Date.now();
+  try {
+    const res = await fetch("/v1/models", { headers: { accept: "application/json" } });
+    if (res.ok) {
+      state.models = await res.json();
+      if (state.status) libraryView.render(state.models, state.status);
+    } else {
+      libraryView.failed();
+    }
+  } catch (e) {
+    libraryView.failed(); // the harbor may predate /v1/models; the note says so
+  }
+}
+function pollModels() {
+  if (state.demo || document.hidden) return;
+  fetchModels();
+}
 function pollStorage() {
   if (state.demo || document.hidden) return;
   if (Date.now() - state.lastStorage < RANGE_POLL_MS) return;
@@ -931,6 +966,7 @@ function wireDemo() {
     .then((j) => {
       if (Array.isArray(j.events)) for (const ev of j.events) pushEvent(ev);
       state.storage = j.storage || null; // the demo's storage panel fixture
+      state.models = j.models || null;   // the demo's library fixture, in /v1/models shape
       paintStorage();
       set(j);
       refreshConn();
@@ -2231,6 +2267,7 @@ function renderLight(s) {
   renderMachine(s);
   enginesMeta.textContent = (s.engines || []).length + " engine" + ((s.engines || []).length === 1 ? "" : "s");
   engineView.renderCards((s && Array.isArray(s.engines)) ? s.engines : []);
+  libraryView.render(state.models, s);
   engineView.renderPool(s, state.history, state.range);
   if (ticket.current) ticket.refresh();
 }

@@ -194,6 +194,14 @@
         <div class="engine-grid" id="engine-grid"></div>
       </section>
 
+      <section class="panel" id="sec-library" aria-label="the model library">
+        <div class="panel-head">
+          <h2 class="panel-title">LIBRARY</h2>
+          <span class="panel-meta" id="library-meta">models on this machine</span>
+        </div>
+        <div id="library-root"></div>
+      </section>
+
       <section class="panel" aria-label="card ranking" id="priority-panel">
 
         <div class="panel-head">
@@ -338,6 +346,9 @@
         <h2 class="section-title">GPU TELEMETRY AND THE MACHINE</h2>
         <p>The scheduled card reports its power draw against its power limit, temperature, utilisation, and in advanced mode its SM and memory clocks, fan, and PCIe generation and width. A reading of n/a means the driver did not report it, not zero. The machine panel is the host itself: CPU, cores, used and total memory, swap, and the one, five and fifteen minute load averages. Its socket line counts event-stream write timeouts and dropped slow readers, so a stalled log on a live node starts there.</p>
 
+        <h2 class="section-title">THE LIBRARY</h2>
+        <p>The library lists the model file roots this machine has, the same rows <code>berth models</code> prints: each model's shelf, quant, size, and its CACHED share with the tier it reads as, COOL at half the model's bytes in the kernel page cache or better, COLD below. The kernel takes those pages back whenever the machine needs the RAM, so the share says a reload may skip the disk; it is an estimate of reload speed, never a statement about RAM held. SERVED BY names each engine that reports the model resident now, and EST VRAM is that engine's learned footprint from its past runs, an estimate of what a run needs and never a reservation. Each row's copy buttons give the exact commands: <code>berth prefetch NAME</code> warms the files, <code>berth models show NAME</code> reads the full header.</p>
+
         <h2 class="section-title">STOWAWAYS AND NO TICKET</h2>
         <p>A stowaway is any process holding VRAM without a lease. Berth reports it and never kills it. A "no ticket" run is an engine started while the node was down, so it holds the card outside any lease. Both show here read only.</p>
 
@@ -347,7 +358,7 @@
           <li>DRAIN (coming): order the holder to give the berth back from here</li>
           <li>BERTH HOLD (coming): pin the card for a known window</li>
           <li>OFFERS (coming): barter a waiting claim with a holder, consent first, never taken without acceptance</li>
-          <li>LIBRARY (coming): every model file on the machine - shelves, roots, verify state, update offers and the migration plan. Nothing applies on its own.</li>
+          <li>The LIBRARY listing is on the engines tab: every model file on the machine, its shelf, quant and size, how much of it the kernel page cache holds, and the engine serving it. Still coming: verify state, update offers and the migration plan. Nothing applies on its own.</li>
           <li>ENGINE MANAGEMENT (coming): each engine's installed version, with install, update and rollback beside it</li>
           <li>GATEWAY (coming): the one local API's routes, the requests it served and refused, and the client keys that made them</li>
           <li>SCENES (coming): the node's scene definitions, and the switch that moves the card from one to another</li>
