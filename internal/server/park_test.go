@@ -53,7 +53,11 @@ func parkDaemon(t *testing.T, card gpu.Probe) (string, *broker.Broker) {
 	sock := filepath.Join(t.TempDir(), "berth.sock")
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	b := broker.New(broker.Config{Poll: 20 * time.Millisecond, DefaultWait: 2 * time.Second,
-		JuggleWindow: -1, Log: log}, card, procs.System{})
+		JuggleWindow: -1, Log: log,
+		// Socket-handshake tests own their RAM budget and pressure readings.
+		MemAvailable: func() uint64 { return 16 << 30 },
+		MemPressure:  func() float64 { return 0 },
+	}, card, procs.System{})
 	ln, err := server.Listen(sock)
 	if err != nil {
 		t.Fatal(err)
