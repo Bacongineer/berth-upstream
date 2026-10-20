@@ -14,11 +14,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fadvWillNeed is POSIX_FADV_WILLNEED from posix_fadvise(2). The x/sys copy
-// of the constant is generated under cgo, so the number stands here where it
-// is used.
-const fadvWillNeed = 3
-
 // mincoreTries is how many times a mincore the kernel refuses is retried. On
 // a machine that runs at its memory limit the kernel says "temporarily" and
 // means it: a listing that measured nothing would read its whole library as
@@ -89,7 +84,7 @@ func mincoreChecked(data []byte, vec []byte) error {
 // the kernel spread the reads over its background schedule.
 func prefetch(f *os.File, size int64) error {
 	for off := int64(0); off < size; off += chunk {
-		if err := unix.Fadvise(int(f.Fd()), off, min(off+chunk, size)-off, fadvWillNeed); err != nil {
+		if err := unix.Fadvise(int(f.Fd()), off, min(off+chunk, size)-off, unix.FADV_WILLNEED); err != nil {
 			return fmt.Errorf("fadvise %s: %w", f.Name(), err)
 		}
 	}
