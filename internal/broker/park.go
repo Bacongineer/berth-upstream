@@ -30,7 +30,7 @@ func (l *Lease) Park() (bool, string) { return l.b.Park(l.l.id) }
 // for the residual to leave the card.
 func (l *Lease) Parked() {
 	l.b.mu.Lock()
-	l.l.parkedCall = time.Now()
+	l.l.parkedCall = l.b.now()
 	l.b.mu.Unlock()
 }
 
@@ -109,12 +109,12 @@ func (b *Broker) Park(id string) (bool, string) {
 	return true, ""
 }
 
-// parkingTick moves a parking lease to parked once a card read after the
-// park call shows the residual, and gives up on the park after the grace:
-// the runner is told to stop the engine the usual way. Called with b.mu
-// held, from Tick.
+// parkingTick moves a parking lease to parked once a card read at or
+// after the park call shows the residual, and gives up on the park after
+// the grace: the runner is told to stop the engine the usual way. Called
+// with b.mu held, from Tick.
 func (b *Broker) parkingTick(key string, l *lease, now, readAt time.Time) {
-	if l.parkedCall.IsZero() || !readAt.After(l.parkedCall) {
+	if l.parkedCall.IsZero() || readAt.Before(l.parkedCall) {
 		return
 	}
 	if l.used() <= b.cfg.ParkResidualMax {
@@ -195,7 +195,7 @@ func (b *Broker) Resume(engine string) error {
 		}
 		l.state = waiting
 		l.resumed = true
-		l.arrived = time.Now()
+		l.arrived = b.now()
 		// The waits from before the park are stale; the runner hears
 		// only what happens from here.
 		for {
@@ -207,7 +207,7 @@ func (b *Broker) Resume(engine string) error {
 			break
 		}
 		b.queue = append(b.queue, l)
-		b.schedule(time.Now())
+		b.schedule(b.now())
 		return nil
 	}
 	return fmt.Errorf("%s is not parked", engine)

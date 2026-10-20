@@ -266,6 +266,9 @@ type Broker struct {
 	probe gpu.Probe
 	tree  procs.Tree
 	log   *slog.Logger
+	// nowFn is the broker's clock. Tests pin it to replay a coarse clock
+	// quantum; with it nil the broker reads the wall clock.
+	nowFn func() time.Time
 
 	mu        sync.Mutex
 	snap      gpu.Snapshot
@@ -357,7 +360,7 @@ const EventRing = 1000
 // it reconnects with Since and loses nothing still in the ring.
 func (b *Broker) emit(e proto.Event) {
 	b.seq++
-	e.Seq, e.At = b.seq, time.Now()
+	e.Seq, e.At = b.seq, b.now()
 	if len(b.events) == EventRing {
 		copy(b.events, b.events[1:])
 		b.events = b.events[:EventRing-1]
@@ -406,6 +409,15 @@ func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.E
 			close(ch)
 		}
 	}
+}
+
+// now is the broker's clock. It reads the pinned b.nowFn in tests, and the
+// wall clock otherwise, so a test can replay a coarse clock quantum.
+func (b *Broker) now() time.Time {
+	if b.nowFn != nil {
+		return b.nowFn()
+	}
+	return time.Now()
 }
 
 func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
@@ -513,7 +525,7 @@ func (b *Broker) Run(ctx context.Context) {
 	defer t.Stop()
 	defer b.persist() // counts made after the last tick
 	defer b.persistFootprints()
-	defer func() { b.persistUsage(time.Now(), true) }()
+	defer func() { b.persistUsage(b.now(), true) }()
 	for {
 		b.Tick(ctx)
 		select {
@@ -528,8 +540,8 @@ func (b *Broker) Run(ctx context.Context) {
 func (b *Broker) Tick(ctx context.Context) {
 	defer b.persist() // after the unlock below; also saves counts made between ticks
 	defer b.persistFootprints()
-	defer func() { b.persistUsage(time.Now(), false) }()
-	readAt := time.Now()
+	defer func() { b.persistUsage(b.now(), false) }()
+	readAt := b.now()
 	snap, err := b.probe.Read(ctx)
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
@@ -538,7 +550,7 @@ func (b *Broker) Tick(ctx context.Context) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	now := time.Now()
+	now := b.now()
 	b.runs = rs
 	b.accountUsage(now)
 	b.pruneVerdicts(now)
@@ -647,10 +659,12 @@ func (b *Broker) Tick(ctx context.Context) {
 		if l.state != releasing && l.state != stuck {
 			continue
 		}
-		if len(l.gpu) == 0 && readAt.After(l.released) {
-			// Only a tick whose card read happened after the release
-			// frees the lease: an earlier read knows nothing about a
-			// process that appeared after it.
+		if len(l.gpu) == 0 && !readAt.Before(l.released) {
+			// Only a tick whose card read happened at or after the
+			// release frees the lease: an earlier read knows nothing
+			// about a process that appeared after it. On a coarse clock
+			// (Windows, ~15 ms) the tick can start in the release's own
+			// quantum, and its read is still after the release.
 			b.log.Info("lease freed", "lease", key, "engine", l.engine)
 			b.counters.VRAMHandedOff += l.peak
 			b.foldFootprint(l, now)
@@ -1168,8 +1182,8 @@ func (l *Lease) Release() {
 	if !ok || x.state == releasing || x.state == stuck {
 		return
 	}
-	b.beginRelease(x, time.Now(), true)
-	b.schedule(time.Now())
+	b.beginRelease(x, b.now(), true)
+	b.schedule(b.now())
 }
 
 // Reattach leases the card again to an engine that started under berth run
@@ -1188,7 +1202,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 		}
 	}
 	b.nextID++
-	now := time.Now()
+	now := b.now()
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
 	if r.Container != "" {
 		l.container = strings.ToLower(r.Container)
@@ -1221,12 +1235,12 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
 	}
 	b.nextID++
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, time.Now())
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
 	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
 	b.emit(proto.Event{Kind: proto.EvRequested, Lease: l.id, Engine: l.engine, Bytes: l.needs, Detail: l.prio.String()})
-	b.schedule(time.Now())
+	b.schedule(b.now())
 	b.mu.Unlock()
 
 	wait := r.Wait
@@ -1270,9 +1284,9 @@ func (b *Broker) abandon(l *lease, why string) error {
 		}
 	}
 	if l.state != waiting {
-		b.beginRelease(l, time.Now(), false)
+		b.beginRelease(l, b.now(), false)
 	}
-	b.schedule(time.Now())
+	b.schedule(b.now())
 	if l.lastWait != "" {
 		why += ": " + l.lastWait
 	}
