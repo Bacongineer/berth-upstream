@@ -10,6 +10,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/procs"
+	"github.com/T-Crypt/berth/internal/swapcost"
 )
 
 // wait acquires an engine and returns the first wait reason the broker
@@ -72,5 +73,54 @@ func TestWaitReasonSaysNextInLineAlone(t *testing.T) {
 
 	if got := wait(t, b, "strata", Interactive); got != "next in line: held by ninfer [foreground, active]" {
 		t.Fatalf("reason = %q, want the place and the hold", got)
+	}
+}
+
+// With a swap book the reasons end with the start estimate: the measured
+// starts in the waiter's chain, one per seat ahead plus its own, as one
+// number; an unmeasured start adds no number and says "unmeasured"; with
+// no book at all the reason carries the place only.
+func TestWaitReasonsCarryTheMeasuredStart(t *testing.T) {
+	tree := procs.Map{101: 100}
+	b, c, _ := setup(t, tree)
+
+	book, err := swapcost.NewBook("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.Record(swapcost.Sample{Engine: "alpha", Tier: swapcost.Cold, Took: 30 * time.Second})
+	book.Record(swapcost.Sample{Engine: "alpha", Tier: swapcost.Cold, Took: 40 * time.Second})
+	book.Record(swapcost.Sample{Engine: "beta", Tier: swapcost.Cold, Took: 20 * time.Second})
+	b.cfg.SwapCost = book
+
+	holder := must(t, acquire(b, Request{Engine: "ninfer", Priority: Batch}))
+	holder.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-serve", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	if got := wait(t, b, "alpha", Interactive); got != "next in line: draining ninfer [batch, active]; start about 35 s once the card frees (measured)" {
+		t.Fatalf("head reason = %q, want the place and its own measured start", got)
+	}
+	const second = "2nd in line (behind interactive alpha): waiting for ninfer [batch, draining] to free memory; start about 55 s once the card frees (1 start ahead, measured)"
+	if got := wait(t, b, "beta", Interactive); got != second {
+		t.Fatalf("second reason = %q, want %q", got, second)
+	}
+	const third = "3rd in line (behind interactive beta): waiting for ninfer [batch, draining] to free memory; start at least 55 s once the card frees (2 starts ahead, 1 unmeasured)"
+	if got := wait(t, b, "gamma", Batch); got != third {
+		t.Fatalf("third reason = %q, want %q", got, third)
+	}
+	const fourth = "4th in line (behind batch gamma): waiting for ninfer [batch, draining] to free memory; start at least 55 s once the card frees (3 starts ahead, 2 unmeasured)"
+	if got := wait(t, b, "delta", Batch); got != fourth {
+		t.Fatalf("fourth reason = %q, want %q", got, fourth)
+	}
+
+	empty, err := swapcost.NewBook("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.cfg.SwapCost = empty
+	const fifth = "5th in line (behind batch delta): waiting for ninfer [batch, draining] to free memory; its start is unmeasured"
+	if got := wait(t, b, "epsilon", Batch); got != fifth {
+		t.Fatalf("fifth reason = %q, want %q", got, fifth)
 	}
 }
