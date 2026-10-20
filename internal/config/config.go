@@ -349,10 +349,15 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	return d.UnmarshalText([]byte(node.Value))
 }
 
-// DefaultPath is ~/.config/berth/berth.toml, or $BERTH_CONFIG.
+// DefaultPath is $BERTH_CONFIG, else $XDG_CONFIG_HOME/berth/berth.toml, else
+// the system's per-user config directory (os.UserConfigDir: ~/.config on
+// Unix, %AppData% on Windows).
 func DefaultPath() string {
 	if p := os.Getenv("BERTH_CONFIG"); p != "" {
 		return p
+	}
+	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
+		return filepath.Join(d, "berth", "berth.toml")
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
