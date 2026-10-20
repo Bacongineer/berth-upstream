@@ -8,6 +8,25 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The page-cache warmth of a model library: `berth models` gains a CACHED
+  column (the share of a model's files the kernel page cache still holds,
+  summed over its parts and its companions, with the tier that share reads
+  as: COOL at half or more, COLD below), `berth models show` says what of
+  one model sits in the page cache, and the JSON carries `cached_bytes`.
+  The check reads the kernel's page table (mincore) in 1 GiB slices and
+  never a byte of a file, so it cannot pull a page in; `--no-cache-check`
+  skips it. The page cache is the kernel's and can vanish when the machine
+  needs the RAM, so the column says a restart is likely to read from
+  memory, never that any RAM is held.
+- `berth prefetch MODEL_OR_PATH`: ask the kernel to read a model's files
+  into the page cache (posix_fadvise WILLNEED). The command returns as
+  soon as the ask is made; the kernel does the reading in the background
+  and commits no RAM of its own. This is the manual form of what the
+  gateway will do for the next engine while the holder drains.
+- The `internal/pagecache` package behind both: `Resident` (a file's
+  resident share, measured read-only) and `Prefetch`. Off Linux both
+  report an unsupported interface, which the listing shows as unknown
+  rather than a failure.
 - `berth reclaim [LEASE] [--yes]`: lists the processes a stuck lease recorded
   and, only with `--yes`, stops exactly those (SIGTERM, then SIGKILL after
   `--grace`), re-checking PID and start time before every signal. Processes

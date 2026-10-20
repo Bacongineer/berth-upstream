@@ -447,8 +447,19 @@ startup, so a change to the roots applies on the next restart.
   draft heads list with the model they belong to (`--all` shows them on their own).
   `--usage 30d` adds requests and tokens per file from the harbor's request log, matched
   through llama-swap's config when that is how the model is served.
+- **The CACHED column.** How much of a model's files (its parts, and the vision projector and
+  draft that go with it) sit in the kernel page cache, and the tier that share reads as: COOL at
+  half or more, COLD below it. The check reads the kernel's page table (mincore), never a byte
+  of a file, so it cannot pull a page in, and `--no-cache-check` skips it for a listing of a
+  big library. The page cache is the kernel's: it keeps the pages until the machine needs the
+  RAM, so the column says a restart is likely to read from memory, never that any RAM is held.
+- **`berth prefetch MODEL_OR_PATH`** asks the kernel to read a model's files into the page
+  cache (posix_fadvise WILLNEED). The ask is made and the command returns at once; the kernel
+  does the reading in the background, at its own pace, and takes the pages back whenever the
+  machine needs the RAM. This is the manual form: while an engine that is about to run is
+  still waiting for the card, its model's files can be warmed so the start reads from memory.
 - **`berth models show NAME`** prints one model's header: architecture, context, tensor
-  types, chat template.
+  types, chat template, and what of the model sits in the page cache.
 - **`berth models export ollama NAME [--dry-run]`** writes a Modelfile and runs `ollama
   create`; a split model needs `llama-gguf-split --merge` first.
 

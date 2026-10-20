@@ -250,7 +250,7 @@ has the secret written into its config: "apiKey": "!berth key".`,
 	{
 		Name:    "models",
 		Summary: "the model files this machine holds, their shelves, and what they were used for",
-		Args:    "[--dir D]... [--shelf S] [--all] [--usage W] [--no-usage] [--format F]",
+		Args:    "[--dir D]... [--shelf S] [--all] [--usage W] [--no-usage] [--no-cache-check] [--format F]",
 		Help: `List the model files where the usual tools keep them - the Hugging Face
 cache, LM Studio's model directories, Ollama's store and ~/models - plus any
 --dir you name, or the [models] dirs berth.toml names.
@@ -258,9 +258,15 @@ cache, LM Studio's model directories, Ollama's store and ~/models - plus any
 One row per model: MODEL is the file's stem (the name that never collides - a
 model's quants all answer to the same name inside the file), SHELF (chat,
 image, audio, or - when nothing in the file states one), then QUANT, SIZE,
-PARAMS, CTX, ARCH, how many companion files belong to it (+COMP) and USED, when
-the harbor last saw it serve a request. --shelf image lists one shelf only,
-and the totals under the listing say how much of the library each shelf holds;
+CACHED, PARAMS, CTX, ARCH, how many companion files belong to it (+COMP) and
+USED, when the harbor last saw it serve a request. CACHED is how much of the
+model's files the kernel page cache holds (its own parts and its companions),
+and the tier that share reads as: COOL at half or more, COLD below it, and -
+when the check is skipped with --no-cache-check or measures nothing. The
+kernel takes the pages back when the machine needs the RAM, so the column says
+a restart is likely to read from memory, never that any RAM is held. --shelf
+image lists one shelf only, and the totals under the listing say how much of
+the library each shelf holds;
 a root declared in [library] with a shelf (say shelf = "image") beats what the
 files themselves say. --usage 30d adds REQ and TOKENS for that window. Sorted
 by name. --all also lists the companion files themselves: a
@@ -278,7 +284,8 @@ when berth.toml's llama-swap engine names a --config; request names that no file
 on disk answers to are "served but not on disk", in the JSON only.
 
 show NAME|PATH [--dir D] prints one model in full: the metadata that has no
-column, the first line of its chat template and the usage block. A model that
+column, what sits in the page cache, the first line of its chat template and
+the usage block. A model that
 will not read is reported as that one model's error and exit 1; the rest of the
 library still lists.
 
@@ -292,6 +299,27 @@ llama-gguf-split --merge first. Berth copies and deletes no weight file, and
 ollama create does (it takes its own blob), which is why --dry-run exists.`,
 		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 		Run:     runModels,
+	},
+	{
+		Name:    "prefetch",
+		Summary: "ask the kernel to read a model's files into the page cache",
+		Args:    "MODEL_OR_PATH [--dir D] [--format F]",
+		Help: `Ask the kernel to read the model's files - every part of a split model,
+and the vision projector and draft that go with it - into the page cache.
+The name resolves the way models show resolves it: a path that exists, else
+the listing's name, the name the file's header gave it, or the file itself.
+
+The ask is made with posix_fadvise WILLNEED and returns at once: the kernel
+does the reading in the background, at its own pace, and it takes the pages
+back whenever the machine needs the RAM. Prefetching commits no memory of
+Berth's and reads no file byte itself, so it is safe to ask while another
+engine drains. This is the manual form; the gateway makes the same ask for
+the next engine while the holder drains.
+
+Exit 1 when no model answers to the name. Off Linux the kernel has no
+page-cache interface and the ask is refused.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runPrefetch,
 	},
 	{
 		Name:    "pull",
