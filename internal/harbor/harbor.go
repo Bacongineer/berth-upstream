@@ -46,6 +46,12 @@ type Harbor struct {
 	// same-machine reverse proxy (tailscale serve, caddy) forwards with. The
 	// listener stays on loopback; only the proxy can reach it.
 	AllowHosts []string
+	// UpdateCheck is the [update] check switch from berth.toml: while on,
+	// the harbor keeps the cached latest-release answer fresh, at most one
+	// GET to the GitHub API a day, and /v1/update shows a new release.
+	UpdateCheck bool
+	// UpdateCache is where that answer is kept, in the state directory.
+	UpdateCache string
 }
 
 // Serve listens on addr. A loopback address keeps the harbor on this machine;
@@ -103,6 +109,7 @@ func (h *Harbor) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/spans", h.spans)
 	mux.HandleFunc("GET /v1/storage", h.storage)
 	mux.HandleFunc("GET /v1/mode", h.mode)
+	mux.HandleFunc("GET /v1/update", h.update)
 	return h.guard(mux)
 }
 

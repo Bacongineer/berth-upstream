@@ -17,6 +17,13 @@ has a matching GitHub release whose body comes from its section below.
   version and nothing else); the `[update] check` config key, on by default, is
   Berth's own contact with GitHub, off by that one line. A dev build is refused
   unless `--force`, and a checksum mismatch refuses the download.
+- The harbor's header shows a newer release while the update check is on:
+  `GET /v1/update` serves the cached answer (one GET to the GitHub API at
+  most a day, retried within the hour when it fails), and the notice carries
+  the release, a link to it, and a button that copies `berth update`. The
+  page makes no request of its own beyond reading that one endpoint, and
+  with `[update] check = false` the harbor never touches GitHub and shows
+  nothing.
 
 - `berth service install [--gateway] [--harbor] [--dry-run]`, `berth
   service uninstall` and `berth service status`: run the node, and the

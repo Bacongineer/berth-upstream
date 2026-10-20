@@ -748,7 +748,9 @@ applies to a ComfyUI queue that will not empty.
   KV sessions), a throughput chart, a 24H / 7D / 30D leaderboard and, in advanced mode, a
   storage panel. The top bar shows the overall state (LIVE / DEGRADED / OFFLINE) and a
   strip of the alerts currently breaching, colored from the node's own threshold state.
-  Basic and advanced modes.
+  Basic and advanced modes. While its update check is on and a newer
+  release exists, the header shows it: the release, a link to it, and a
+  button that copies `berth update`, the command that does the replacing.
   Read-only, strict content security policy. It listens on loopback by default
   (`127.0.0.1:9798`); passing a non-loopback `--listen` address (e.g. `0.0.0.0:9798`;
   a specific interface IP works too) is the explicit opt-in to expose it on your
