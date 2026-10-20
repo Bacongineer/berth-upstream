@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/comfy"
 	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -239,10 +240,11 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.
 // way: Berth has no proof a job is not running.
 func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
 	every := o.pollEvery()
-	url := strings.TrimRight(o.DrainComfyUI, "/") + "/queue"
 	last := ""
 	for {
-		running, pending, err := comfyQueue(url)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		running, pending, err := comfy.Queue(ctx, o.DrainComfyUI)
+		cancel()
 		var now string
 		switch {
 		case err != nil:
@@ -265,52 +267,6 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 	}
 }
 
-func comfyQueue(url string) (running, pending int, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("GET /queue: %s", resp.Status)
-	}
-	var q struct {
-		Running []json.RawMessage `json:"queue_running"`
-		Pending []json.RawMessage `json:"queue_pending"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&q); err != nil {
-		return 0, 0, fmt.Errorf("/queue: %w", err)
-	}
-	return len(q.Running), len(q.Pending), nil
-}
-
-// comfyFree asks a drained ComfyUI to unload its models and free VRAM while
-// staying up, so OpenWebUI keeps answering on its port. The /free shape is
-// ComfyUI's own: unload_models plus free_memory.
-func comfyFree(base string) error {
-	body := strings.NewReader(`{"unload_models":true,"free_memory":true}`)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/free", body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("POST /free: %s", resp.Status)
-	}
-	return nil
-}
-
 // comfyIdleFootprint is what an unloaded ComfyUI server is allowed to keep
 // on the card: its own process plus driver and desktop baseline. A keep-up
 // release only happens once the free memory reaches total minus this.
@@ -329,7 +285,9 @@ func comfyUnloaded(base string, within time.Duration) bool {
 		every = 20 * time.Millisecond
 	}
 	for {
-		free, total, err := comfyVRAM(base)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		free, total, err := comfy.VRAM(ctx, base)
+		cancel()
 		if err != nil || free+comfyIdleFootprint >= total {
 			return true
 		}
@@ -338,37 +296,6 @@ func comfyUnloaded(base string, within time.Duration) bool {
 		}
 		time.Sleep(every)
 	}
-}
-
-// comfyVRAM reads ComfyUI's device 0 (vram_free, vram_total) in bytes.
-func comfyVRAM(base string) (free, total uint64, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/system_stats", nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("GET /system_stats: %s", resp.Status)
-	}
-	var stats struct {
-		Devices []struct {
-			VRAMFree  uint64 `json:"vram_free"`
-			VRAMTotal uint64 `json:"vram_total"`
-		} `json:"devices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
-		return 0, 0, fmt.Errorf("/system_stats: %w", err)
-	}
-	if len(stats.Devices) == 0 {
-		return 0, 0, fmt.Errorf("/system_stats: no devices")
-	}
-	return stats.Devices[0].VRAMFree, stats.Devices[0].VRAMTotal, nil
 }
 
 // slotBoundaryAt waits until the engine at base reports no processing
@@ -576,7 +503,10 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 		// once the driver shows the memory actually left: the run record
 		// written below tells the broker the lingering server no longer
 		// holds the card.
-		if err := comfyFree(o.DrainComfyUI); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := comfy.Free(ctx, o.DrainComfyUI, true)
+		cancel()
+		if err != nil {
 			say("ComfyUI unload (%v); stopping the server instead", err)
 		} else if o.KeepComfyUI {
 			if unloadWait := 2 * o.Grace; !comfyUnloaded(o.DrainComfyUI, unloadWait) {
