@@ -24,7 +24,7 @@ func runReclaim(c *Context) int {
 		return code
 	}
 	if len(c.Args) > 1 {
-		return c.fail(Systemf("berth reclaim takes at most one lease id").
+		return c.fail(Failf("berth reclaim takes at most one lease id").
 			WithHint("usage: berth reclaim [LEASE] [--yes] [--grace D]"))
 	}
 	lease := ""
