@@ -17,7 +17,7 @@ func TestOptionsFor(t *testing.T) {
 	e := &config.Engine{Name: "strata", Priority: "foreground", NeedsMiB: 8192,
 		Start: []string{"python", "serve.py"}, DrainPost: "http://127.0.0.1:1/unload",
 		DrainSlots: "http://127.0.0.1:2", DrainComfyUI: "http://127.0.0.1:3",
-		DrainMax: config.Duration{time.Minute}, KeepComfyUI: true}
+		DrainMax: config.Duration{Duration: time.Minute}, KeepComfyUI: true}
 
 	o := OptionsFor(e, Over{Socket: "s", Group: "strata", Wait: 10 * time.Second, Argv: []string{"true"}})
 	got := o

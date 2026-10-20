@@ -114,6 +114,9 @@ func runArgv(o runner.Options) []string {
 	if o.DrainComfyUI != "" {
 		args = append(args, "--drain-comfyui", o.DrainComfyUI)
 	}
+	if o.DrainMax != 0 {
+		args = append(args, "--drain-max", o.DrainMax.String())
+	}
 	if o.KeepComfyUI {
 		args = append(args, "--keep-comfyui-up")
 	}

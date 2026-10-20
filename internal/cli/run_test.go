@@ -89,7 +89,7 @@ func TestRunFailOpenStartsWithAWarningEvenQuiet(t *testing.T) {
 func TestApplyEngineEntry(t *testing.T) {
 	e := &config.Engine{Name: "comfyui", Priority: "batch", NeedsMiB: 8192,
 		DrainPost: "http://127.0.0.1:1/free", DrainSlots: "http://127.0.0.1:2",
-		DrainComfyUI: "http://127.0.0.1:3", DrainMax: config.Duration{time.Minute}}
+		DrainComfyUI: "http://127.0.0.1:3", DrainMax: config.Duration{Duration: time.Minute}}
 
 	var errBuf bytes.Buffer
 	c := &Context{setFlags: map[string]bool{}, Err: &errBuf}
