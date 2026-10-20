@@ -13,11 +13,12 @@ import (
 // WriteFile writes data to path atomically: a temp file in the same
 // directory, fsynced, then renamed over path, and the directory fsynced
 // too, so a crash leaves either the old file or the new one, never a
-// half-written one. perm is the file's mode. The rename over an existing
-// file works on Windows.
+// half-written one. perm is the file's mode. A missing directory is made
+// 0o755 when the file is readable by others (a shared root's catalog),
+// else 0o700. The rename over an existing file works on Windows.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, dirPerm(perm)); err != nil {
 		return err
 	}
 	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
@@ -45,6 +46,13 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	syncDir(dir)
 	return nil
+}
+
+func dirPerm(perm os.FileMode) os.FileMode {
+	if perm&0o044 != 0 {
+		return 0o755
+	}
+	return 0o700
 }
 
 // syncDir records the rename in the directory entry. Windows cannot fsync
