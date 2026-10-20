@@ -1,0 +1,92 @@
+name: Drain report
+description: How a contrib/chaos scenario went on your hardware
+labels: ["chaos"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running the scenarios in `contrib/chaos/`. Failing runs are
+        as useful as passing ones; report what actually happened.
+
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      description: The number from contrib/chaos/README.md
+      options:
+        - "1 (clean drain)"
+        - "2 (ignores SIGTERM)"
+        - "3 (escaped child)"
+        - "4 (stowaway)"
+        - "5 (unrelated workload survives)"
+        - "6 (busy forever)"
+        - "7 (daemon restart mid-lease)"
+        - "not listed"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      description: Did the card behave the way the scenario's table says it should?
+      options:
+        - pass
+        - fail
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      description: Model and VRAM, e.g. RTX 4090 24 GB
+    validations:
+      required: true
+
+  - type: input
+    id: driver
+    attributes:
+      label: Driver
+      description: The version nvidia-smi prints
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Distribution and version, e.g. Arch Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: engines
+    attributes:
+      label: Engines
+      description: Which engines hold the card (llama.cpp, llama-swap, ComfyUI, games) and their versions
+    validations:
+      required: true
+
+  - type: input
+    id: berth-version
+    attributes:
+      label: Berth version
+      description: Output of `berth version`
+    validations:
+      required: true
+
+  - type: textarea
+    id: events
+    attributes:
+      label: Events JSON
+      description: Output of `berth events --json` captured around the scenario, pasted whole
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: What you saw, expected or unexpected, and anything that made it worse

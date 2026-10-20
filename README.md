@@ -683,6 +683,20 @@ drain_slots = "http://127.0.0.1:8080"
 
 ---
 
+## Tested hardware
+
+The scenarios in [contrib/chaos](contrib/chaos/README.md) and the numbers below are how
+Berth's failure handling gets checked outside this tree. Run them on your card and add a row
+with the result, or report what happened with the
+[drain report issue form](https://github.com/T-Crypt/berth/issues/new?template=drain-report.yml)
+and the table credits you here.
+
+| GPU | VRAM | Driver | OS | Engines | Result | Tester | Date |
+|---|---|---|---|---|---|---|---|
+| RTX 4090 | 24 GB | 615.78.08 | Arch Linux | llama-swap + NInfer + Strata + ComfyUI | daily use | T-Crypt | 2026-10-20 |
+
+---
+
 ## Support matrix
 
 | Platform | Status |
