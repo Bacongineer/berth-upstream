@@ -8,6 +8,21 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth reclaim [LEASE] [--yes]`: lists the processes a stuck lease recorded
+  and, only with `--yes`, stops exactly those (SIGTERM, then SIGKILL after
+  `--grace`), re-checking PID and start time before every signal. Processes
+  no lease recorded are listed as report only.
+  [#48](https://github.com/T-Crypt/berth/pull/48)
+- Every descendant of an engine's wrapper is recorded each tick (PID plus
+  start time), so a child that escapes its group and reparents keeps the
+  lease stuck under its own name instead of showing as a stowaway.
+  [#48](https://github.com/T-Crypt/berth/pull/48)
+- `contrib/chaos`: `hog.py` and the failure scenarios anyone can run, a drain
+  report issue form, and a tested-hardware table in the README.
+  [#44](https://github.com/T-Crypt/berth/pull/44)
+- `contrib/bench/swap`: times model switches through the gateway (cold and
+  warm, per engine), with VRAM after drain, RAM, identical-output and leak
+  checks. [#47](https://github.com/T-Crypt/berth/pull/47)
 - `drain_max` (berth.toml) and `berth run --drain-max DURATION`: a ceiling
   on how long a drain waits at a boundary (a busy slot, a running ComfyUI
   job) before it runs the normal stop ladder; 0 = unbounded, the default.
@@ -17,7 +32,17 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- One ComfyUI client, one atomic file write that fsyncs the file and its
+  directory, and one `/slots` rule, shared across the daemon.
+  [#45](https://github.com/T-Crypt/berth/pull/45)
+- Releases publish their CHANGELOG section as the release notes.
+  [#44](https://github.com/T-Crypt/berth/pull/44)
+
 ### Fixed
+
+- A released lease frees only on a tick whose card read came after the
+  release and shows none of its processes, never inside the release itself.
+  [#48](https://github.com/T-Crypt/berth/pull/48)
 
 ## [v0.2.0] - 2026-10-19
 
