@@ -117,6 +117,18 @@ func daemon(t *testing.T) (string, *broker.Broker) {
 	t.Cleanup(cancel)
 	go b.Run(ctx)
 	go func() { _ = server.Serve(ctx, ln, b, server.Extras{}, log) }()
+	// Cleanups run last first, so this runs before the cancel above. An
+	// engine a test's gateway started may still be up; stopping the daemon
+	// under it makes its berth run write an unprotected-run record beside
+	// the socket while the temp dir is being removed. A hold drains every
+	// engine first, through the normal ladder, and is let go at once.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if l, err := b.Acquire(ctx, broker.Request{Engine: "test-cleanup", Priority: broker.Hold, Pinned: true, Wait: 10 * time.Second}, nil); err == nil {
+			l.Release()
+		}
+	})
 	return sock, b
 }
 

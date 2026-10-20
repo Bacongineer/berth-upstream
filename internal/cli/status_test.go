@@ -47,6 +47,9 @@ func startDaemon(t *testing.T) string {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	// Read the card once before serving: Run's first read happens in its own
+	// goroutine, and a status asked for before it shows no GPU at all.
+	b.Tick(ctx)
 	go b.Run(ctx)
 	ev := alerts.New(alerts.FromConfig(config.AlertsConfig{}), 3, nil)
 	lastAlerts := &atomic.Pointer[proto.Alerts]{}
