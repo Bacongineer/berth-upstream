@@ -160,6 +160,55 @@ func TestHandoffWaitsForMeasuredRelease(t *testing.T) {
 	must(t, strata)
 }
 
+// B1: a released lease never frees inside Release. An engine that allocates
+// and dies inside one poll interval has its lease still marked releasing, so
+// a process that turns up on the next card read stays the lease's instead of
+// becoming a stowaway, and a waiter is granted only after the driver shows
+// the memory gone.
+func TestReleaseKeepsAProcessAppearingAfterIt(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{101: 100}, Starts: map[int]uint64{100: 10, 101: 11}}
+	b, c, r := setup(t, tree)
+	l := must(t, acquire(b, Request{Engine: "ninfer"}))
+	l.Attach(100)
+	l.Release()
+
+	// The engine got on the card after the last probe read.
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-serve", Used: 20 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].State != "releasing" || st.Leases[0].Used != 20*GiB {
+		t.Fatalf("leases = %+v, want one releasing lease holding the process", st.Leases)
+	}
+	if len(st.Squatters) != 0 || strings.Join(r.seen, ",") != "" {
+		t.Fatalf("squatters = %+v, reports = %v", st.Squatters, r.seen)
+	}
+
+	c.set()
+	b.Tick(context.Background())
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("leases = %+v, want none once the card shows the memory gone", st.Leases)
+	}
+}
+
+// A released lease with a wrapper PID but nothing ever seen on the card
+// frees on the next tick, not inside Release: the tick's card read is the
+// only evidence that nothing turned up after the release.
+func TestReleaseWithAWrapperPIDFreesOnTheNextTick(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{101: 100}, Starts: map[int]uint64{100: 10, 101: 11}}
+	b, _, _ := setup(t, tree)
+	l := must(t, acquire(b, Request{Engine: "ninfer"}))
+	l.Attach(100)
+	l.Release()
+	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].State != "releasing" {
+		t.Fatalf("Release dropped the lease at once: %+v", st.Leases)
+	}
+	b.Tick(context.Background())
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("leases = %+v, want none after the freeing tick", st.Leases)
+	}
+}
+
 func TestHigherPriorityHolderIsNotDrained(t *testing.T) {
 	b, _, _ := setup(t, procs.Map{})
 	game := must(t, acquire(b, Request{Engine: "game", Priority: Foreground}))

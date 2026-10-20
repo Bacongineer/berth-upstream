@@ -174,6 +174,8 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		reply(conn, log, proto.Msg{Op: proto.OpRequests, Requests: rs})
 	case proto.OpAcquire, proto.OpReattach:
 		hold(ctx, conn, first, b, log)
+	case proto.OpReclaim:
+		reclaim(conn, log, first, b)
 	case proto.OpEvents:
 		events(ctx, c, conn, first, b, log)
 	default:

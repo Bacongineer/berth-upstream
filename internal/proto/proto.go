@@ -30,6 +30,11 @@ const (
 	OpRefused  = "refused"  // server: gave up waiting, with the reason
 	OpDrain    = "drain"    // server: give the berth back now
 	OpEvent    = "event"    // server: one event (a reply to OpEvents)
+
+	// OpReclaim: client: list (and, with Confirm, stop) the processes on the
+	// card that the named lease, or every stuck and releasing lease, recorded.
+	// The server answers once with Holders.
+	OpReclaim = "reclaim"
 )
 
 // Msg is every message in both directions; unused fields are omitted.
@@ -52,6 +57,13 @@ type Msg struct {
 	History  *History  `json:"history,omitempty"`
 	SinceT   time.Time `json:"since_t,omitempty"`  // OpRequests: only requests strictly after this time
 	Requests []Request `json:"requests,omitempty"` // OpRequests: the reply's log, oldest first
+	// OpReclaim: Lease names the lease to look at ("" = every stuck and
+	// releasing lease), Confirm stops the recorded ones, and Grace is the
+	// seconds a SIGTERM has to work before SIGKILL (0 = the daemon's
+	// default). Holders is the reply: the card processes in question.
+	Confirm bool     `json:"confirm,omitempty"`
+	Grace   float64  `json:"grace,omitempty"`
+	Holders []Holder `json:"holders,omitempty"`
 }
 
 // Event is one thing berthd saw or did. Seq is gap-free and increases by one,
@@ -438,6 +450,20 @@ type Run struct {
 	PID    int     `json:"pid"`
 	Reason string  `json:"reason"`
 	Age    float64 `json:"age_seconds"`
+}
+
+// Holder is one process on the card a reclaim is about. Lease names the
+// lease that recorded it; empty means no lease recorded it, so it is never
+// signalled. Stopped and Skipped are the confirm run's word per holder;
+// a list-only reply sets neither.
+type Holder struct {
+	PID      int    `json:"pid"`
+	PIDStart uint64 `json:"pid_start,omitempty"` // 0 = gone from the process table, never signalled
+	Lease    string `json:"lease,omitempty"`
+	Name     string `json:"name"`
+	Used     uint64 `json:"used,omitempty"` // bytes on the card
+	Stopped  bool   `json:"stopped,omitempty"`
+	Skipped  string `json:"skipped,omitempty"`
 }
 
 // Conn reads and writes Msgs on one stream.

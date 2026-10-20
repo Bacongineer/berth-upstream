@@ -31,18 +31,50 @@ func (System) StartTime(pid int) uint64 {
 	return t
 }
 
-// stat returns the fields of /proc/<pid>/stat after the command name, so
-// index 0 is field 3 (state). The name is "(comm)" and may contain spaces
-// or parens, so the split starts after the last ')'.
-func stat(pid int) []string {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+// List reads one /proc/<pid>/stat per process on the machine. The broker
+// calls it once per tick to record engine descendants, so a child that
+// escapes its wrapper before any GPU poll is still recorded under the lease.
+func List() []Proc {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil
 	}
+	ps := make([]Proc, 0, len(entries))
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		name, f := statFields(pid)
+		if len(f) < 20 {
+			continue
+		}
+		ppid, _ := strconv.Atoi(f[1])
+		start, _ := strconv.ParseUint(f[19], 10, 64)
+		ps = append(ps, Proc{PID: pid, Parent: ppid, Start: start, Name: name})
+	}
+	return ps
+}
+
+// statFields reads /proc/<pid>/stat once: the command name inside the
+// parenthesis, and the fields after it, so index 0 is field 3 (state). The
+// name is "(comm)" and may contain spaces or parens, so the split starts
+// after the last ')'.
+func statFields(pid int) (string, []string) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return "", nil
+	}
 	s := string(b)
 	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
-		return nil
+	if i < 0 || len(s) < i+1 {
+		return "", nil
 	}
-	return strings.Fields(s[i+1:])
+	return s[1:i], strings.Fields(s[i+1:])
+}
+
+// stat returns statFields' fields.
+func stat(pid int) []string {
+	_, f := statFields(pid)
+	return f
 }
