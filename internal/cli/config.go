@@ -8,6 +8,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/proto"
+	"github.com/T-Crypt/berth/internal/suite"
 )
 
 // configCheckDoc is what `berth config check --format json|yaml` prints: the
@@ -56,7 +57,9 @@ func warningsDoc(ws []config.Warning) []warningDoc {
 // loadConfig reads the config both config commands and engine check need: the
 // resolved config, its warnings, and whether a file was there at all. A
 // missing file is the built-in defaults; a file the operator named with
-// --config and that is not there is an error.
+// --config and that is not there is an error. Suite installs are merged in:
+// their derived engines are part of what the node runs with, and a file
+// engine a suite install shadows is reported as a warning.
 func loadConfig(c *Context, path string) (config.Config, []config.Warning, bool, *Error) {
 	fi, statErr := os.Stat(path)
 	switch {
@@ -65,7 +68,11 @@ func loadConfig(c *Context, path string) (config.Config, []config.Warning, bool,
 			return config.Resolve(config.Config{}), nil, false,
 				Systemf("config not found: %s", path).Detail("the file named by --config does not exist")
 		}
-		return config.Resolve(config.Config{}), nil, false, nil
+		cfg, warns, err := suite.Merged(path)
+		if err != nil {
+			return config.Config{}, nil, false, Failf("invalid suite state: %s", suite.SuitePath(path)).Detail("%v", err)
+		}
+		return cfg, warns, false, nil
 	case statErr != nil:
 		return config.Resolve(config.Config{}), nil, false,
 			Systemf("config unreadable: %s", path).Detail("%v", statErr)
@@ -73,7 +80,7 @@ func loadConfig(c *Context, path string) (config.Config, []config.Warning, bool,
 		return config.Resolve(config.Config{}), nil, false,
 			Systemf("config unreadable: %s", path).Detail("%s is not a regular file", path)
 	}
-	cfg, warns, err := config.Check(path)
+	cfg, warns, err := suite.Merged(path)
 	if err != nil {
 		return config.Config{}, nil, true, Failf("config invalid: %s", path).Detail("%v", err)
 	}

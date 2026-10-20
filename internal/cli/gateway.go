@@ -12,6 +12,7 @@ import (
 	"github.com/T-Crypt/berth/internal/apikey"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/gateway"
+	"github.com/T-Crypt/berth/internal/suite"
 )
 
 // runGateway serves one OpenAI-compatible port in front of the node's engines
@@ -43,9 +44,12 @@ func runGateway(c *Context) int {
 			return c.fail(Systemf("the wake page listens on loopback only: %v", err))
 		}
 	}
-	cfg, err := config.Load(*cfgPath)
+	cfg, warns, err := suite.Merged(*cfgPath)
 	if err != nil {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
+	}
+	for _, w := range warns {
+		log.Warn(w.Key + ": " + w.Message)
 	}
 	log.Debug("config", "path", *cfgPath, "startable", len(cfg.Engine), "discover", *cfg.Engines.Discover)
 	key, err := apikey.LoadOrCreate(*keyFile)

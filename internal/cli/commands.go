@@ -107,6 +107,77 @@ but did not answer.`,
 				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 				Run:     runEngineCheck,
 			},
+			{
+				Name:    "install",
+				Summary: "add a ComfyUI install to the suite: adopt a checkout or clone a fresh one",
+				Args:    "NAME [--adopt PATH | --path PATH] [--port N] [--priority P] [--keep-up] [--channel REF] [--repo URL] [--pack URL]... [--config P] [--format F]",
+				Help: `Record one ComfyUI install in the suite: its core, ComfyUI-Manager and every
+git-based node pack, each pinned to a git commit with one previous commit kept
+as the rollback snapshot. The suite state lives in engines.toml beside berth.toml.
+
+--adopt PATH records an existing checkout in place (it is read, never changed);
+--path PATH clones a fresh one (default location: $XDG_DATA_HOME/berth/comfyui/
+NAME). The derived engine appears in berth engine check, berth status and the
+gateway's wake page; the daemon and gateway pick it up at their next start.
+
+Each install also gets an extra_model_paths.yaml naming the node's model roots
+from berth.toml, so its models come from the same library. PyTorch on a fresh
+install is the operator's step; the install is registered either way, and
+ComfyUI's own start error names the missing piece.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runEngineInstall,
+			},
+			{
+				Name:    "remove",
+				Summary: "drop a suite install, keeping or removing its directory",
+				Args:    "NAME [--delete --yes] [--config P] [--format F]",
+				Help: `Drop the install from the suite state. Without --delete only the state entry
+goes: the directory, its venv and its extra_model_paths.yaml stay where they
+are. --delete also removes the install directory, and it requires --yes: a
+directory removal is the one irreversible step the suite has, and the flag pair
+is the consent for it.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runEngineRemove,
+			},
+			{
+				Name:    "rollback",
+				Summary: "swap a component back to its previous commit",
+				Args:    "NAME --component C [--config P] [--format F]",
+				Help: `Swap the component's pin with its previous commit and check out the restored
+sha. A second rollback flips back to the newer pin; a following update
+replaces the snapshot again. A component with no previous commit, or with
+local changes, is refused. An install with jobs running is refused: the
+handoff happens at the job boundary.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runEngineRollback,
+			},
+			{
+				Name:    "show",
+				Summary: "the suite installs: their components, pins and snapshots",
+				Args:    "[NAME] [--config P] [--format F]",
+				Help: `Print the suite state: one row per install (name, kind, path, port, priority,
+venv) and one per component (name, path, repo, channel, the pinned commit,
+its previous commit, whether the tree is dirty). NAME limits the listing to
+one install. No network: this is what the state file records, not what the
+checkouts do right now.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runEngineShow,
+			},
+			{
+				Name:    "update",
+				Summary: "pin the core and the node packs to newer commits",
+				Args:    "NAME [--component C | --all] [--channel REF] [--pack URL]... [--config P] [--format F]",
+				Help: `Move every component (or one with --component) to the tip of its channel,
+keeping the old pin as the rollback snapshot. --pack URL... clones node packs
+into custom_nodes first and updates them. --channel REF pins a component that
+has no channel of its own (an adopted checkout that is detached).
+
+An install with jobs running is refused: the update happens at the job
+boundary, when its queue is empty. A component whose tree gained local
+changes since the state was written is refused on its own; the rest proceed.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runEngineUpdate,
+			},
 		},
 	},
 	{
