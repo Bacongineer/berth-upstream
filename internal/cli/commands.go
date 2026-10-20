@@ -368,6 +368,17 @@ signal and skips a mismatch, so a reused PID is never signalled.`,
 		Run:     runReclaim,
 	},
 	{
+		Name:    "resume",
+		Summary: "put a parked engine back on the card",
+		Args:    "ENGINE [--socket P] [--format F]",
+		Help: `Queue a parked engine for the card again, at its own priority. The runner
+keeps its connection, hears the grant with resume set, and calls the adapter's
+resume; the lease is active when the engine answers again. An engine that is
+not parked is refused, so the caller starts it the normal way.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runResume,
+	},
+	{
 		Name:    "run",
 		Summary: "start CMD once it holds a berth, stop it when asked",
 		Args:    "--as NAME [flags] -- CMD [ARGS...]",
