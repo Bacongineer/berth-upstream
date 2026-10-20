@@ -176,6 +176,8 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		hold(ctx, conn, first, b, log)
 	case proto.OpReclaim:
 		reclaim(conn, log, first, b)
+	case proto.OpStop:
+		stop(conn, log, first, b)
 	case proto.OpEvents:
 		events(ctx, c, conn, first, b, log)
 	default:
