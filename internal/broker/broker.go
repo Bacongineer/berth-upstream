@@ -8,19 +8,15 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/comfy"
-	"github.com/T-Crypt/berth/internal/fsx"
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -125,25 +121,6 @@ type Config struct {
 	Log            *slog.Logger
 }
 
-// ComfyEngine names one configured ComfyUI engine: the unprotected run
-// name berth run records when a keep-up drain leaves the server behind,
-// and the base URL its /free lives on.
-type ComfyEngine struct {
-	Name string
-	URL  string
-}
-
-const (
-	// comfySquatMin is the weight of an unprotected ComfyUI that is worth
-	// freeing before a grant: an idle unloaded server holds a few hundred
-	// MiB and never blocks one.
-	comfySquatMin = 1 << 30
-	// comfyPokeEvery rate limits the unload ask per engine while a waiter
-	// is blocked. ComfyUI applies /free at its job boundary, so a busy
-	// server sees repeats only until the first ask lands.
-	comfyPokeEvery = 15 * time.Second
-)
-
 type Request struct {
 	Engine   string
 	Group    string // the engine family a lease counts for (llama-swap's models); "" = Engine
@@ -195,6 +172,24 @@ func (l *lease) used() uint64 {
 		n += p.Used
 	}
 	return n
+}
+
+// newLease builds the lease one request becomes: the same shape Acquire
+// queues and Reattach grants at once.
+func newLease(id string, r Request, now time.Time) *lease {
+	return &lease{
+		id:      id,
+		engine:  r.Engine,
+		group:   r.Group,
+		prio:    r.Priority,
+		needs:   r.Needs,
+		pinned:  r.Pinned,
+		gpu:     map[ident]gpu.Proc{},
+		arrived: now,
+		grantCh: make(chan struct{}),
+		drainCh: make(chan string, 1),
+		waitCh:  make(chan string, 8),
+	}
 }
 
 type squatter struct {
@@ -392,51 +387,6 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 		usage:      use,
 		started:    time.Now(),
 	}
-}
-
-func loadCounters(path string) (proto.Counters, error) {
-	var c proto.Counters
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return c, err
-	}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return c, err
-	}
-	if c.Since.IsZero() {
-		return c, errors.New("no since time in the file")
-	}
-	return c, nil
-}
-
-// persist writes the board when a count changed since the last write. The
-// write is a temp file renamed over the old one, so a crash mid-write leaves
-// the previous board, never a torn one. It runs outside b.mu.
-func (b *Broker) persist() {
-	if b.cfg.CountersFile == "" {
-		return
-	}
-	b.saveMu.Lock()
-	defer b.saveMu.Unlock()
-	b.mu.Lock()
-	c := b.counters
-	b.mu.Unlock()
-	if c == b.saved {
-		return
-	}
-	data, err := json.Marshal(c)
-	if err == nil {
-		err = fsx.WriteFile(b.cfg.CountersFile, data, 0o600)
-	}
-	if err != nil {
-		if !b.saveFailed {
-			b.log.Warn("collisions board not saved; it will not survive a restart", "file", b.cfg.CountersFile, "err", err)
-			b.saveFailed = true
-		}
-		return
-	}
-	b.saveFailed = false
-	b.saved = c
 }
 
 // Run reads the card every Poll until ctx ends.
@@ -793,56 +743,6 @@ func (b *Broker) squatBytes() uint64 {
 	return n
 }
 
-// comfySquat reports what unprotected ComfyUI runs hold right now, and
-// which configured engines those are. An idle unloaded server stays under
-// comfySquatMin and never blocks a grant.
-func (b *Broker) comfySquat() (uint64, []ComfyEngine) {
-	if len(b.cfg.Comfy) == 0 {
-		return 0, nil
-	}
-	var n uint64
-	var squat []ComfyEngine
-	for _, e := range b.cfg.Comfy {
-		for _, s := range b.squatters {
-			if s.run == e.Name && s.proc.Used > 0 {
-				n += s.proc.Used
-				squat = append(squat, e)
-				break
-			}
-		}
-	}
-	if n < comfySquatMin {
-		return 0, nil
-	}
-	return n, squat
-}
-
-// comfyPoke asks a squatting ComfyUI to unload its models through its own
-// /free. Rate limited per engine: evaluate runs every tick while a waiter
-// is blocked, the engine hears about it at most once per comfyPokeEvery.
-// The request runs in the background so a slow server cannot stall the
-// scheduler. A failed ask is logged: the wait reason already says the ask
-// went out, so silence would hide a wedged /free until the waiter times out.
-func (b *Broker) comfyPoke(now time.Time, engines []ComfyEngine) {
-	for _, e := range engines {
-		if e.URL == "" {
-			continue
-		}
-		if last, ok := b.comfyPoked[e.Name]; ok && now.Sub(last) < comfyPokeEvery {
-			continue
-		}
-		b.comfyPoked[e.Name] = now
-		b.log.Debug("asking ComfyUI to free its models", "engine", e.Name, "url", e.URL)
-		go func(name, url string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := comfy.Free(ctx, url, true); err != nil {
-				b.log.Warn("ComfyUI free ask failed; still waiting for the memory", "engine", name, "url", url, "err", err)
-			}
-		}(e.Name, e.URL)
-	}
-}
-
 // cardBudget is one schedule/evaluate pass's view of the card: what the
 // card holds in total, what is already spoken for, and what is left for
 // the waiter's needs. evaluate branches on this, not on scattered uint64s.
@@ -1052,24 +952,10 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	}
 	b.nextID++
 	now := time.Now()
-	l := &lease{
-		id:       fmt.Sprintf("%s-%d", r.Engine, b.nextID),
-		engine:   r.Engine,
-		group:    r.Group,
-		prio:     r.Priority,
-		needs:    r.Needs,
-		pinned:   r.Pinned,
-		state:    active,
-		reattach: true,
-		pid:      pid,
-		pidStart: start,
-		gpu:      map[ident]gpu.Proc{},
-		arrived:  now,
-		granted:  now,
-		grantCh:  make(chan struct{}),
-		drainCh:  make(chan string, 1),
-		waitCh:   make(chan string, 8),
-	}
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	l.state, l.reattach = active, true
+	l.pid, l.pidStart = pid, start
+	l.granted = now
 	close(l.grantCh)
 	b.leases[l.id] = l
 	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)
@@ -1095,19 +981,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
 	}
 	b.nextID++
-	l := &lease{
-		id:      fmt.Sprintf("%s-%d", r.Engine, b.nextID),
-		engine:  r.Engine,
-		group:   r.Group,
-		prio:    r.Priority,
-		needs:   r.Needs,
-		pinned:  r.Pinned,
-		gpu:     map[ident]gpu.Proc{},
-		arrived: time.Now(),
-		grantCh: make(chan struct{}),
-		drainCh: make(chan string, 1),
-		waitCh:  make(chan string, 8),
-	}
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, time.Now())
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
 	b.emit(proto.Event{Kind: proto.EvRequested, Lease: l.id, Engine: l.engine, Bytes: l.needs, Detail: l.prio.String()})
@@ -1167,78 +1041,4 @@ func (b *Broker) abandon(l *lease, why string) error {
 	b.counters.Refused++
 	b.emit(proto.Event{Kind: proto.EvRefused, Lease: l.id, Engine: l.engine, Detail: why})
 	return fmt.Errorf("%w: %s", ErrRefused, why)
-}
-
-// Status is a copy of the broker's view: the shape /v1/status serves.
-func (b *Broker) Status() proto.Status {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	now := time.Now()
-	st := proto.Status{
-		API:         proto.APIVersion,
-		Version:     b.cfg.Version,
-		GPUs:        []proto.GPU{},
-		Leases:      []proto.Lease{},
-		Waiting:     []proto.Lease{},
-		Squatters:   []proto.Squatter{},
-		Unprotected: []proto.Run{},
-		Counters:    b.counters,
-		LastEvent:   b.seq,
-		Priority:    b.priorityStatus(now),
-	}
-	if b.probeErr != nil {
-		st.ProbeErr = b.probeErr.Error()
-	}
-	devs := b.snap.Devices
-	if len(devs) == 0 && b.snap.Total > 0 {
-		devs = []gpu.Device{{Index: b.snap.Index, Name: b.snap.Name, Total: b.snap.Total, Used: b.snap.Used, Free: b.snap.Free,
-			Util: -1, Temp: -1, Power: -1, PowerLimit: -1, Fan: -1, ClockSM: -1, ClockMem: -1, PCIeGen: -1, PCIeWidth: -1}}
-	}
-	for _, d := range devs {
-		g := proto.GPU{Index: d.Index, Name: d.Name, Total: d.Total, Used: d.Used, Free: d.Free, Age: now.Sub(b.snap.At).Seconds(),
-			Util: d.Util, Temp: d.Temp, Power: d.Power, PowerLimit: d.PowerLimit, Fan: d.Fan,
-			ClockSM: d.ClockSM, ClockMem: d.ClockMem, PCIeGen: d.PCIeGen, PCIeWidth: d.PCIeWidth}
-		if d.Index == b.snap.Index {
-			g.Scheduled, g.Baseline = true, b.snap.Baseline()
-		}
-		st.GPUs = append(st.GPUs, g)
-	}
-	view := func(l *lease, since time.Time) proto.Lease {
-		pids := make([]int, 0, len(l.gpu))
-		for id := range l.gpu {
-			pids = append(pids, id.pid)
-		}
-		sort.Ints(pids)
-		return proto.Lease{
-			ID: l.id, Engine: l.engine, Group: l.group, Priority: l.prio.String(), State: l.state.String(),
-			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart, GPUPIDs: pids, Used: l.used(),
-			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
-		}
-	}
-	for _, l := range b.holders() {
-		st.Leases = append(st.Leases, view(l, l.granted))
-	}
-	for _, l := range b.queue {
-		st.Waiting = append(st.Waiting, view(l, l.arrived))
-	}
-	for _, s := range b.squatters {
-		st.Squatters = append(st.Squatters, proto.Squatter{
-			PID: s.proc.PID, PIDStart: s.id.start, Name: s.proc.Name, Used: s.proc.Used,
-			Run: s.run, Age: now.Sub(s.seen).Seconds(),
-		})
-	}
-	sort.Slice(st.Squatters, func(i, j int) bool { return st.Squatters[i].PID < st.Squatters[j].PID })
-	for _, c := range b.claims {
-		c.PIDs = append([]int(nil), c.PIDs...)
-		for _, cp := range b.claimed {
-			if cp.claim == c.Name {
-				c.Used += cp.proc.Used
-			}
-		}
-		st.Claims = append(st.Claims, c)
-	}
-	for _, r := range b.runs {
-		st.Unprotected = append(st.Unprotected, proto.Run{Engine: r.Engine, PID: r.PID, Reason: r.Reason, Age: now.Sub(r.Started).Seconds()})
-	}
-	return st
 }
