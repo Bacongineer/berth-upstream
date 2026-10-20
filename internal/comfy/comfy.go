@@ -62,6 +62,7 @@ func Free(ctx context.Context, base string, freeMemory bool) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	authorize(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -81,6 +82,7 @@ func get(ctx context.Context, base, endpoint string, out any) error {
 	if err != nil {
 		return err
 	}
+	authorize(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
