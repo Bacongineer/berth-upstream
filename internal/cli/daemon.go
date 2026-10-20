@@ -37,7 +37,7 @@ func runDaemon(c *Context) int {
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
 	headroomMib := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start, added to the park floor (the gateway's guard default)")
-	wait := fs.Duration("wait", 120*time.Second, "default time a request waits before it is refused")
+	wait := fs.Duration("wait", 120*time.Second, "default time a request waits before it is refused; negative = no deadline")
 	grace := fs.Duration("release-grace", 30*time.Second, "how long a released lease's processes may linger before they count as squatters")
 	reattachWin := fs.Duration("reattach-window", 15*time.Second, "after a restart, how long new grants wait for engines that ran under the last daemon to re-attach")
 	allow := fs.String("allow", "", "comma-separated process-name substrings that are never squatters (e.g. Xorg,Hyprland)")
