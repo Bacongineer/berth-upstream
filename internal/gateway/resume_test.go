@@ -170,6 +170,8 @@ func TestGatewayResumesAParkedEngine(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 8 << 30})
+	// The park admission needs a measured footprint, not just an attached PID.
+	b.Tick(context.Background())
 	holderDone := make(chan *broker.Lease, 1)
 	go func() {
 		l, err := b.Acquire(context.Background(), broker.Request{Engine: "game", Priority: broker.Foreground}, nil)
