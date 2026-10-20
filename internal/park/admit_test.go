@@ -1,0 +1,156 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
+package park
+
+import (
+	"slices"
+	"testing"
+	"time"
+)
+
+func TestAdmit(t *testing.T) {
+	const g = gib
+	tests := []struct {
+		name      string
+		b         Budget
+		footprint uint64
+		want      string // the refusal line; empty when admitted
+	}{
+		{
+			name:      "fits above the floor",
+			b:         Budget{Available: 10 * g, Floor: 4 * g, Parked: 1 * g},
+			footprint: 2 * g,
+		},
+		{
+			name:      "lands exactly on the floor",
+			b:         Budget{Available: 7 * g, Floor: 4 * g},
+			footprint: 3 * g,
+		},
+		{
+			name:      "the floor refuses with one decimal each side",
+			b:         Budget{Available: 5 * g, Floor: 4 * g},
+			footprint: 2 * g,
+			want:      "park refused: needs 2.0 GiB, 1.0 GiB available above the floor",
+		},
+		{
+			name:      "nothing available",
+			b:         Budget{Available: 0, Floor: 4 * g},
+			footprint: 1 * g,
+			want:      "park refused: needs 1.0 GiB, 0.0 GiB available above the floor",
+		},
+		{
+			name:      "parked RAM counts against the floor",
+			b:         Budget{Available: 10 * g, Floor: 4 * g, Parked: 6 * g},
+			footprint: 2 * g,
+			want:      "park refused: needs 2.0 GiB, 0.0 GiB available above the floor",
+		},
+		{
+			name:      "no cap when Max is zero",
+			b:         Budget{Available: 120 * g, Floor: 1 * g, Parked: 50 * g, Max: 0},
+			footprint: 60 * g,
+		},
+		{
+			name:      "lands exactly on the cap",
+			b:         Budget{Available: 100 * g, Floor: 1 * g, Parked: 31 * g, Max: 32 * g},
+			footprint: 1 * g,
+		},
+		{
+			name:      "the cap refuses",
+			b:         Budget{Available: 100 * g, Floor: 1 * g, Parked: 31 * g, Max: 32 * g},
+			footprint: 2 * g,
+			want:      "park refused: 33.0 GiB parked would pass the 32.0 GiB cap",
+		},
+		{
+			name:      "the floor speaks before the cap",
+			b:         Budget{Available: 5 * g, Floor: 4 * g, Max: 1 * g},
+			footprint: 2 * g,
+			want:      "park refused: needs 2.0 GiB, 1.0 GiB available above the floor",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, why := Admit(tc.b, tc.footprint)
+			if ok != (tc.want == "") || why != tc.want {
+				t.Fatalf("Admit = %v, %q; want %v, %q", ok, why, tc.want == "", tc.want)
+			}
+		})
+	}
+}
+
+func TestEvict(t *testing.T) {
+	const g = gib
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	m := func(name string, bytes uint64, age time.Duration) Parked {
+		return Parked{Name: name, Bytes: bytes, Since: now.Add(-age)}
+	}
+	ttl := 30 * time.Minute
+	tests := []struct {
+		name     string
+		parked   []Parked
+		b        Budget
+		pressure float64
+		want     []string
+	}{
+		{
+			name:     "RAM above the floor and pressure low: nobody stops",
+			parked:   []Parked{m("new", g, time.Minute), m("old", g, 2*time.Minute)},
+			b:        Budget{Available: 10 * g, Floor: 4 * g},
+			pressure: 0.05,
+		},
+		{
+			name:     "ttl stops the expired, in age order, RAM and pressure fine",
+			parked:   []Parked{m("new", g, time.Minute), m("stale", g, 31*time.Minute), m("staler", g, 40*time.Minute)},
+			b:        Budget{Available: 10 * g, Floor: 4 * g},
+			pressure: 0,
+			want:     []string{"staler", "stale"},
+		},
+		{
+			name:     "below the floor: least recently parked until back at it",
+			parked:   []Parked{m("new", 4*g, time.Minute), m("mid", 4*g, 5*time.Minute), m("old", 4*g, 10*time.Minute)},
+			b:        Budget{Available: 5 * g, Floor: 10 * g},
+			pressure: 0,
+			want:     []string{"old", "mid"},
+		},
+		{
+			name:     "the floor is not reachable: everything stops",
+			parked:   []Parked{m("a", 4*g, time.Minute), m("b", 4*g, 2*time.Minute)},
+			b:        Budget{Available: 1 * g, Floor: 10 * g},
+			pressure: 0,
+			want:     []string{"b", "a"},
+		},
+		{
+			name:     "RAM a ttl stop already gave back reaches the floor",
+			parked:   []Parked{m("new", 4*g, time.Minute), m("stale", 6*g, 31*time.Minute)},
+			b:        Budget{Available: 5 * g, Floor: 10 * g},
+			pressure: 0,
+			want:     []string{"stale"},
+		},
+		{
+			name:     "pressure over the threshold stops one, the least recently parked",
+			parked:   []Parked{m("new", g, time.Minute), m("old", g, 2*time.Minute)},
+			b:        Budget{Available: 10 * g, Floor: 4 * g},
+			pressure: 0.5,
+			want:     []string{"old"},
+		},
+		{
+			name:     "pressure adds one on top of the floor pass",
+			parked:   []Parked{m("new", g, time.Minute), m("old", 6*g, 10*time.Minute)},
+			b:        Budget{Available: 5 * g, Floor: 10 * g},
+			pressure: 0.5,
+			want:     []string{"old", "new"},
+		},
+		{
+			name: "nothing parked, nothing to stop",
+			b:    Budget{Available: 1 * g, Floor: 4 * g},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Evict(tc.parked, tc.b, tc.pressure, 0.1, now, ttl)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("Evict = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
