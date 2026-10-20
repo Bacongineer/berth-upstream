@@ -353,6 +353,13 @@ type Lease struct {
 	// ParkedSince is how long the engine has been parked, in seconds; 0
 	// when it is not parked.
 	ParkedSince float64 `json:"parked_since,omitempty"`
+	// Position is the lease's place in the queue, 1 = next in line; 0 for
+	// a lease that is not waiting.
+	Position int `json:"position,omitempty"`
+	// EstimateS is how many seconds after the card frees the broker
+	// expects the waiting engine to start, from the measured starts in
+	// its queue chain only; 0 = unknown (no book, or nothing measured).
+	EstimateS float64 `json:"estimate_start_s,omitempty"`
 }
 
 type Squatter struct {

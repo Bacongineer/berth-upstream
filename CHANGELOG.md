@@ -30,6 +30,16 @@ has a matching GitHub release whose body comes from its section below.
   driver sees that berth does not), one run of a CUDA app of your choice
   under `berth run`, and the event log around the run. Plain Windows
   PowerShell 5.1, no modules.
+- A place in the queue and an estimate in every wait reason: every reason
+  the broker sends a waiter starts with its place ("next in line", "2nd in
+  line (behind interactive comfyui)"), and the status waiting table shows
+  the place and a start estimate for each waiting lease. The estimate
+  prices only what a book of measured switch times has measured, one start
+  per waiter ahead plus its own; an unmeasured start says unmeasured and
+  adds no number, and the holder's drain is never in it, because a request
+  runs as long as it runs. The broker takes the book on its config
+  (SwapCost); with none, the reasons carry the place only.
+
 - The prediction of switch times: `internal/swapcost` records the times
   completed switches took, per engine and tier (hot on the card, warm
   parked in RAM, cool in the kernel page cache, cold on disk), keeping

@@ -63,45 +63,73 @@ func (b *Broker) notifyWait(q []*lease, headWhy string) {
 			ahead = q[i-1]
 		}
 		reason := placeLine(i+1, ahead) + headWhy
-		if est := b.startEstimate(q[:i+1]); est != "" {
+		if est := b.startCost(q[:i+1]).line(); est != "" {
 			reason += "; " + est
 		}
 		b.setWait(w, reason)
 	}
 }
 
-// startEstimate is the estimate a waiting lease's reason ends with. chain
-// is the lease's starts in order: every seat ahead, then its own. Empty
-// when the broker has no book.
-func (b *Broker) startEstimate(chain []*lease) string {
+// startCost is what the swap book can say about a chain of starts (every
+// seat ahead, then the waiter's own): the seconds the measured starts
+// take, and how many of the chain's starts the book has not measured.
+// Book is false when the broker has no book, and the cost carries
+// nothing.
+type startCost struct {
+	book       bool
+	total      float64
+	unmeasured int
+	ahead      int
+}
+
+func (b *Broker) startCost(chain []*lease) startCost {
+	sc := startCost{ahead: len(chain) - 1}
 	book := b.cfg.SwapCost
 	if book == nil {
-		return ""
+		return sc
 	}
+	sc.book = true
 	var total time.Duration
-	unmeasured := 0
 	for _, w := range chain {
-		if es := book.Estimate(w.key(), b.startTier(w)); !es.Known {
-			unmeasured++
-		} else {
+		if es := book.Estimate(w.key(), b.startTier(w)); es.Known {
 			total += es.Took
+		} else {
+			sc.unmeasured++
 		}
 	}
+	sc.total = total.Seconds()
+	return sc
+}
+
+// line is the estimate a wait reason ends with, or "" when the cost
+// carries nothing.
+func (sc startCost) line() string {
 	switch {
-	case unmeasured == 0:
-		line := fmt.Sprintf("start about %d s once the card frees", int(total.Seconds()))
-		if len(chain) > 1 {
-			line += " (" + startsWord(len(chain)-1) + " ahead, measured)"
+	case !sc.book:
+		return ""
+	case sc.unmeasured == 0:
+		line := fmt.Sprintf("start about %d s once the card frees", int(sc.total))
+		if sc.ahead > 0 {
+			line += " (" + startsWord(sc.ahead) + " ahead, measured)"
 		} else {
 			line += " (measured)"
 		}
 		return line
-	case unmeasured == len(chain):
+	case sc.unmeasured == sc.ahead+1:
 		return "its start is unmeasured"
 	default:
 		return fmt.Sprintf("start at least %d s once the card frees (%s ahead, %d unmeasured)",
-			int(total.Seconds()), startsWord(len(chain)-1), unmeasured)
+			int(sc.total), startsWord(sc.ahead), sc.unmeasured)
 	}
+}
+
+// seconds is the figure the status carries: the measured sum, 0 when the
+// cost carries nothing.
+func (sc startCost) seconds() float64 {
+	if !sc.book {
+		return 0
+	}
+	return sc.total
 }
 
 // startsWord is a count of starts as the reader sees it: "1 start",

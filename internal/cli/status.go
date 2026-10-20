@@ -50,13 +50,16 @@ func (v statusView) Human(c *Context, ok bool) error {
 	}
 
 	tw := tabwriter.NewWriter(c.Out, 0, 4, 2, ' ', tabwriter.StripEscape)
-	lease := func(title string, ls []proto.Lease) {
+	lease := func(title string, ls []proto.Lease, waiting bool) {
 		if len(ls) == 0 {
 			return
 		}
 		header := "\n" + title + "\tENGINE\tPRIORITY\tSTATE\tNEEDS\tHOLDS\tPIDS"
 		if c.Verbose {
 			header += "\tPID"
+		}
+		if waiting {
+			header += "\tPOS\tSTART"
 		}
 		fmt.Fprintln(tw, header+"\tAGE")
 		for _, l := range ls {
@@ -73,11 +76,19 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if c.Verbose {
 				row += fmt.Sprintf("\t%d", l.PID)
 			}
+			if waiting {
+				row += fmt.Sprintf("\t%d", l.Position)
+				if l.EstimateS > 0 {
+					row += fmt.Sprintf("\t~%.0f s", l.EstimateS)
+				} else {
+					row += "\t-"
+				}
+			}
 			fmt.Fprintf(tw, "%s\t%s\n", row, age(l.Age))
 		}
 	}
-	lease("LEASE", st.Leases)
-	lease("WAITING", st.Waiting)
+	lease("LEASE", st.Leases, false)
+	lease("WAITING", st.Waiting, true)
 	if len(st.Squatters) > 0 {
 		fmt.Fprint(tw, "\nSQUATTER\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
 		for _, s := range st.Squatters {

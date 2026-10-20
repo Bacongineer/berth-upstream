@@ -124,3 +124,53 @@ func TestWaitReasonsCarryTheMeasuredStart(t *testing.T) {
 		t.Fatalf("fifth reason = %q, want %q", got, fifth)
 	}
 }
+
+// Status carries the place and the measured start for every waiting lease,
+// and nothing of either for a lease that is granted.
+func TestStatusCarriesPlaceAndEstimate(t *testing.T) {
+	tree := procs.Map{101: 100}
+	b, c, _ := setup(t, tree)
+
+	book, err := swapcost.NewBook("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.Record(swapcost.Sample{Engine: "alpha", Tier: swapcost.Cold, Took: 30 * time.Second})
+	book.Record(swapcost.Sample{Engine: "alpha", Tier: swapcost.Cold, Took: 40 * time.Second})
+	book.Record(swapcost.Sample{Engine: "beta", Tier: swapcost.Cold, Took: 20 * time.Second})
+	b.cfg.SwapCost = book
+
+	holder := must(t, acquire(b, Request{Engine: "ninfer", Priority: Batch}))
+	holder.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-serve", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	wait(t, b, "alpha", Interactive)
+	wait(t, b, "beta", Interactive)
+	wait(t, b, "gamma", Batch)
+
+	st := b.Status()
+	if len(st.Waiting) != 3 {
+		t.Fatalf("waiting = %+v, want three leases", st.Waiting)
+	}
+	want := []struct {
+		engine    string
+		position  int
+		estimateS float64
+	}{
+		{"alpha", 1, 35},
+		{"beta", 2, 55},
+		{"gamma", 3, 55},
+	}
+	for i, w := range want {
+		got := st.Waiting[i]
+		if got.Engine != w.engine || got.Position != w.position || got.EstimateS != w.estimateS {
+			t.Fatalf("waiting[%d] = %+v, want %s position %d estimate %v", i, got, w.engine, w.position, w.estimateS)
+		}
+	}
+	for _, l := range st.Leases {
+		if l.Position != 0 || l.EstimateS != 0 {
+			t.Fatalf("granted lease %+v carries a place or estimate, want neither", l)
+		}
+	}
+}
