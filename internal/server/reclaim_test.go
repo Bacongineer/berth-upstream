@@ -81,7 +81,7 @@ func TestReclaimStopsOnlyRecordedHolders(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "berth.sock")
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	b := broker.New(broker.Config{Poll: 20 * time.Millisecond, DefaultWait: 5 * time.Second,
-		JuggleWindow: -1, Log: log}, card, procs.System{})
+		ReleaseGrace: time.Millisecond, JuggleWindow: -1, Log: log}, card, procs.System{})
 	ln, err := server.Listen(sock)
 	if err != nil {
 		t.Fatal(err)
@@ -123,10 +123,10 @@ func TestReclaimStopsOnlyRecordedHolders(t *testing.T) {
 	})
 	leaseA.Release()
 	leaseM.Release()
-	waitFor(t, "leases releasing", func() bool {
+	waitFor(t, "leases stuck", func() bool {
 		st := b.Status()
 		for _, l := range st.Leases {
-			if l.State != "releasing" {
+			if l.State != "stuck" {
 				return false
 			}
 		}
