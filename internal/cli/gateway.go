@@ -25,7 +25,7 @@ func runGateway(c *Context) int {
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines with start/serves can be started on demand ($BERTH_CONFIG)")
 	ready := fs.Duration("ready", 10*time.Minute, "how long a start may wait for a berth and then to answer")
 	headroomMiB := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start; a start leaving less available is refused")
-	guiListen := fs.String("gui-listen", "", "serve the wake pages (/gui/<engine>: start an engine with a gui URL, then open its web UI) on this loopback address; empty = off")
+	guiListen := fs.String("gui-listen", "", "serve the gui plane (/gui/ lists every engine with its state and one button; /gui/<engine> starts an engine with a gui URL, then opens its web UI) on this loopback address; empty = off")
 	keyFile := fs.String("key-file", apikey.DefaultPath(), "the node's API key, created on first start ($BERTH_API_KEY_FILE)")
 	var allow hostList
 	fs.Var(&allow, "allow-host", "extra Host name the loopback gateway answers to, for a same-machine reverse proxy such as tailscale serve (repeatable or comma-separated)")
@@ -41,7 +41,7 @@ func runGateway(c *Context) int {
 	}
 	if *guiListen != "" {
 		if err := config.Loopback(*guiListen); err != nil {
-			return c.fail(Systemf("the wake page listens on loopback only: %v", err))
+			return c.fail(Systemf("the gui plane listens on loopback only: %v", err))
 		}
 	}
 	cfg, warns, err := suite.Merged(*cfgPath)
@@ -66,11 +66,11 @@ func runGateway(c *Context) int {
 		go func() { <-ctx.Done(); _ = gui.Close() }()
 		go func() {
 			if err := gui.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error("wake page stopped", "err", err)
+				log.Error("gui plane stopped", "err", err)
 				stop()
 			}
 		}()
-		log.Info("wake page up", "url", "http://"+*guiListen+"/gui/")
+		log.Info("gui plane up", "url", "http://"+*guiListen+"/gui/")
 	}
 	log.Info("gateway up", "listen", "http://"+*listen+"/v1", "startable", len(cfg.Engine), "key_file", *keyFile)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
