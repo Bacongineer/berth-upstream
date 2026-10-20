@@ -312,8 +312,11 @@ func (g *Gateway) listed(ctx context.Context, base string) []string {
 // first (it loads the model itself, under its own leases), else a configured
 // engine that serves it and can be started.
 func (g *Gateway) resolve(ctx context.Context, model string) (target, bool) {
+	st := g.nodeStatus()
 	for _, e := range g.live() {
-		if e.Up && slices.Contains(g.listed(ctx, e.URL), model) {
+		// A parked engine answers its list with the weights in RAM; the
+		// resume, not the list, says when it may be proxied.
+		if e.Up && !parkedIn(st, e.Name) && slices.Contains(g.listed(ctx, e.URL), model) {
 			return target{url: e.URL, live: true}, true
 		}
 	}
@@ -610,10 +613,12 @@ func (g *Gateway) startFailed(w http.ResponseWriter, engine, what string, err er
 }
 
 // comfyTarget finds ComfyUI: a live one first (it takes the prompt
-// itself), else a configured one the gateway may start.
+// itself), else a configured one the gateway may start. A parked ComfyUI
+// is not the live one: the prompt must resume it first.
 func (g *Gateway) comfyTarget(ctx context.Context) (target, bool) {
+	st := g.nodeStatus()
 	for _, e := range g.live() {
-		if e.Up && e.Type == "comfyui" && g.comfyAnswers(ctx, e.URL) {
+		if e.Up && e.Type == "comfyui" && !parkedIn(st, e.Name) && g.comfyAnswers(ctx, e.URL) {
 			return target{url: e.URL, live: true}, true
 		}
 	}
@@ -696,6 +701,16 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	probe := g.answers
 	if e.Type == "comfyui" {
 		probe = g.comfyAnswers
+	}
+	// A parked engine answers while the weights sit in RAM: the resume
+	// goes before any probe, or the request is proxied to RAM.
+	if parks(e) {
+		switch err := g.resume(ctx, e); {
+		case err == nil:
+			return nil
+		case !errors.Is(err, errNotParked):
+			return err
+		}
 	}
 	if probe(ctx, e.URL) {
 		return nil // already up (started by hand or by its own manager)
