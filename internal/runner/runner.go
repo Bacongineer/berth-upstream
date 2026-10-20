@@ -68,6 +68,15 @@ type Options struct {
 // ExitRefused is EX_TEMPFAIL: no berth was granted.
 const ExitRefused = 75
 
+// pollEvery is how often a background poll retries: the configured Retry,
+// or 2s when unset.
+func (o Options) pollEvery() time.Duration {
+	if o.Retry <= 0 {
+		return 2 * time.Second
+	}
+	return o.Retry
+}
+
 func Run(o Options) int {
 	say := func(format string, a ...any) { fmt.Fprintf(o.Stderr, "berth: "+format+"\n", a...) }
 
@@ -191,10 +200,7 @@ func listen(conn *proto.Conn, onDrain func(string)) error {
 // does not know reattach, or a PID that is no longer this engine) ends the
 // attempts: the engine stays on record as unprotected until it exits.
 func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.Conn, string) {
-	every := o.Retry
-	if every <= 0 {
-		every = 2 * time.Second
-	}
+	every := o.pollEvery()
 	pid := cmd.Process.Pid
 	start := procs.System{}.StartTime(pid)
 	for {
@@ -231,10 +237,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.
 // (ComfyUI still starting, or wedged) is reported and waited out the same
 // way: Berth has no proof a job is not running.
 func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
-	every := o.Retry
-	if every <= 0 {
-		every = 2 * time.Second
-	}
+	every := o.pollEvery()
 	url := strings.TrimRight(o.DrainComfyUI, "/") + "/queue"
 	last := ""
 	for {
@@ -378,10 +381,7 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 	if base == "" {
 		return true
 	}
-	every := o.Retry
-	if every <= 0 {
-		every = 2 * time.Second
-	}
+	every := o.pollEvery()
 	url := base + "/slots"
 	if busy, err := slotsBusy(url); err != nil {
 		if failOpen(err) {
