@@ -24,6 +24,7 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
 	"github.com/T-Crypt/berth/internal/server"
+	"github.com/T-Crypt/berth/internal/suite"
 )
 
 func runDaemon(c *Context) int {
@@ -52,9 +53,12 @@ func runDaemon(c *Context) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, warns, err := suite.Merged(*cfgPath)
 	if err != nil {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
+	}
+	for _, w := range warns {
+		log.Warn(w.Key+": "+w.Message)
 	}
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
