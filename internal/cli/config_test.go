@@ -315,8 +315,15 @@ func TestConfigShowTOMLRoundTrips(t *testing.T) {
 	}
 	_, before, _ := runCLI(t, "config", "show", "--config", path, "--format", "json")
 	_, after, _ := runCLI(t, "config", "show", "--config", roundTrip, "--format", "json")
-	// The path differs, every other value must not.
-	strip := func(s, p string) string { return strings.ReplaceAll(s, p, "PATH") }
+	// The path differs, every other value must not. The document is JSON,
+	// whose backslashes are escaped, so the path is stripped in both its
+	// raw and its escaped form.
+	strip := func(s, p string) string {
+		if e, err := json.Marshal(p); err == nil {
+			s = strings.ReplaceAll(s, string(e[1:len(e)-1]), "PATH")
+		}
+		return strings.ReplaceAll(s, p, "PATH")
+	}
 	if strip(before, path) != strip(after, roundTrip) {
 		t.Errorf("round trip differs:\nbefore %s\nafter  %s", before, after)
 	}
