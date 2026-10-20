@@ -26,7 +26,10 @@ func TestRenderTaskXML(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The token walk is the well-formedness check.
+	// The rendering is UTF-8 in memory; only the file schtasks reads is
+	// UTF-16, so the declaration's charset is read through as is.
 	dec := xml.NewDecoder(strings.NewReader(doc))
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	for {
 		if _, err := dec.Token(); err != nil {
 			if err == io.EOF {
@@ -91,7 +94,7 @@ func TestUtf16le(t *testing.T) {
 		t.Errorf("the surrogate pair round-trips, got %q", got)
 	}
 	b := utf16le("A")
-	if len(b) != 5 || b[0] != 0xff || b[1] != 0xfe || b[2] != 'A' || b[3] != 0 {
+	if len(b) != 4 || b[0] != 0xff || b[1] != 0xfe || b[2] != 'A' || b[3] != 0 {
 		t.Errorf("the BOM and little-endian form, got % x", b)
 	}
 }
@@ -155,10 +158,18 @@ func TestTaskNotFound(t *testing.T) {
 func TestServiceInstallWindows(t *testing.T) {
 	dir := t.TempDir()
 	const exe = `C:\berth\berth.exe`
-	var xmlFile string
+	// Each /Create's XML is read while schtasks would read it: install
+	// removes the file once the task exists.
+	var xmlFiles []string
+	var xmlTexts []string
 	ops, calls := fakeOps(t, dir, func(a argv) (string, error) {
 		if a.name == "schtasks.exe" && a.args[0] == "/Create" {
-			xmlFile = a.args[4]
+			b, err := os.ReadFile(a.args[4])
+			if err != nil {
+				t.Errorf("the XML file schtasks was given: %v", err)
+			}
+			xmlFiles = append(xmlFiles, a.args[4])
+			xmlTexts = append(xmlTexts, utf16decode(b))
 		}
 		return "", nil
 	})
@@ -170,21 +181,20 @@ func TestServiceInstallWindows(t *testing.T) {
 	if len(*calls) != 2 {
 		t.Fatalf("one schtasks call per unit, got %v", *calls)
 	}
-	if (*calls)[0].String() != "schtasks.exe /Create /TN \\Berth\\berthd /XML "+xmlFile+" /F" {
+	if len(xmlFiles) != 2 {
+		t.Fatalf("one XML per task, got %v", xmlFiles)
+	}
+	if (*calls)[0].String() != "schtasks.exe /Create /TN \\Berth\\berthd /XML "+xmlFiles[0]+" /F" {
 		t.Errorf("the create command, got %s", (*calls)[0])
 	}
-	b, err := os.ReadFile(xmlFile)
-	if err != nil {
-		t.Fatalf("the XML file schtasks was given: %v", err)
-	}
-	text := utf16decode(b)
+	text := xmlTexts[0]
 	if !strings.Contains(text, `<Command>C:\berth\berth.exe</Command>`) || !strings.Contains(text, `<Arguments>daemon --gpu 0 --poll 2s</Arguments>`) {
 		t.Errorf("the XML runs the user's binary:\n%s", text)
 	}
 	if strings.Contains(text, "berth-gateway") {
 		t.Errorf("each task names its own unit:\n%s", text)
 	}
-	if _, err := os.Stat(xmlFile); !os.IsNotExist(err) {
+	if _, err := os.Stat(xmlFiles[0]); !os.IsNotExist(err) {
 		t.Errorf("the XML file is deleted after schtasks read it: %v", err)
 	}
 	if doc.Units[0].Action != "created" {
