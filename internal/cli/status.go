@@ -107,7 +107,13 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 	}
 	if len(st.Engines) > 0 {
-		fmt.Fprint(tw, "\nENGINE\tTYPE\tUP\tMODELS\tDECODE\tPREFILL\tOUT TOKENS\tQUEUE\n")
+		// EST. VRAM is the last run's measured peak per engine, an estimate
+		// of what a run needs; it is never a reservation.
+		est := map[string]uint64{}
+		for _, f := range st.Footprints {
+			est[f.Engine] = f.Bytes
+		}
+		fmt.Fprint(tw, "\nENGINE\tTYPE\tUP\tMODELS\tDECODE\tPREFILL\tOUT TOKENS\tQUEUE\tEST. VRAM\n")
 		for _, e := range st.Engines {
 			// One word in the cell: an error message here would stretch the
 			// column. Verbose names the reason under the tables.
@@ -122,8 +128,12 @@ func (v statusView) Human(c *Context, ok bool) error {
 			for _, m := range e.Models {
 				names = append(names, m.Name)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%.0f t/s\t%.0f t/s\t%.0f\t%.0f\n", e.Name, e.Type, esc(up), strings.Join(names, ","),
-				e.DecodeTPS, e.PrefillTPS, e.Metrics.OutputTokens, e.Metrics.Processing+e.Metrics.Waiting)
+			estimate := "-"
+			if b, ok := est[e.Name]; ok {
+				estimate = server.MiB(b)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%.0f t/s\t%.0f t/s\t%.0f\t%.0f\t%s\n", e.Name, e.Type, esc(up), strings.Join(names, ","),
+				e.DecodeTPS, e.PrefillTPS, e.Metrics.OutputTokens, e.Metrics.Processing+e.Metrics.Waiting, estimate)
 		}
 	}
 	tw.Flush()

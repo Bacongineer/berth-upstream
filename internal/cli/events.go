@@ -107,7 +107,7 @@ func eventKind(c *Context, kind string) string {
 	switch kind {
 	case proto.EvRefused, proto.EvStuck, proto.EvProbeFailed, proto.EvAlertRaised:
 		return c.Style.Err(kind)
-	case proto.EvSquatter, proto.EvJuggle:
+	case proto.EvSquatter, proto.EvJuggle, proto.EvFootprint:
 		return c.Style.Warn(kind)
 	case proto.EvGranted, proto.EvFreed, proto.EvReattached, proto.EvAlertCleared, proto.EvProbeRecovered, proto.EvSquatterGone:
 		return c.Style.OK(kind)

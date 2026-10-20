@@ -29,6 +29,7 @@ func (b *Broker) Status() proto.Status {
 		Counters:    b.counters,
 		LastEvent:   b.seq,
 		Priority:    b.priorityStatus(now),
+		Footprints:  b.footprintStatus(),
 	}
 	if b.probeErr != nil {
 		st.ProbeErr = b.probeErr.Error()

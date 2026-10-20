@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -92,6 +93,110 @@ func TestStatusJSONIsTheWireDocument(t *testing.T) {
 	}
 	if len(st.GPUs) != 1 || st.GPUs[0].Scheduled != true {
 		t.Errorf("gpus = %+v", st.GPUs)
+	}
+}
+
+// procCard is a fake card whose processes the test sets, so a status can
+// carry a footprint the way a real engine run leaves one.
+type procCard struct {
+	mu    sync.Mutex
+	procs []gpu.Proc
+}
+
+func (c *procCard) set(ps ...gpu.Proc) {
+	c.mu.Lock()
+	c.procs = ps
+	c.mu.Unlock()
+}
+
+func (c *procCard) Read(context.Context) (gpu.Snapshot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var used uint64
+	for _, p := range c.procs {
+		used += p.Used
+	}
+	return gpu.Snapshot{Total: 24 << 30, Used: used, Free: (24 << 30) - used, At: time.Now(),
+		Procs: append([]gpu.Proc(nil), c.procs...)}, nil
+}
+
+// startFootprintDaemon is startDaemon with a card the test drives and one
+// engine in the status, so the reply has a footprint to carry.
+func startFootprintDaemon(t *testing.T) (string, *broker.Broker, *procCard) {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "berth.sock")
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := &procCard{}
+	b := broker.New(broker.Config{
+		Poll: 20 * time.Millisecond, DefaultWait: 5 * time.Second, JuggleWindow: -1,
+		Version: "test", Log: log,
+	}, c, procs.Map{101: 100})
+	ln, err := server.Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	b.Tick(ctx)
+	go b.Run(ctx)
+	engines := func() []proto.Engine {
+		return []proto.Engine{{Name: "llama", Type: "llamacpp", URL: "http://127.0.0.1:8080",
+			Up: true, State: "up", Models: []proto.Model{{Name: "m", State: "loaded"}}}}
+	}
+	go server.Serve(ctx, ln, b, server.Extras{Engines: engines}, log)
+	return sock, b, c
+}
+
+// The status reply carries the engine's footprint: the human view shows it
+// as EST. VRAM, and the JSON names it estimated_vram_bytes.
+func TestStatusCarriesTheEngineFootprint(t *testing.T) {
+	isolate(t)
+	sock, b, c := startFootprintDaemon(t)
+
+	l, err := b.Acquire(context.Background(), broker.Request{Engine: "llama", Priority: broker.Foreground}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "llama-server", Used: 12 << 30})
+	b.Tick(context.Background())
+	l.Release()
+	c.set()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if est, ok := b.Footprint("llama"); ok && est == 12<<30 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the freed run's footprint never folded")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	code, out, errOut := runCLI(t, "status", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "EST. VRAM") {
+		t.Errorf("stdout %q lacks the EST. VRAM column", out)
+	}
+	if !strings.Contains(out, "12288 MiB") {
+		t.Errorf("stdout %q lacks the engine's estimate", out)
+	}
+
+	code, out, _ = runCLI(t, "status", "--socket", sock, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var st proto.Status
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("json %q: %v", out, err)
+	}
+	if len(st.Footprints) != 1 || st.Footprints[0].Engine != "llama" || st.Footprints[0].Bytes != 12<<30 || st.Footprints[0].Runs != 1 {
+		t.Errorf("footprints = %+v, want llama at 12 GiB over 1 run", st.Footprints)
+	}
+	if !strings.Contains(out, "estimated_vram_bytes") {
+		t.Errorf("json %q lacks the estimated_vram_bytes field", out)
 	}
 }
 

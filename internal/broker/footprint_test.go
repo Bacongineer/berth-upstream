@@ -15,6 +15,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/procs"
+	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // runFootprint runs engine once under the broker: it takes the card, holds
@@ -113,6 +114,48 @@ func TestFootprintIgnoresACorruptFile(t *testing.T) {
 	}
 	if n := len(b.Status().Leases); n != 0 {
 		t.Fatalf("leases = %d, want 0", n)
+	}
+}
+
+// A run that holds far more than the learned footprint warns once, once
+// the engine has three runs to learn from.
+func TestFootprintWarnsOnceOnADrift(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{101: 100})
+	for i := 0; i < 3; i++ {
+		runFootprint(t, b, c, "llama", 10*GiB)
+	}
+	runFootprint(t, b, c, "llama", 18*GiB)
+
+	ev, _, _ := b.Events(0, false)
+	var warns []proto.Event
+	for _, e := range ev {
+		if e.Kind == proto.EvFootprint {
+			warns = append(warns, e)
+		}
+	}
+	if len(warns) != 1 {
+		t.Fatalf("footprint warnings = %d, want 1: %+v", len(warns), warns)
+	}
+	for _, want := range []string{"llama uses 18.0 GiB", "its last runs used about 10.0 GiB"} {
+		if !strings.Contains(warns[0].Detail, want) {
+			t.Errorf("detail %q lacks %q", warns[0].Detail, want)
+		}
+	}
+}
+
+// With fewer than three learned runs the broker has nothing to compare
+// against and stays quiet.
+func TestFootprintStaysQuietBeforeThreeRuns(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{101: 100})
+	runFootprint(t, b, c, "llama", 10*GiB)
+	runFootprint(t, b, c, "llama", 10*GiB)
+	runFootprint(t, b, c, "llama", 18*GiB)
+
+	ev, _, _ := b.Events(0, false)
+	for _, e := range ev {
+		if e.Kind == proto.EvFootprint {
+			t.Fatalf("warned with only 2 learned runs: %+v", e)
+		}
 	}
 }
 

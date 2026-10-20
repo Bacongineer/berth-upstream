@@ -9,10 +9,14 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/fsx"
+	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // engineFootprint is one engine's record of its runs: the most memory seen
@@ -41,7 +45,9 @@ func loadFootprints(path string) (footprints, error) {
 
 // foldFootprint records the peak a freed lease measured, under the key it
 // counted for. A lease that never held memory measured nothing and is not a
-// run. b.mu must be held.
+// run. Once the engine has a learned figure (three runs), a run that holds
+// far more than it warns once, so a grown engine is seen instead of
+// silently mis-sized. b.mu must be held.
 func (b *Broker) foldFootprint(l *lease, now time.Time) {
 	if l.peak == 0 {
 		return
@@ -52,6 +58,13 @@ func (b *Broker) foldFootprint(l *lease, now time.Time) {
 		f = &engineFootprint{}
 		b.footprints[k] = f
 	}
+	if f.Last > 0 && f.Runs >= 3 && 2*l.peak > 3*f.Last {
+		// The estimate is kept per key, so the key names the engine in the
+		// message: for a grouped engine (llama-swap) that is the family.
+		msg := fmt.Sprintf("%s uses %s, its last runs used about %s", k, sizeHuman(l.peak), sizeHuman(f.Last))
+		b.log.Warn("a run's VRAM is far from the engine's learned footprint", "lease", l.id, "engine", l.engine, "detail", msg)
+		b.emit(proto.Event{Kind: proto.EvFootprint, Lease: l.id, Engine: l.engine, Bytes: l.peak, Detail: msg})
+	}
 	if l.peak > f.Peak {
 		f.Peak = l.peak
 	}
@@ -59,6 +72,29 @@ func (b *Broker) foldFootprint(l *lease, now time.Time) {
 	f.Runs++
 	f.At = now
 	b.footprintDirty = true
+}
+
+// sizeHuman is a byte count the way a person reads it: GiB with one decimal
+// at and above a GiB, whole MiB below.
+func sizeHuman(n uint64) string {
+	if n >= 1024*gpu.MiB {
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1024*gpu.MiB))
+	}
+	return fmt.Sprintf("%d MiB", n/gpu.MiB)
+}
+
+// footprintStatus is the table as the status reply carries it: the last
+// run's peak per engine, sorted by name. b.mu must be held.
+func (b *Broker) footprintStatus() []proto.EngineFootprint {
+	out := []proto.EngineFootprint{}
+	for k, f := range b.footprints {
+		if f == nil || f.Last == 0 {
+			continue
+		}
+		out = append(out, proto.EngineFootprint{Engine: k, Bytes: f.Last, Runs: f.Runs, At: f.At})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Engine < out[j].Engine })
+	return out
 }
 
 // Footprint reports the VRAM a run of the engine last used: the most recent
