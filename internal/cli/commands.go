@@ -416,6 +416,29 @@ board. Read only: nothing here changes the node.`,
 		Run:     runStatus,
 	},
 	{
+		Name:    "stop",
+		Summary: "stop an engine on purpose: its leases drain through their own wrappers",
+		Args:    "ENGINE [--wait] [--socket P] [--format F]",
+		Help: `Ask berthd to stop the named engine. Every active or draining lease of it,
+by name or engine family, is asked to give the card back the way a
+higher-priority waiter would: the lease's own wrapper runs the normal
+stop ladder (its job boundary, its unload, SIGTERM, then SIGKILL), and
+the lease frees only after a card read shows the engine's memory gone.
+
+A pinned lease is asked too: the pin keeps the scheduler off it, and a
+person who says stop means stop. What is not asked: an engine Berth
+never leased (hand-started, or a run that lost its daemon and never
+re-attached) is not Berth's to stop, and it is refused with its name. A
+lease that is already stuck after release is not stoppable either; berth
+reclaim names what it holds and, with --yes, stops it.
+
+--wait follows the event log until every asked lease is freed or stuck.
+It exits 0 when all are freed, 2 when any is stuck, naming it and the
+reclaim that finishes the job.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runStop,
+	},
+	{
 		Name:    "storage",
 		Summary: "the model roots: their filesystems, space, floors and shelves",
 		Args:    "[--dir D]... [--format F]",

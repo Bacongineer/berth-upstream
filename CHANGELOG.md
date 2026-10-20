@@ -56,6 +56,16 @@ has a matching GitHub release whose body comes from its section below.
   While a boundary is busy the wrapper prints a line each minute naming
   the slots and the wait age, and the ceiling says so when it ends the
   wait.
+- `berth stop ENGINE [--wait]`: stop an engine Berth started, on purpose.
+  The daemon asks each active or draining lease of the engine (by name or
+  engine family) to give the card back through the normal stop ladder, and
+  a lease frees only after a card read shows the engine's memory gone. A
+  pinned lease is asked too: the pin keeps the scheduler off it, not an
+  explicit stop. An engine Berth never leased is refused by name, and a
+  stuck lease is left to `berth reclaim`. `--wait` follows the event log
+  until the leases are freed (exit 0) or stuck (exit 2, naming them).
+  Stopping the gateway no longer stops its engines: they run outside its
+  cgroup, and `berth stop ENGINE` is how one of them is stopped on purpose.
 
 ### Changed
 

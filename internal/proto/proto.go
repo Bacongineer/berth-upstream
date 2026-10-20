@@ -35,6 +35,12 @@ const (
 	// card that the named lease, or every stuck and releasing lease, recorded.
 	// The server answers once with Holders.
 	OpReclaim = "reclaim"
+
+	// OpStop: client: drain every active or draining lease of the named
+	// engine (by name or group) that has an attached run, as a
+	// higher-priority waiter would. The server answers once with the leases
+	// it asked.
+	OpStop = "stop"
 )
 
 // Msg is every message in both directions; unused fields are omitted.
@@ -52,16 +58,18 @@ type Msg struct {
 	// OpReattach carry the name the operator gave (--container), OpAttach
 	// the full ID berth run resolved it to. The broker matches GPU
 	// processes by the ID and reports it shortened.
-	Container string    `json:"container,omitempty"`
-	Lease     string    `json:"lease,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	Status    *Status   `json:"status,omitempty"`
-	Since     uint64    `json:"since,omitempty"` // OpEvents: only events with a higher Seq
-	Watch     bool      `json:"watch,omitempty"` // OpEvents: keep streaming
-	Event     *Event    `json:"event,omitempty"`
-	History   *History  `json:"history,omitempty"`
-	SinceT    time.Time `json:"since_t,omitempty"`  // OpRequests: only requests strictly after this time
-	Requests  []Request `json:"requests,omitempty"` // OpRequests: the reply's log, oldest first
+	Container string `json:"container,omitempty"`
+	Lease     string `json:"lease,omitempty"`
+	// OpStop: Leases is the reply, the leases the daemon asked to drain.
+	Leases   []string  `json:"leases,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
+	Status   *Status   `json:"status,omitempty"`
+	Since    uint64    `json:"since,omitempty"` // OpEvents: only events with a higher Seq
+	Watch    bool      `json:"watch,omitempty"` // OpEvents: keep streaming
+	Event    *Event    `json:"event,omitempty"`
+	History  *History  `json:"history,omitempty"`
+	SinceT   time.Time `json:"since_t,omitempty"`  // OpRequests: only requests strictly after this time
+	Requests []Request `json:"requests,omitempty"` // OpRequests: the reply's log, oldest first
 	// OpReclaim: Lease names the lease to look at ("" = every stuck and
 	// releasing lease), Confirm stops the recorded ones, and Grace is the
 	// seconds a SIGTERM has to work before SIGKILL (0 = the daemon's

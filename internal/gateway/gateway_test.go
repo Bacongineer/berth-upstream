@@ -6,6 +6,7 @@ package gateway
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -92,7 +93,15 @@ func testRun(argv []string) {
 
 func fakeEngine(addr, model string, load time.Duration) {
 	mux := http.NewServeMux()
+	// The port is bound at once and answers 503 until load passes, as a real
+	// engine does while it loads: binding late would leave a window in which
+	// another process takes the port and this engine never answers.
+	loaded := time.Now().Add(load)
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if time.Now().Before(loaded) {
+			http.Error(w, "loading", http.StatusServiceUnavailable)
+			return
+		}
 		fmt.Fprintf(w, `{"object":"list","data":[{"id":%q}]}`, model)
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
@@ -117,10 +126,11 @@ func fakeEngine(addr, model string, load time.Duration) {
 			}
 		}()
 	}
-	time.Sleep(load) // a real engine takes a moment to load
 	srv := &http.Server{Addr: addr, Handler: mux}
-	go func() { time.Sleep(8 * time.Second); _ = srv.Close() }()
-	_ = srv.ListenAndServe()
+	go func() { time.Sleep(load + 8*time.Second); _ = srv.Close() }()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintf(os.Stderr, "fake engine on %s: %v\n", addr, err)
+	}
 }
 
 type emptyCard struct{}
