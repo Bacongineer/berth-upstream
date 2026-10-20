@@ -213,14 +213,14 @@ func TestP90(t *testing.T) {
 	}
 }
 
-func TestMedianU64(t *testing.T) {
-	if got := medianU64(nil); got != 0 {
-		t.Errorf("medianU64(nil) = %d", got)
+func TestMedianBytes(t *testing.T) {
+	if got := median([]uint64(nil)); got != 0 {
+		t.Errorf("median(nil) = %d", got)
 	}
-	if got := medianU64([]uint64{300, 100, 200}); got != 200 {
-		t.Errorf("medianU64 = %d, want 200", got)
+	if got := median([]uint64{300, 100, 200}); got != 200 {
+		t.Errorf("median = %d, want 200", got)
 	}
-	if got := medianU64([]uint64{100, 200, 300, 400}); got != 250 {
+	if got := median([]uint64{100, 200, 300, 400}); got != 250 {
 		t.Errorf("medianU64 even = %d, want 250", got)
 	}
 }

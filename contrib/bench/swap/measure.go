@@ -10,7 +10,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -150,11 +150,11 @@ func parseSSE(r io.Reader, at func() time.Time, start time.Time) (streamResult, 
 
 // median is the middle of xs, the mean of the two middles when it is even;
 // 0 when xs is empty.
-func median(xs []time.Duration) time.Duration {
+func median[T time.Duration | uint64](xs []T) T {
 	if len(xs) == 0 {
 		return 0
 	}
-	s := slicesSort(xs)
+	s := slices.Sorted(slices.Values(xs))
 	n := len(s)
 	if n%2 == 1 {
 		return s[n/2]
@@ -170,34 +170,7 @@ func p90(xs []time.Duration) time.Duration {
 	if n == 0 {
 		return 0
 	}
-	s := slicesSort(xs)
-	rank := (9*n + 9) / 10 // ceil(0.9n) without floats
-	if rank < 1 {
-		rank = 1
-	}
-	return s[rank-1]
-}
-
-func slicesSort(xs []time.Duration) []time.Duration {
-	s := make([]time.Duration, len(xs))
-	copy(s, xs)
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
-	return s
-}
-
-// medianU64 is median for byte readings.
-func medianU64(xs []uint64) uint64 {
-	if len(xs) == 0 {
-		return 0
-	}
-	s := make([]uint64, len(xs))
-	copy(s, xs)
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
-	n := len(s)
-	if n%2 == 1 {
-		return s[n/2]
-	}
-	return (s[n/2-1] + s[n/2]) / 2
+	return slices.Sorted(slices.Values(xs))[(9*n+9)/10-1] // ceil(0.9n) without floats
 }
 
 // outputsIdentical says whether every sample of one engine carries the

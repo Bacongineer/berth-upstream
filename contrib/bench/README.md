@@ -2,7 +2,7 @@
 
 `contrib/bench/swap` measures what a model switch costs on a live node,
 through the Berth gateway, which is the supported path. Per cycle it asks
-the gateway for model A, then model B, then A again, so each request
+the gateway for model A once, then per cycle for model B and A again, so each request
 drains the running engine and takes the other. For every request it
 records:
 
@@ -38,7 +38,7 @@ in its usual place. The full flag set:
   -a string       model A
   -b string       model B (replaced by the -comfy workflow when that is set)
   -comfy string   path to a ComfyUI workflow JSON; its slot replaces model B
-  -cycles int     how many A-B-A cycles to run (default 5)
+  -cycles int     how many B-then-A cycles after the opening A (default 5)
   -gateway string the gateway base URL (default "http://127.0.0.1:9799")
   -gateway-pid int the gateway's PID, for the RSS reading of -leak (Linux)
   -gpu-index int  the card the bench reads (default 0)

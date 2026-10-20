@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command swap measures what a model switch through the Berth gateway
-// costs. Per cycle it asks the gateway for model A, then model B, then A
-// again, so each request forces the gateway to drain the running engine
+// costs. It asks the gateway for model A once, then per cycle for model B
+// and A again, so each request forces the gateway to drain the running engine
 // and take the other. For every request it records the time to the
 // engine's first token, the total time, the card's used VRAM before the
 // request and after the previous engine drained, the host's available RAM
@@ -71,7 +71,7 @@ func parseFlags() (flags, error) {
 	gateway := fs.String("gateway", "http://127.0.0.1:9799", "the gateway base URL")
 	a := fs.String("a", "", "model A")
 	b := fs.String("b", "", "model B (replaced by the -comfy workflow when that is set)")
-	cycles := fs.Int("cycles", 5, "how many A-B-A cycles to run")
+	cycles := fs.Int("cycles", 5, "how many B-then-A cycles to run after the opening A")
 	comfy := fs.String("comfy", "", "path to a ComfyUI workflow JSON; its slot replaces model B")
 	leak := fs.Int("leak", 0, "run N A-B cycles and print VRAM after drain and the gateway RSS at cycle 1 and N")
 	gwPID := fs.Int("gateway-pid", 0, "the gateway's PID, for the RSS reading of -leak (Linux)")
@@ -113,8 +113,8 @@ func usage(fs *flag.FlagSet) {
 
 usage: swap -a MODEL_A -b MODEL_B [flags]
 
-Per cycle the bench asks the gateway for model A, then model B, then A
-again; each request drains the running engine and takes the other. For
+The bench asks the gateway for model A once, then per cycle for model B
+and A again; each request drains the running engine and takes the other. For
 every request it records the time to first token, the total time, the
 card's used VRAM before the request and after the previous engine
 drained, the host's available RAM before and after, and the greedy
@@ -225,26 +225,27 @@ func apikeyPath() string {
 	return dir + "/berth/api.key"
 }
 
-// run executes the A-B-A cycles, or the -leak program.
+// run executes the switch cycles, or the -leak program.
 func (r *run) run(ctx context.Context) error {
 	if r.f.leak > 0 {
 		return r.runLeak(ctx)
 	}
+	// One opening request for A, then B and A per cycle: every request
+	// after the first is a real switch, never a second ask of the engine
+	// that already holds the card.
+	if err := r.request(ctx, r.f.modelA); err != nil {
+		return fmt.Errorf("opening request, model A: %w", err)
+	}
 	for i := 0; i < r.f.cycles; i++ {
-		if err := r.request(ctx, r.f.modelA); err != nil {
-			return fmt.Errorf("cycle %d, model A: %w", i+1, err)
-		}
 		if r.f.comfy != "" {
 			if err := r.comfy(ctx); err != nil {
 				return fmt.Errorf("cycle %d, comfyui: %w", i+1, err)
 			}
-		} else {
-			if err := r.request(ctx, r.f.modelB); err != nil {
-				return fmt.Errorf("cycle %d, model B: %w", i+1, err)
-			}
+		} else if err := r.request(ctx, r.f.modelB); err != nil {
+			return fmt.Errorf("cycle %d, model B: %w", i+1, err)
 		}
 		if err := r.request(ctx, r.f.modelA); err != nil {
-			return fmt.Errorf("cycle %d, model A again: %w", i+1, err)
+			return fmt.Errorf("cycle %d, model A: %w", i+1, err)
 		}
 	}
 	return nil
@@ -513,7 +514,7 @@ func (r *run) reportLeak() {
 
 func (r *run) reportTable() {
 	fmt.Printf("swap  gateway %s  card %s  baseline %s used\n", r.f.gateway, r.card, human(r.baseline))
-	fmt.Printf("swap  %d cycle(s) of A-B-A, fixed prompt, temperature 0, seed 1, max 32 tokens\n", r.f.cycles)
+	fmt.Printf("swap  opening A, then %d cycle(s) of B and A, fixed prompt, temperature 0, seed 1, max 32 tokens\n", r.f.cycles)
 
 	engines := []string{}
 	for _, s := range r.samples {
@@ -570,7 +571,7 @@ func (r *run) reportTable() {
 			}
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			e, humanDur(median(totals)), human(drop), human(medianU64(afters)), outputsIdentical(ss))
+			e, humanDur(median(totals)), human(drop), human(median(afters)), outputsIdentical(ss))
 	}
 	tw.Flush()
 
