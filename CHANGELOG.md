@@ -6,6 +6,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-10-20
+
 ### Fixed
 
 - `berth update` and `berth update --check` always ask GitHub; before, a "no newer release" the
