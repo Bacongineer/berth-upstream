@@ -59,12 +59,20 @@ type Gateway struct {
 	// MemAvailable is RAM available in bytes plus whether the box reports
 	// it; nil reads the live machine. Tests inject a fake here.
 	MemAvailable func() (avail uint64, ok bool)
+	// StateFile records the engines this gateway started as their own
+	// processes, so the next gateway adopts the ones still running
+	// instead of starting them again. Empty disables the record.
+	StateFile string
 
 	mu      sync.Mutex
 	running map[string]*started // engines this gateway started, by name
 	failed  map[string]*failure // engines whose last start died before answering
 	lists   map[string]cached   // engine URL -> its /v1/models, briefly cached
 	wakes   map[string]*wake    // the wake page's last start, by engine name
+
+	adoptOnce sync.Once
+	stateMu   sync.Mutex
+	records   map[string]engineRec // the run processes still going, by engine name
 }
 
 type started struct {
@@ -162,6 +170,7 @@ func (g *Gateway) log() *slog.Logger {
 // when it is down), while /ws /queue /history /view /upload proxy to a
 // running ComfyUI.
 func (g *Gateway) Handler() http.Handler {
+	g.adoptOnce.Do(g.adopt)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", g.models)
 	mux.HandleFunc("GET /v1/berth/wait", g.wait)
@@ -780,20 +789,30 @@ func (g *Gateway) memAvailable() (uint64, bool) {
 	return s.RAMTotal - s.RAMUsed, true
 }
 
-// run is one `berth run` of e, in process: it waits for a berth, starts the
-// engine, and hands the berth back when the engine exits or is drained. It
-// waits for the berth no longer than the request that asked for it, so a start
+// run starts e as its own `berth run` process: under the user manager's
+// scope (or a new session), so a gateway restart or crash leaves the
+// engine up. The process takes the lease and runs the drain ladder
+// exactly as any other berth run; the gateway reads its output for the
+// tail a failed start quotes, and records it, so the next gateway
+// adopts the engine instead of starting it again. The start waits for
+// the berth no longer than the request that asked for it, so a start
 // the client gave up on cannot fire hours later and take the card.
 func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration) {
-	g.log().Info("gateway starting engine", "engine", e.Name)
-	s.code = runner.Run(runner.OptionsFor(e, runner.Over{
-		Socket: g.Socket, Group: e.Name, Wait: wait, Stderr: s.stderr, Output: s.output,
-	}))
-	g.log().Info("gateway engine exited", "engine", e.Name, "code", s.code)
+	o := runner.OptionsFor(e, runner.Over{Socket: g.Socket, Group: e.Name, Wait: wait})
+	code, err := g.spawnRun(e.Name, s, o)
+	if err != nil {
+		g.log().Error("gateway could not start the engine process", "engine", e.Name, "err", err)
+		s.why = &startError{code: "start_failed", msg: fmt.Sprintf("%s could not be started: %v", e.Name, err)}
+	} else {
+		s.code = code
+		g.log().Info("gateway engine exited", "engine", e.Name, "code", code)
+	}
 	g.mu.Lock()
 	delete(g.running, e.Name)
 	if !s.answered {
-		s.why = classify(e.Name, s.code, s.stderr.String(), s.output.String())
+		if s.why == nil {
+			s.why = classify(e.Name, s.code, s.stderr.String(), s.output.String())
+		}
 		// Only a crash cools down: a lost juggle, a drain or a refused
 		// lease is the broker's answer, and the next try may well win.
 		if s.why.code == "start_failed" || s.why.code == "engine_oom" {
