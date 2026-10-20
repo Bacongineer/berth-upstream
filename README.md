@@ -43,6 +43,17 @@ shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 > Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
 > [Roadmap](#roadmap) lists the phases and what is still missing.
 
+### Berth and llama-swap
+
+Use both. llama-swap swaps the models in its own config, and does it well. Berth governs the
+whole card: llama-swap's models, ComfyUI, Ollama, vLLM, games, and any process that holds VRAM,
+including the ones neither tool started. With Berth beside it, llama-swap's next model waits
+for ComfyUI or the engine before it to give the memory back, and when a crashed process still
+holds part of the card, Berth names its PID and how much it holds, so you aren't hunting
+through `nvidia-smi` while a load fails. `berth wire llama-swap` adds the lease to every model
+in your config in one pass. An upstream integration with llama-swap is planned, so the wrapper
+line goes away.
+
 ## What Berth does
 
 **Shares one card between everything**
@@ -55,7 +66,8 @@ shows up as a stowaway: Berth reports its PID and memory and leaves it running.
   and the other waits, so the card stays put.
 - **ComfyUI at a job boundary.** Berth waits for the running image job to finish before the handoff.
 - **Survives restarts.** Upgrade or restart the daemon and your running engines stay up and
-  re-attach.
+  re-attach. Engines the gateway started are the exception for now: restarting the gateway
+  stops them (fix planned for v0.3).
 
 **Games and other apps**
 - **Games take the card while you play.** Launch a Steam, Lutris or gamescope game on Linux,
@@ -674,7 +686,8 @@ drain_slots = "http://127.0.0.1:8080"
 |---|---|
 | Linux + NVIDIA | Supported |
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work; no installer yet, and the driver reports no per-process memory under WDDM, so use whole-card leases |
-| AMD, Intel, Apple | Not supported yet (the telemetry layer is an interface for later backends) |
+| AMD on Linux | Not supported yet; next after v0.3 (a vendor-neutral probe, then amdgpu) |
+| Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
 
 ---
@@ -697,12 +710,42 @@ drain_slots = "http://127.0.0.1:8080"
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
-Next, in this order: library v1 (shelves, roots with storage visibility, the in-root catalog,
-the CivitAI pull), journal and undo under every mutating command, engine install and update
-from upstream beyond the ComfyUI suite, Berth swapping models itself the way llama-swap does,
-the gateway's full surface (Ollama-style and voice, on top of the preview's OpenAI-compatible
-port and ComfyUI), the update watch and the migration manager, then the fleet, offers and
-multi-GPU scheduling.
+### Next: v0.3, fast swap and proof
+
+v0.3 goes after the cost you feel most, reloading every engine from disk on every switch, and
+proves Berth holds up when an engine misbehaves.
+
+- **Park in RAM.** On a drain, an engine with spare RAM to land in keeps its weights in system
+  memory and comes back in seconds instead of reloading from disk. An engine that can offload
+  itself does it through its own park and resume URLs; unmodified CUDA engines on Linux use
+  NVIDIA's `cuda-checkpoint` next. Berth parks only when the free RAM it measures covers the
+  engine plus a floor, and stops parked engines first when memory runs short. Without the RAM,
+  the drain runs as it does today.
+- **Warm starts on smaller machines.** Berth shows how much of each model's file the page cache
+  still holds, and reads the next engine's files ahead while the holder drains.
+- **No swap when both fit.** Berth learns each engine's real footprint from what it held, `berth
+  fit` says which engines can share the card, and a scene pins a pair that never swaps.
+- **Measured.** A swap benchmark (cold, warm and parked, per engine) with the numbers published
+  here.
+- **`berth reclaim`.** Lists the processes Berth recorded under a lease that still hold memory
+  (a crashed run's child, a stuck release) and stops them when you confirm. Processes Berth
+  never started stay report-only.
+- **Handoff fixes.** A lease frees only after a card read shows its memory gone; a gateway
+  restart keeps the engines it started; a streaming request gets keep-alive lines while its
+  engine loads; a waiting request sees its place in the queue and an estimate.
+- **Proof.** Tagged releases with changelogs; `contrib/chaos`, the failure scenarios anyone can
+  run (an engine that ignores SIGTERM, a child that escapes, a stowaway, a daemon restart
+  mid-lease); a public table of tested GPUs, drivers and engines that credits each tester.
+
+### After v0.3
+
+AMD on Linux, then the Windows node out of experimental (installer, per-process memory, a
+locked-down control pipe). Multi-GPU scheduling, the fleet and offers follow; their order is
+still open.
+
+On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the update watch, the
+migration manager, and Berth swapping models itself. llama-swap already swaps models well;
+Berth works beside it.
 
 ## What Berth never does
 
