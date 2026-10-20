@@ -33,9 +33,10 @@ import (
 // BERTH_GW_ENGINE=addr,model[,load] the test binary serves that model on
 // addr and streams a three-chunk reply, answering only after load (a
 // duration, 300ms by default), then exits after a few seconds. With
-// BERTH_GW_COMFY=addr it serves a ComfyUI stand-in instead. With "run" as
-// its first argument it is a `berth run` stand-in for the gateway's
-// spawned engine processes.
+// BERTH_GW_LOG_EVERY set the engine prints a line to its stderr at that
+// cadence, the way a busy engine does. With BERTH_GW_COMFY=addr it
+// serves a ComfyUI stand-in instead. With "run" as its first argument it
+// is a `berth run` stand-in for the gateway's spawned engine processes.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "run" {
 		testRun(os.Args[2:])
@@ -103,6 +104,19 @@ func fakeEngine(addr, model string, load time.Duration) {
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	})
+	if every := os.Getenv("BERTH_GW_LOG_EVERY"); every != "" {
+		d, err := time.ParseDuration(every)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bad BERTH_GW_LOG_EVERY %q: %v\n", every, err)
+			os.Exit(2)
+		}
+		go func() {
+			for i := 0; ; i++ {
+				fmt.Fprintf(os.Stderr, "engine line %d\n", i)
+				time.Sleep(d)
+			}
+		}()
+	}
 	time.Sleep(load) // a real engine takes a moment to load
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() { time.Sleep(8 * time.Second); _ = srv.Close() }()

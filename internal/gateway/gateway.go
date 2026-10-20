@@ -73,6 +73,10 @@ type Gateway struct {
 	adoptOnce sync.Once
 	stateMu   sync.Mutex
 	records   map[string]engineRec // the run processes still going, by engine name
+
+	logOnce sync.Once
+	logDir  string
+	logErr  error // one engineLogs() decision per gateway
 }
 
 type started struct {

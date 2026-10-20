@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/runner"
 )
 
 func readRecsFile(t *testing.T, path string) []engineRec {
@@ -137,3 +138,70 @@ func TestRestartAdoptsItsEngines(t *testing.T) {
 }
 
 func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// An engine run writes its own log file, not a pipe the gateway holds:
+// when the gateway goes away the run keeps writing (its fd is the file),
+// and the next gateway follows the log's new lines into its tail.
+func TestEngineLogSurvivesTheGateway(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "no-daemon.sock")
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_ENGINE", addr+",loggy,300ms")
+	t.Setenv("BERTH_GW_LOG_EVERY", "50ms")
+	state := filepath.Join(t.TempDir(), "engines.json")
+	e := config.Engine{Name: "loggy", URL: "http://" + addr, Start: []string{os.Args[0]}}
+
+	g1 := &Gateway{StateFile: state, Log: discard()}
+	s := &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
+	go func() { _, _ = g1.spawnRun(e.Name, s, runner.OptionsFor(&e, runner.Over{Socket: sock, Group: e.Name, Wait: 10 * time.Second})) }()
+
+	logPath, err := g1.engineLogPath(e.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := func() int64 {
+		st, err := os.Stat(logPath)
+		if err != nil {
+			return 0
+		}
+		return st.Size()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for size() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the run's log never got its first line")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// The gateway goes away: g1 and its follower are dropped. The run and
+	// its engine are still alive and keep writing for at least a second.
+	before := size()
+	time.Sleep(time.Second)
+	if after := size(); after <= before {
+		t.Fatalf("the engine stopped writing after the gateway went away: %d -> %d bytes", before, after)
+	}
+
+	// A new gateway on the same state file adopts the engine, and its own
+	// follower shows the log's new lines in the adopted tail.
+	g2 := &Gateway{StateFile: state, Log: discard(), Engines: []config.Engine{e}}
+	g2.Handler()
+	g2.mu.Lock()
+	adopted := g2.running[e.Name]
+	g2.mu.Unlock()
+	if adopted == nil || !adopted.answered {
+		t.Fatal("the running engine was not adopted")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		adopted.output.mu.Lock()
+		tail := string(adopted.output.b)
+		adopted.output.mu.Unlock()
+		if strings.Contains(tail, "engine line") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the adopted engine's tail never saw new lines: %q", tail)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

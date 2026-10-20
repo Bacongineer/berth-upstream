@@ -62,6 +62,11 @@ func (g *Gateway) adopt() {
 		}
 		g.running[rec.Engine] = s
 		g.mu.Unlock()
+		if path, err := g.engineLogPath(rec.Engine); err == nil {
+			if err := g.startFollow(rec.Engine, path, s.exited, s); err != nil {
+				g.log().Warn("gateway cannot follow an adopted engine's log", "engine", rec.Engine, "err", err)
+			}
+		}
 		go g.watchAdopted(rec, s)
 		g.log().Info("gateway adopted a running engine", "engine", rec.Engine, "pid", rec.PID, "lease", rec.Lease)
 	}

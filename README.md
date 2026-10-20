@@ -529,10 +529,13 @@ At no point did the two engines hold the card at the same time.
 **A gateway restart keeps its engines.** Each engine runs as its own `berth run` process, in a systemd
 user scope on Linux (`systemd-run --user --scope`, when the user manager is reachable) so it is outside
 the gateway service's cgroup, else in a new session. The gateway writes each started run, with its PID,
-start time and lease, to a small file under the state directory (`~/.local/state/berth/gateway-engines.json`).
-When the gateway comes back it reads that file and adopts every engine whose process is still the same one
-and that answers: the next request is proxied, not started again. Records for processes that left are
-dropped. Restarting during a 40-110 s cold start costs nothing but the restart itself.
+start time and lease, to a small file under the state directory (`~/.local/state/berth/gateway-engines.json`),
+and the run's own output goes to `~/.local/state/berth/engines/<name>.log` (mode 600), never to a pipe the
+gateway holds, so a gateway that stops cannot break an engine's writes. While the gateway runs it copies
+the log to its own journal as well.
+When the gateway comes back it reads that file and adopts every engine whose process is still the same
+one, answering or still loading: the next request is proxied, not started again. Records for processes
+that left are dropped. Restarting during a 40-110 s cold start costs nothing but the restart itself.
 
 **Long waits and idle clients.** Cold starts take 41-110 s (table above), longer than many OpenAI
 clients wait before giving up. Streaming requests get the answer early: the gateway sends its SSE

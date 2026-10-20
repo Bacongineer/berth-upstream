@@ -10,6 +10,7 @@ package gateway
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -22,11 +23,21 @@ import (
 )
 
 // spawnRun starts the run process for one engine, records it, and waits
-// for its end, feeding the output the tail keeps.
+// for its end while a follower feeds its log to the tail and the
+// journal. The run writes the log file, not gateway pipes, so a gateway
+// that exits cannot break its output.
 func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return 0, err
+	}
+	logPath, err := g.engineLogPath(name)
+	if err != nil {
+		return 0, fmt.Errorf("engine log: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, fmt.Errorf("engine log: %w", err)
 	}
 	full := append([]string{exe}, runArgv(o)...)
 	full = append(full, "--")
@@ -34,23 +45,21 @@ func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, erro
 	full = scopeArgv(name, full)
 	cmd := exec.Command(full[0], full[1:]...)
 	detach(cmd)
-	cmd.Stdout = io.MultiWriter(os.Stdout, s.output)
-	cmd.Stderr = &watchWriter{w: io.MultiWriter(os.Stderr, s.stderr, s.output),
-		see: func(line string) {
-			if lease, ok := grantedLease(line); ok {
-				g.setLease(name, lease)
-			}
-		}}
-	// A grandchild that holds the output pipes after the run ends must
-	// not hold the wait.
-	cmd.WaitDelay = 2 * time.Second
-	g.log().Info("gateway starting engine", "engine", name)
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	g.log().Info("gateway starting engine", "engine", name, "log", logPath)
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		return 0, err
 	}
+	logFile.Close() // the run and its engine own the file now
 	g.putRecord(engineRec{Engine: name, PID: cmd.Process.Pid,
 		Start: procs.System{}.StartTime(cmd.Process.Pid), Started: time.Now()})
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go g.followEngine(name, logPath, 0, stop, done, s)
 	code := exitCodeOf(cmd, cmd.Wait())
+	close(stop)
+	<-done // the tail has the run's last lines before anything reads it
 	g.dropRecord(name)
 	return code, nil
 }
@@ -93,12 +102,8 @@ func runArgv(o runner.Options) []string {
 }
 
 // exitCodeOf is the run process's exit code, the engine's status among
-// them. A WaitDelay error is a clean exit: a grandchild held the output
-// pipes, nothing worse.
+// them.
 func exitCodeOf(cmd *exec.Cmd, err error) int {
-	if errors.Is(err, exec.ErrWaitDelay) {
-		err = nil
-	}
 	if err == nil {
 		return 0
 	}
