@@ -86,6 +86,7 @@ func testRun(argv []string) {
 	fs.String("config", "", "")
 	fs.String("api-key-env", "", "")
 	fs.Bool("pinned", false, "")
+	fs.Bool("fail-closed", false, "")
 	if err := fs.Parse(argv); err != nil {
 		os.Exit(2)
 	}
