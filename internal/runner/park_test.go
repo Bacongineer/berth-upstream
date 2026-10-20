@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -435,6 +436,16 @@ func TestRunParksComfyUIKeepUp(t *testing.T) {
 			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: log})
 	}()
 	pid := attachAndMeasure(t, b, card)
+	// The parked engine is still up when the test ends: stop it and let
+	// the wrapper exit before the temp dirs go, or its unprotected-run
+	// record lands in a directory being removed.
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+		}
+	})
 
 	holder := acquireIn(b, broker.Request{Engine: "game", Priority: broker.Foreground})
 	waitFor(t, "the park unload", func() bool {

@@ -84,7 +84,8 @@ func TestParkAdmission(t *testing.T) {
 		gpu.Proc{PID: 102, Name: "sglang-engine", Used: 4 * GiB},
 	)
 	b.Tick(context.Background())
-	w := acquire(b, Request{Engine: "next2", Priority: Foreground, Wait: 50 * time.Millisecond})
+	// The waiter only triggers the drain; its patience must outlast a slow runner.
+	w := acquire(b, Request{Engine: "next2", Priority: Foreground, Wait: 2 * time.Second})
 	pending(t, w)
 	drained(t, m)
 	b.cfg.MemAvailable = func() uint64 { return 4 * GiB }
