@@ -249,15 +249,6 @@ listen = "127.0.0.1:9797"      # Prometheus text, loopback only
 name = "llama-swap"
 type = "llama-swap"
 url  = "http://127.0.0.1:9090"
-# park = "hook"                # off (default) | hook: on a drain the engine
-#                              # moves its weights to RAM and resumes in seconds
-# park_url   = "http://127.0.0.1:8188/offload"   # the hook's calls; comfyui,
-# resume_url = "http://127.0.0.1:8188/reload"    # vllm and sglang need none
-
-[park]                        # the RAM budget parked engines may hold
-# floor_gib = 4        # RAM a park must leave free; 0 turns the margin off
-# max_gib   = 0        # cap on the RAM all parked engines hold together
-# ttl       = "30m"    # how long an engine stays parked before Berth stops it
 
 [alerts]
 [alerts.queue]
