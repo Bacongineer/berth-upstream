@@ -8,6 +8,7 @@ package pagecache
 import (
 	"fmt"
 	"os"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -17,6 +18,15 @@ import (
 // of the constant is generated under cgo, so the number stands here where it
 // is used.
 const fadvWillNeed = 3
+
+// mincoreTries is how many times a mincore the kernel refuses is retried. On
+// a machine that runs at its memory limit the kernel says "temporarily" and
+// means it: a listing that measured nothing would read its whole library as
+// unknown, when a moment of patience gets the answer.
+const mincoreTries = 4
+
+// mincoreDelay is how long one such retry waits for the kernel to come up.
+const mincoreDelay = 100 * time.Millisecond
 
 // resident measures one open file's page cache: each slice is mapped
 // read-only, checked with mincore, and unmapped again. PROT_READ keeps the
@@ -33,10 +43,9 @@ func resident(f *os.File, size int64) (int64, error) {
 		vec := make([]byte, pages)
 		// mincore checks a region of the process's address space, so the
 		// mapping's own base address is the offset, not the file's.
-		if _, _, errno := unix.Syscall6(unix.SYS_MINCORE, uintptr(unsafe.Pointer(&data[0])),
-			uintptr(pages*ps), uintptr(unsafe.Pointer(&vec[0])), 0, 0, 0); errno != 0 {
+		if err = mincoreChecked(data, vec); err != nil {
 			_ = unix.Munmap(data)
-			return cached, fmt.Errorf("mincore %s: %w", f.Name(), errno)
+			return cached, fmt.Errorf("mincore %s: %w", f.Name(), err)
 		}
 		_ = unix.Munmap(data)
 		for _, b := range vec {
@@ -53,6 +62,27 @@ func resident(f *os.File, size int64) (int64, error) {
 		cached = size
 	}
 	return cached, nil
+}
+
+// mincoreChecked runs mincore over the mapping and retries the refusals the
+// kernel makes when it is short of resources: ENOMEM and EAGAIN both say
+// "temporarily" in the kernel's own words.
+func mincoreChecked(data []byte, vec []byte) error {
+	for try := 0; ; try++ {
+		_, _, errno := unix.Syscall6(unix.SYS_MINCORE,
+			uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)),
+			uintptr(unsafe.Pointer(&vec[0])), 0, 0, 0)
+		if errno == 0 {
+			return nil
+		}
+		if errno != unix.ENOMEM && errno != unix.EAGAIN {
+			return errno
+		}
+		if try == mincoreTries-1 {
+			return errno
+		}
+		time.Sleep(mincoreDelay)
+	}
 }
 
 // prefetch asks for the file in chunks, which keeps each ask small and lets

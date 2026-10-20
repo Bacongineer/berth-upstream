@@ -9,7 +9,11 @@
 // says a re-read is likely to come from memory, not that any RAM is held.
 //
 // Resident reads the page table the kernel keeps for the mapping (mincore)
-// and never a byte of the file, so checking warmth cannot pull pages in.
+// and never a byte of the file, so checking warmth cannot pull pages in. On
+// a machine running at its memory limit the kernel may refuse the check
+// while it is short of resources; Resident retries a few times before
+// reporting the file as unknown.
+//
 // Prefetch asks the kernel to read the file ahead (posix_fadvise WILLNEED)
 // and returns as soon as the ask is made; the reads run on the kernel's
 // schedule and commit no RAM.
