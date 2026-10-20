@@ -657,6 +657,13 @@ applies to a ComfyUI queue that will not empty.
   of what a run needs, never a reservation: a run that holds far more than the learned
   figure (1.5x, once the engine has three runs) logs an `engine.footprint` event, so a
   grown engine is seen instead of mis-sized.
+- **The queue in every wait reason:** every reason a waiter is sent starts with its place
+  in the queue, "next in line" or "2nd in line (behind interactive comfyui)", so a client
+  behind the head of the queue hears where it stands instead of silence. The waiting table
+  of `berth status` shows the same place beside a start estimate, in seconds after the card
+  frees: the measured starts in the waiter's chain, one per seat ahead plus its own. An
+  unmeasured start says unmeasured and adds no number, and the holder's drain is never in
+  the figure, because a request runs as long as it runs.
 - **Alerts:** one threshold table in `berth.toml` (`[alerts]`): warn and crit per key
   (`queue`, `ttft`, `tpot`, `p95`, `cache`, `reingest`, `vram`, `temp`, `power`, `kv`).
   The node evaluates it on its 5 s sample cycle, fires a desktop notification and webhook
@@ -810,6 +817,13 @@ In v0.3:
 - **Handoff fixes.** A lease frees only after a card read shows its memory gone; a gateway
   restart keeps the engines it started; a streaming request gets keep-alive lines while its
   engine loads.
+- **A place and an estimate in every wait reason.** Every reason a waiter is sent starts
+  with its place in the queue, "next in line" or "2nd in line (behind interactive
+  comfyui)", and the waiting table of `berth status` shows the place with a start estimate
+  in seconds after the card frees. The estimate prices only what the node's book of
+  measured switch times has measured, one start per waiter ahead plus its own; an
+  unmeasured start says unmeasured, and the holder's drain is never in the figure, because
+  a request runs as long as it runs.
 - **Proof.** Tagged releases with changelogs; `contrib/chaos`, the failure scenarios anyone can
   run (an engine that ignores SIGTERM, a child that escapes, a stowaway, a daemon restart
   mid-lease); a public table of tested GPUs, drivers and engines.
@@ -817,7 +831,7 @@ In v0.3:
 In v0.3 if ready, else a v0.3.x release: NVIDIA's `cuda-checkpoint` for unmodified CUDA engines
 on Linux; reading the next engine's files ahead while the holder drains, and showing how much
 of each model the page cache still holds; `berth fit` and scenes, so engines that fit together
-never swap; a place in the queue and an estimate in every wait reason.
+never swap.
 
 ### After v0.3
 

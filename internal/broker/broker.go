@@ -23,6 +23,7 @@ import (
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
+	"github.com/T-Crypt/berth/internal/swapcost"
 )
 
 type Priority int
@@ -109,6 +110,10 @@ type Config struct {
 	// FootprintFile keeps the VRAM footprints measured per engine across
 	// restarts; "" = memory only.
 	FootprintFile string
+	// SwapCost is the book of measured switch times the broker may price
+	// starts from, for the start estimate in the wait reasons; nil = no
+	// estimate, the reasons carry the place only.
+	SwapCost *swapcost.Book
 	// Busy reports whether a lease's engine is serving now (a request in
 	// flight, queued work, a model loading). Only a busy holder can be in a
 	// juggle; an idle one hands the card over at once. nil, or known=false,
@@ -837,7 +842,7 @@ func (b *Broker) schedule(now time.Time) {
 		// last one hold; granting now could put a second engine on a card
 		// that is already full. The Tick after the window lifts this.
 		if n := b.reattaching(now); n > 0 {
-			b.setWait(w, fmt.Sprintf("berthd restarted; waiting up to %s for %d running engine(s) to re-attach",
+			b.notifyWait(b.queue, fmt.Sprintf("berthd restarted; waiting up to %s for %d running engine(s) to re-attach",
 				(b.cfg.ReattachWindow-now.Sub(b.started)).Round(time.Second), n))
 			return
 		}
@@ -886,7 +891,7 @@ func (b *Broker) schedule(now time.Time) {
 			b.counters.Drains++
 			b.emit(proto.Event{Kind: proto.EvDraining, Lease: v.id, Engine: v.engine, Detail: msg})
 		}
-		b.setWait(w, reason)
+		b.notifyWait(b.queue, reason)
 		return
 	}
 }

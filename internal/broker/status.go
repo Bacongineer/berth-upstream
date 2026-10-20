@@ -86,8 +86,11 @@ func (b *Broker) Status() proto.Status {
 	for _, l := range b.holders() {
 		st.Leases = append(st.Leases, view(l, l.granted))
 	}
-	for _, l := range b.queue {
-		st.Waiting = append(st.Waiting, view(l, l.arrived))
+	for i, l := range b.queue {
+		pl := view(l, l.arrived)
+		pl.Position = i + 1
+		pl.EstimateS = b.startCost(b.queue[:i+1]).seconds()
+		st.Waiting = append(st.Waiting, pl)
 	}
 	for _, s := range b.squatters {
 		st.Squatters = append(st.Squatters, proto.Squatter{
