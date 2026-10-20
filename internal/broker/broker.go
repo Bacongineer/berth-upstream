@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package broker owns the lease table for one GPU. It decides who gets the
 // card, asks holders to drain, attributes every GPU process to a lease, and
 // reports the ones nobody leased. It never kills anything.

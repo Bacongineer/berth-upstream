@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package manifest records what berth pull fetched: which source, its exact
 // revision, and every file's size and sha256. The record is written beside
 // the files it describes, so another machine or a later run can re-check them

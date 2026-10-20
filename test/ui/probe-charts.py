@@ -1,3 +1,6 @@
+# Copyright 2026 Trevin Tindall (T-Crypt)
+# SPDX-License-Identifier: Apache-2.0
+
 # Chart frame / axis probe (dev only). R-01's contract, measured: every chart's
 # axis words are HTML at their own CSS size (>= 11px at 375), the phone gets a
 # 160px shape (the text is never what got shrunk), no chart draws a <text>

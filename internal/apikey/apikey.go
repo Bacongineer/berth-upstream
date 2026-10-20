@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package apikey is the node's API key: one random secret per install, in a
 // file only its owner can read, generated the first time something needs it.
 // The gateway takes it as a bearer token; clients on the node read it with

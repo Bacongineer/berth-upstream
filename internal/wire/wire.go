@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package wire edits a llama-swap config so every model in its roster takes a
 // berth before it loads its weights. llama-swap starts a model on the first
 // request that names it, so the only place a lease can be waited for is the

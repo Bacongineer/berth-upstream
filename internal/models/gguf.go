@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package models reads the model files on this machine. It reads headers only:
 // a GGUF's metadata and tensor infos, a safetensors dir's config.json, an
 // Ollama manifest and its model blob. Nothing here loads weights, hashes a

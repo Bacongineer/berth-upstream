@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 package broker
 
 // Juggles. Two leases at the same priority drain each other ("last switch

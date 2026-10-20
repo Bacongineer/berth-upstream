@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dl moves one file from a URL into place. A download that
 // interrupted resumes where it stopped instead of starting over, and the
 // file is accepted only after its size and, when the source publishes one,

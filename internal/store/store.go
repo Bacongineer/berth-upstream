@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package store is the harbor's persistence: the node keeps one hour of
 // samples and a day of requests in RAM, the harbor folds the same readings
 // into SQLite so the UI can show days and months. The node never writes to

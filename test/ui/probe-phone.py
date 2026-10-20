@@ -1,3 +1,6 @@
+# Copyright 2026 Trevin Tindall (T-Crypt)
+# SPDX-License-Identifier: Apache-2.0
+
 # Phone chrome probe (dev only). R-02's contract, measured on the phone band:
 # one 56px rail, the .tabs element fixed to the bottom edge with the active tab
 # marked, the counter above the fold, the menu sheet openable and closable with

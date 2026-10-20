@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // berth leases one GPU to one inference engine at a time.
 //
 // The command tree, the output contract and the exit codes live in

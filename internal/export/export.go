@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package export dumps the harbor's stored history for the operator's own
 // analysis: the requests table and the history samples, as CSV (wide and
 // flattened) or JSON (the store's wire shape verbatim). The CLI reads the

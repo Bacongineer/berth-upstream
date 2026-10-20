@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package claims turns work Berth does not run into claims on the card, so a
 // game, a render or a capture is never lost in the shuffle between engines.
 //

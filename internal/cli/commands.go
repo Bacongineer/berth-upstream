@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 package cli
 
 // commands is the command tree. Rows are alphabetical, and a group (Sub) is a

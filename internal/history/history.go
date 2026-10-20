@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package history keeps the node's recent samples in memory for the
 // harbor's graphs: an hour at 5 s by default. Nothing is written to disk
 // (by design for now); a restart starts the graphs over.

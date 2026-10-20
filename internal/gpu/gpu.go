@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gpu reads what the card reports: total, used and free memory, and
 // the compute processes holding it. It shells out to nvidia-smi, which talks
 // to NVML and never opens a CUDA context, so probing costs no VRAM.

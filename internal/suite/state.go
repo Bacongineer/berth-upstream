@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package suite manages the engine installs Berth runs as a suite: each
 // install is a set of git components pinned to a commit, with one previous
 // commit kept as the rollback snapshot. A component is "a git checkout

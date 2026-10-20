@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package alerts is the node's threshold table and its sticky level
 // state. The daemon evaluates the table on its sample cycle; the levels
 // it holds are what the harbor paints and what the operator is

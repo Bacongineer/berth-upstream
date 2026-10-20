@@ -1,3 +1,6 @@
+# Copyright 2026 Trevin Tindall (T-Crypt)
+# SPDX-License-Identifier: Apache-2.0
+
 # Tap-target audit (dev only). R-05's contract: on the phone band every control a
 # thumb can hit is at least 44x44. Walks both tabs in both densities and reports
 # every control below the line. Same server as check.py:

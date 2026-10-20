@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package procs answers one question: is this process a descendant of that
 // one? Berth uses it to attribute a GPU process to the lease whose wrapper
 // started it, even when the engine forks (Strata's server.py spawns the
