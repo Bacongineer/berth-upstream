@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"testing"
 )
 
 // detach moves the run process to its own session, so a Ctrl-C meant for
@@ -26,7 +27,8 @@ func detach(cmd *exec.Cmd) {
 // gateway restart, stop or upgrade: --collect drops the scope when the
 // run ends, --quiet keeps systemd-run's own notice out of the output.
 func scopeArgv(name string, argv []string) []string {
-	if !userScopeReady() {
+	// Tests start fake engines: never in the developer's own user manager.
+	if testing.Testing() || !userScopeReady() {
 		return argv
 	}
 	var rnd [4]byte

@@ -93,7 +93,7 @@ func (v reclaimView) Human(c *Context, ok bool) error {
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%s\t%s\t%s\n", lease, h.PID, start, mem, h.Name, result)
 	}
 	tw.Flush()
-	c.Bullet("%d process%s recorded under stuck lease%s on the card", recorded, plural(recorded), plural(recorded))
+	c.Bullet("%d %s recorded under stuck lease%s on the card", recorded, processes(recorded), plural(recorded))
 	if recorded > 0 {
 		if v.confirm {
 			stopped, skipped := 0, 0
@@ -113,7 +113,15 @@ func (v reclaimView) Human(c *Context, ok bool) error {
 		}
 	}
 	if strangers > 0 {
-		c.Bullet("%d process%s on the card no lease recorded: report only, never signalled", strangers, plural(strangers))
+		c.Bullet("%d %s on the card no lease recorded: report only, never signalled", strangers, processes(strangers))
 	}
 	return nil
+}
+
+// processes is "process" or "processes" for n.
+func processes(n int) string {
+	if n == 1 {
+		return "process"
+	}
+	return "processes"
 }

@@ -875,6 +875,25 @@ and the table credits you here.
 | GPU | VRAM | Driver | OS | Engines | Result | Tester | Date |
 |---|---|---|---|---|---|---|---|
 | RTX 4090 | 24 GB | 615.78.08 | Arch Linux | llama-swap + NInfer + Strata + ComfyUI | daily use | T-Crypt | 2026-10-20 |
+| RTX 4090 | 24 GB | 615.78.08 | Arch Linux | contrib/chaos scenarios 1, 2, 4 | pass | T-Crypt | 2026-10-20 |
+| RTX 4090 | 24 GB | 615.78.08 | Arch Linux | contrib/chaos scenario 3 (parent exits at once) | reported as a stowaway, never signalled: the known window | T-Crypt | 2026-10-20 |
+
+---
+
+## Swap numbers
+
+`contrib/bench/swap` through the gateway on the RTX 4090 workstation (driver 615.78.08, PCIe 4.0
+x16), 2026-10-20: an opening request to A, then two cycles of B and A, a fixed prompt, greedy.
+
+| Engine | Cold first token | Warm first token (median) | Output identical |
+|---|---|---|---|
+| NInfer-Qwen3.8-27B (llama-swap) | 12.1 s | 16.1 s | yes |
+| Strata, Qwen3.8-Flash-Next UD-IQ4_XS | about 80 s to load | about 80 s to load | yes |
+
+Switching on every request is the ping-pong Berth's juggle guard exists to hold back: the switches
+to Strata waited behind the guard for llama-swap and measured 377-382 s end to end, of which the
+engine's own load (its log) was about 80 s. Park was off for both engines; parked resume numbers
+and `cuda-checkpoint` follow in v0.3.x. Run the bench on your card and add a row.
 
 ---
 
