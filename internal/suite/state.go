@@ -11,6 +11,7 @@
 package suite
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/fsx"
 )
 
 // KindComfyUI is the only install kind the suite manages today; the state
@@ -93,27 +95,14 @@ func Load(path string) (State, error) {
 	return st, nil
 }
 
-// Save writes the state atomically: a temp file in the same directory, then a
-// rename over the old file, so a crash never leaves a half-written file.
+// Save writes the state atomically (see fsx.WriteFile), so a crash never
+// leaves a half-written file.
 func Save(path string, st State) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".engines-tmp-*")
-	if err != nil {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(st); err != nil {
 		return err
 	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := toml.NewEncoder(tmp).Encode(st); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(name, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return fsx.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 var (

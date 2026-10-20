@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -114,12 +115,12 @@ func (u *ModelUsage) Merge(o ModelUsage) {
 		u.LastUsed = o.LastUsed
 	}
 	for _, n := range o.Names {
-		if !contains(u.Names, n) {
+		if !slices.Contains(u.Names, n) {
 			u.Names = append(u.Names, n)
 		}
 	}
 	for _, e := range o.Engines {
-		if !contains(u.Engines, e) {
+		if !slices.Contains(u.Engines, e) {
 			u.Engines = append(u.Engines, e)
 		}
 	}

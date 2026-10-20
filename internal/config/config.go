@@ -362,7 +362,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("%s: duplicate name", where))
 		}
 		seen[e.Name] = true
-		if !contains(Types, e.Type) {
+		if !slices.Contains(Types, e.Type) {
 			errs = append(errs, fmt.Errorf("%s: type %q is not one of %v", where, e.Type, Types))
 		}
 		if e.Kind != "" && !slices.Contains(Kinds, e.Kind) {
@@ -408,7 +408,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("%s: priority %q is not batch, interactive or foreground", where, e.Priority))
 		}
 		for k := range e.Map {
-			if !contains(MapFields, k) {
+			if !slices.Contains(MapFields, k) {
 				errs = append(errs, fmt.Errorf("%s: map field %q is not one of %v", where, k, MapFields))
 			}
 		}
@@ -454,15 +454,6 @@ func Loopback(addr string) error {
 		return fmt.Errorf("%q is not a loopback address (use 127.0.0.1 or [::1])", host)
 	}
 	return nil
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func shelfValid(s string) bool {
