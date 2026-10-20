@@ -52,7 +52,7 @@ func (b *Broker) Reclaim(id string) ([]proto.Holder, error) {
 	var hs []proto.Holder
 	for _, p := range b.snap.Procs {
 		pid := b.identify(p.PID)
-		l := b.owner(pid)
+		l := b.owner(pid, b.containerOf(p.PID))
 		switch {
 		case l != nil && want[l.id]:
 			hs = append(hs, proto.Holder{PID: p.PID, PIDStart: pid.start, Lease: l.id, Name: p.Name, Used: p.Used})

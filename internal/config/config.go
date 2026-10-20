@@ -65,6 +65,11 @@ type Engine struct {
 	// wait at a boundary (a processing slot, a running ComfyUI job) before
 	// it stops the engine anyway. 0 = unbounded, the default.
 	DrainMax Duration `toml:"drain_max,omitzero" json:"drain_max,omitempty" yaml:"drain_max,omitempty"`
+	// Container is the engine's container, as berth run --container: the
+	// name of `docker run --name` (or of an existing container for
+	// `docker start -a`). The drain stops it through the runtime CLI
+	// instead of signalling the wrapper; Linux-only in this release.
+	Container string `toml:"container,omitempty" json:"container,omitempty" yaml:"container,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a

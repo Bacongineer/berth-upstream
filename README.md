@@ -843,6 +843,17 @@ adds `contrib/chaos` and a public table of tested hardware so you can check it o
 **AMD? Windows?** AMD on Linux and a full Windows node are planned for v0.4. Windows with NVIDIA
 works today as experimental; see the [support matrix](#support-matrix).
 
+**Can Berth handle ComfyUI on the host and vLLM in Docker?** Yes. Start each one under its own
+lease: `berth run --as comfyui -- python ...` for ComfyUI, and
+`berth run --as vllm --container vllm -- docker run --rm --name vllm --gpus all ... vllm/vllm-openai`
+for vLLM. The container's GPU processes are parented by containerd-shim, so the process tree
+cannot reach them; the lease names the container instead, Berth matches the processes by
+container ID, and the drain runs `docker stop -t 30 vllm` (podman's when podman resolved it)
+instead of signalling the wrapper. The handoff waits for the driver to show the container's
+memory gone, as with a host process. A container Berth did not start is still a stowaway:
+reported with its container ID, report only, never signalled. Details in
+[contrib/INTEGRATION.md](contrib/INTEGRATION.md).
+
 ## Contributing
 
 Issues and pull requests are welcome. [AGENTS.md](AGENTS.md) has the one command that proves a

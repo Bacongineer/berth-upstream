@@ -39,24 +39,29 @@ const (
 
 // Msg is every message in both directions; unused fields are omitted.
 type Msg struct {
-	Op       string    `json:"op"`
-	Engine   string    `json:"engine,omitempty"`
-	Group    string    `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
-	Priority string    `json:"priority,omitempty"`
-	Needs    uint64    `json:"needs,omitempty"` // bytes; 0 = the whole card
-	Wait     float64   `json:"wait,omitempty"`  // seconds to wait before refusing; 0 = server default
-	PID      int       `json:"pid,omitempty"`
-	PIDStart uint64    `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
-	Pinned   bool      `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
-	Lease    string    `json:"lease,omitempty"`
-	Reason   string    `json:"reason,omitempty"`
-	Status   *Status   `json:"status,omitempty"`
-	Since    uint64    `json:"since,omitempty"` // OpEvents: only events with a higher Seq
-	Watch    bool      `json:"watch,omitempty"` // OpEvents: keep streaming
-	Event    *Event    `json:"event,omitempty"`
-	History  *History  `json:"history,omitempty"`
-	SinceT   time.Time `json:"since_t,omitempty"`  // OpRequests: only requests strictly after this time
-	Requests []Request `json:"requests,omitempty"` // OpRequests: the reply's log, oldest first
+	Op       string  `json:"op"`
+	Engine   string  `json:"engine,omitempty"`
+	Group    string  `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
+	Priority string  `json:"priority,omitempty"`
+	Needs    uint64  `json:"needs,omitempty"` // bytes; 0 = the whole card
+	Wait     float64 `json:"wait,omitempty"`  // seconds to wait before refusing; 0 = server default
+	PID      int     `json:"pid,omitempty"`
+	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
+	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
+	// Container is the container the engine runs in: OpAcquire and
+	// OpReattach carry the name the operator gave (--container), OpAttach
+	// the full ID berth run resolved it to. The broker matches GPU
+	// processes by the ID and reports it shortened.
+	Container string    `json:"container,omitempty"`
+	Lease     string    `json:"lease,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	Status    *Status   `json:"status,omitempty"`
+	Since     uint64    `json:"since,omitempty"` // OpEvents: only events with a higher Seq
+	Watch     bool      `json:"watch,omitempty"` // OpEvents: keep streaming
+	Event     *Event    `json:"event,omitempty"`
+	History   *History  `json:"history,omitempty"`
+	SinceT    time.Time `json:"since_t,omitempty"`  // OpRequests: only requests strictly after this time
+	Requests  []Request `json:"requests,omitempty"` // OpRequests: the reply's log, oldest first
 	// OpReclaim: Lease names the lease to look at ("" = every stuck and
 	// releasing lease), Confirm stops the recorded ones, and Grace is the
 	// seconds a SIGTERM has to work before SIGKILL (0 = the daemon's
@@ -294,28 +299,38 @@ type History struct {
 }
 
 type Lease struct {
-	ID        string  `json:"id"`
-	Engine    string  `json:"engine"`
-	Group     string  `json:"group,omitempty"` // the engine family it counts for (llama-swap's models); "" = Engine
-	Priority  string  `json:"priority"`
-	State     string  `json:"state"`
-	Needs     uint64  `json:"needs"`
-	PID       int     `json:"pid,omitempty"`
-	PIDStart  uint64  `json:"pid_start,omitempty"`
-	GPUPIDs   []int   `json:"gpu_pids,omitempty"`
-	Used      uint64  `json:"used"`
-	Contested uint64  `json:"contested,omitempty"`
-	Age       float64 `json:"age_seconds"`
-	Pinned    bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
+	ID       string `json:"id"`
+	Engine   string `json:"engine"`
+	Group    string `json:"group,omitempty"` // the engine family it counts for (llama-swap's models); "" = Engine
+	Priority string `json:"priority"`
+	State    string `json:"state"`
+	Needs    uint64 `json:"needs"`
+	PID      int    `json:"pid,omitempty"`
+	PIDStart uint64 `json:"pid_start,omitempty"`
+	// Container is the container the engine runs in (the full ID berth run
+	// resolved), "" for a host process; ContainerName is the name the
+	// operator gave.
+	Container     string  `json:"container,omitempty"`
+	ContainerName string  `json:"container_name,omitempty"`
+	GPUPIDs       []int   `json:"gpu_pids,omitempty"`
+	Used          uint64  `json:"used"`
+	Contested     uint64  `json:"contested,omitempty"`
+	Age           float64 `json:"age_seconds"`
+	Pinned        bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
 }
 
 type Squatter struct {
-	PID      int     `json:"pid"`
-	PIDStart uint64  `json:"pid_start,omitempty"`
-	Name     string  `json:"name"`
-	Used     uint64  `json:"used"`
-	Run      string  `json:"unprotected_run,omitempty"`
-	Age      float64 `json:"age_seconds"`
+	PID      int    `json:"pid"`
+	PIDStart uint64 `json:"pid_start,omitempty"`
+	Name     string `json:"name"`
+	Used     uint64 `json:"used"`
+	Run      string `json:"unprotected_run,omitempty"`
+	// Container is the runtime container the process holds memory in,
+	// shortened to the 12 characters people quote; empty for a host
+	// process. ContainerName is the name a lease gave it, when known.
+	Container     string  `json:"container,omitempty"`
+	ContainerName string  `json:"container_name,omitempty"`
+	Age           float64 `json:"age_seconds"`
 }
 
 // Engine is what an inference engine reports about itself. These are the

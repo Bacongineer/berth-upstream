@@ -121,6 +121,9 @@ func runArgv(o runner.Options) []string {
 	if o.KeepComfyUI {
 		args = append(args, "--keep-comfyui-up")
 	}
+	if o.Container != "" {
+		args = append(args, "--container", o.Container)
+	}
 	if o.Grace != 0 {
 		args = append(args, "--grace", o.Grace.String())
 	}

@@ -21,6 +21,7 @@ body:
         - "5 (unrelated workload survives)"
         - "6 (busy forever)"
         - "7 (daemon restart mid-lease)"
+        - "8 (containerized engine)"
         - "not listed"
     validations:
       required: true

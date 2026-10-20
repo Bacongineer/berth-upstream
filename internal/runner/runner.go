@@ -61,7 +61,24 @@ type Options struct {
 	// stop ladder anyway: a wedged engine that keeps reporting busy holds
 	// the card without it. 0 = unbounded, the default, so a long
 	// generation is never cut off.
-	DrainMax   time.Duration
+	DrainMax time.Duration
+	// Container is the container the engine runs in (berth run
+	// --container NAME, the name of `docker run --name`): the drain stops
+	// it through the runtime CLI instead of signalling this process
+	// group, because containerd-shim, not this wrapper, parents the
+	// engine. Linux-only in this release; elsewhere the flag is accepted
+	// and ignored. The container is Berth's because this command started
+	// it; nothing else is ever stopped.
+	Container string
+	// CLI is the runtime CLI exec: every docker or podman inspect and stop
+	// runs through it, under the timeout the caller names, and it returns
+	// the command's combined output; nil = the real CLI, tests fake it and
+	// assert the argv.
+	CLI func(argv []string, timeout time.Duration) (string, error)
+	// container carries the resolved container (the runtime that answered
+	// and the full ID) from the resolver goroutine to the drain; Run sets
+	// it, tests that fake the resolution set it directly.
+	container  *containerRef
 	Grace      time.Duration // per drain step before escalating
 	FailClosed bool          // refuse to start when berthd is unreachable
 	Retry      time.Duration // how often a run that lost berthd dials it again; 0 = 2s
@@ -136,6 +153,23 @@ func Run(o Options) int {
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)
 
+	// A container engine resolves its name to the full ID and names it on
+	// the lease, so the broker attributes the engine's GPU processes
+	// (containerd-shim parents them, not this wrapper). The ID also rides
+	// on any re-attach, in case the daemon changes before it resolves.
+	if o.CLI == nil {
+		o.CLI = execCLI
+	}
+	var cid containerRef
+	o.container = &cid
+	if o.Container != "" {
+		if containerSupported() {
+			go resolveContainer(o, conn, cmd, done, &cid, say)
+		} else {
+			say("container engines are Linux-only in this release; --container %s ignored", o.Container)
+		}
+	}
+
 	// released closes when a drain hands the lease back while the engine
 	// keeps running (ComfyUI keep-up after unload); Run then returns clean
 	// although the engine never exited.
@@ -157,7 +191,7 @@ func Run(o Options) int {
 			say("UNPROTECTED: lost berthd (%v); %s keeps running without a lease, retrying", err, o.Engine)
 			remove := record(o, cmd, runs.ReasonLost)
 			var lease string
-			conn, raw, lease = reattach(o, cmd, done)
+			conn, raw, lease = reattach(o, cmd, done, &cid)
 			remove()
 			if conn == nil {
 				return
@@ -165,6 +199,9 @@ func Run(o Options) int {
 			// Hang up when the engine exits, as the first connection does,
 			// so the daemon frees the lease even if this process lives on.
 			go func(c net.Conn) { <-done; c.Close() }(raw)
+			if id := cid.id(); id != "" {
+				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Container: id})
+			}
 			say("re-attached %s as %s", o.Engine, lease)
 		}
 	}()
@@ -207,7 +244,7 @@ func listen(conn *proto.Conn, onDrain func(string)) error {
 // card again, or the engine exits. A daemon that refuses (an older one that
 // does not know reattach, or a PID that is no longer this engine) ends the
 // attempts: the engine stays on record as unprotected until it exits.
-func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.Conn, string) {
+func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef) (*proto.Conn, net.Conn, string) {
 	every := o.pollEvery()
 	pid := cmd.Process.Pid
 	start := procs.System{}.StartTime(pid)
@@ -221,7 +258,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, PID: pid, PIDStart: start})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, PID: pid, PIDStart: start, Container: cid.id()})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()
@@ -638,6 +675,31 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 				return
 			}
 			say("drain url answered %s but %s is still running", resp.Status, o.Engine)
+		}
+	}
+	if o.Container != "" && containerSupported() {
+		// The engine lives in a container of ours: stop it through the
+		// runtime CLI (its own SIGTERM, then SIGKILL inside the image)
+		// instead of signalling the CLI wrapper's process group. The
+		// target is the full ID the resolver answered, never the bare
+		// name; before the name resolved there is no ID to stop, so the
+		// group signals run as they always have.
+		runtime, id := "", ""
+		if o.container != nil {
+			runtime, id = o.container.runtime(), o.container.id()
+		}
+		if id != "" {
+			if runtime == "" {
+				if rs := runtimes(); len(rs) > 0 {
+					runtime = rs[0]
+				}
+			}
+			argv := stopArgv(runtime, id, o.Grace)
+			if _, err := o.CLI(argv, o.Grace+15*time.Second); err != nil {
+				say("container stop failed (%v); falling back to the process group", err)
+			} else {
+				return
+			}
 		}
 	}
 	terminate(cmd)
