@@ -22,7 +22,7 @@ func runRun(c *Context) int {
 	prio := fs.String("priority", "interactive", "batch, interactive, foreground or hold")
 	pinned := fs.Bool("pinned", false, "never drained: the card stays CMD's until it exits (for apps like Blender, not engines)")
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
-	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default")
+	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default; negative = no deadline")
 	drainPost := fs.String("drain-post", "", "URL to POST when asked to drain, before signalling (e.g. llama-swap's unload)")
 	drainSlots := fs.String("drain-slots", "", "engine base URL whose /slots must show idle before a drain stops it (an engine with no unload URL, e.g. Strata)")
 	drainComfy := fs.String("drain-comfyui", "", "ComfyUI base URL: on drain, wait until its queue is empty before stopping it (never cuts a job off)")

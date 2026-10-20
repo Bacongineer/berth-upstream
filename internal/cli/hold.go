@@ -28,7 +28,7 @@ func runHold(c *Context) int {
 	reason := fs.String("reason", "", "shown on the lease, e.g. game or call (default: hold)")
 	dur := fs.Duration("for", 0, "end the hold after this long; 0 = until Ctrl-C")
 	needs := fs.Uint64("needs-mib", 0, "hold only this much memory instead of the whole card")
-	wait := fs.Duration("wait", 10*time.Minute, "how long to wait for engines to drain before giving up")
+	wait := fs.Duration("wait", 10*time.Minute, "how long to wait for engines to drain; 0 = berthd's default; negative = no deadline")
 	if code, done := c.Parse(fs); done {
 		return code
 	}

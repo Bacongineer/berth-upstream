@@ -1279,11 +1279,17 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 	b.mu.Unlock()
 
 	wait := r.Wait
-	if wait <= 0 {
+	if wait == 0 {
 		wait = b.cfg.DefaultWait
 	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
+	// A negative wait has no deadline: the waiter stays queued until it
+	// gets the card, its context is cancelled, or the daemon exits.
+	var timeout <-chan time.Time
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		timeout = timer.C
+	}
 	for {
 		select {
 		case <-l.grantCh:
@@ -1294,7 +1300,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 			}
 		case <-ctx.Done():
 			return nil, b.abandon(l, ctx.Err().Error())
-		case <-timer.C:
+		case <-timeout:
 			// A grant may have landed in the same instant, possibly after a
 			// holder was already drained for it; keep it rather than waste the drain.
 			select {
