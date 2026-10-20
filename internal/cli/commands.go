@@ -301,6 +301,27 @@ ollama create does (it takes its own blob), which is why --dry-run exists.`,
 		Run:     runModels,
 	},
 	{
+		Name:    "prefetch",
+		Summary: "ask the kernel to read a model's files into the page cache",
+		Args:    "MODEL_OR_PATH [--dir D] [--format F]",
+		Help: `Ask the kernel to read the model's files - every part of a split model,
+and the vision projector and draft that go with it - into the page cache.
+The name resolves the way models show resolves it: a path that exists, else
+the listing's name, the name the file's header gave it, or the file itself.
+
+The ask is made with posix_fadvise WILLNEED and returns at once: the kernel
+does the reading in the background, at its own pace, and it takes the pages
+back whenever the machine needs the RAM. Prefetching commits no memory of
+Berth's and reads no file byte itself, so it is safe to ask while another
+engine drains. This is the manual form; the gateway makes the same ask for
+the next engine while the holder drains.
+
+Exit 1 when no model answers to the name. Off Linux the kernel has no
+page-cache interface and the ask is refused.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runPrefetch,
+	},
+	{
 		Name:    "pull",
 		Summary: "download a model from Hugging Face or CivitAI, checked byte for byte",
 		Args:    "REF [--dir D] [--dry-run] [--token-env V] [--format F]",
