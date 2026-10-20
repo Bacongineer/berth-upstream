@@ -121,6 +121,7 @@ func (b *Broker) parkingTick(key string, l *lease, now time.Time, read uint64) {
 	if l.used() <= b.cfg.ParkResidualMax {
 		l.state = parked
 		l.parkedAt = now
+		l.parkedN = b.order()
 		foot := b.footprintOf(l)
 		b.log.Info("parked", "lease", key, "engine", l.engine, "footprint", sizeHuman(foot), "residual", sizeHuman(l.used()))
 		b.emit(proto.Event{Kind: proto.EvParked, Lease: key, Engine: l.engine, Bytes: foot,
@@ -197,6 +198,7 @@ func (b *Broker) Resume(engine string) error {
 		l.state = waiting
 		l.resumed = true
 		l.arrived = b.now()
+		l.arrivedN = b.order()
 		// The waits from before the park are stale; the runner hears
 		// only what happens from here.
 		for {
@@ -227,7 +229,7 @@ func besideLine(parked []*lease, residual uint64) string {
 // sortParked orders parked leases least recently parked first.
 func sortParked(ls []*lease) []*lease {
 	out := append([]*lease(nil), ls...)
-	sort.Slice(out, func(i, j int) bool { return out[i].parkedAt.Before(out[j].parkedAt) })
+	sort.Slice(out, func(i, j int) bool { return out[i].parkedN < out[j].parkedN })
 	return out
 }
 

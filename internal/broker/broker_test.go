@@ -325,6 +325,28 @@ func TestSizedRequestDrainsOnlyWhatItNeeds(t *testing.T) {
 	must(t, ch)
 }
 
+// The same on a clock that never moves, as Windows' 15 ms clock looks to
+// leases granted together: the older holder is still the one drained, by
+// the broker's own order, not by a tie of timestamps.
+func TestSizedRequestDrainsTheOlderHolderOnAFrozenClock(t *testing.T) {
+	b, _, _ := setup(t, procs.Map{})
+	frozen := time.Now()
+	b.nowFn = func() time.Time { return frozen } // before any goroutine reads it
+	small := must(t, acquire(b, Request{Engine: "small", Needs: 4 * GiB}))
+	large := must(t, acquire(b, Request{Engine: "large", Needs: 16 * GiB}))
+
+	ch := acquire(b, Request{Engine: "new", Needs: 6 * GiB})
+	pending(t, ch)
+	drained(t, small)
+	select {
+	case why := <-large.Drains():
+		t.Fatalf("large was drained needlessly: %s", why)
+	default:
+	}
+	small.Release()
+	must(t, ch)
+}
+
 func TestSquatterReportedOnceAndNeverBlocksExclusive(t *testing.T) {
 	b, c, r := setup(t, procs.Map{}, "Xorg")
 	c.set(gpu.Proc{PID: 9, Name: "node", Used: 2 * GiB}, gpu.Proc{PID: 10, Name: "/usr/lib/Xorg", Used: GiB})

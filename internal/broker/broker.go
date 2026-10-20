@@ -211,6 +211,11 @@ type lease struct {
 	// (Windows, ~15 ms) cannot put a read before the release in its quantum.
 	releasedRead uint64
 	parkedRead   uint64
+	// arrivedN, grantedN and parkedN order the lease among the others by
+	// the broker's own count, not the clock: on a coarse clock (Windows)
+	// two leases granted in one quantum would otherwise tie, and which one
+	// is older, and so drained first, would be arbitrary.
+	arrivedN, grantedN, parkedN uint64
 	// parkedAt is when the lease became parked; parkedCall is when the
 	// runner said its park call was done (the parked transition waits for
 	// a later card read). resumed marks a waiting lease that came from
@@ -294,6 +299,7 @@ type Broker struct {
 	comfyPoked map[string]time.Time
 	runs       []runs.Record
 	nextID     int
+	ord        uint64 // the last order number stamped on a lease event
 	started    time.Time
 
 	events   []proto.Event // ring, oldest first
@@ -418,6 +424,12 @@ func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.E
 			close(ch)
 		}
 	}
+}
+
+// order is the next number in the broker's own sequence. b.mu must be held.
+func (b *Broker) order() uint64 {
+	b.ord++
+	return b.ord
 }
 
 // now is the broker's clock. It reads the pinned b.nowFn in tests, and the
@@ -817,7 +829,7 @@ func (b *Broker) schedule(now time.Time) {
 		if b.queue[i].prio != b.queue[j].prio {
 			return b.queue[i].prio > b.queue[j].prio
 		}
-		return b.queue[i].arrived.Before(b.queue[j].arrived)
+		return b.queue[i].arrivedN < b.queue[j].arrivedN
 	})
 	for len(b.queue) > 0 {
 		w := b.queue[0]
@@ -834,6 +846,7 @@ func (b *Broker) schedule(now time.Time) {
 			b.queue = b.queue[1:]
 			w.state = active
 			w.granted = now
+			w.grantedN = b.order()
 			w.contested = b.squatBytes()
 			b.leases[w.id] = w
 			beside := w.beside
@@ -914,7 +927,7 @@ func (b *Broker) holders() []*lease {
 		if hs[i].prio != hs[j].prio {
 			return hs[i].prio < hs[j].prio
 		}
-		return hs[i].granted.Before(hs[j].granted)
+		return hs[i].grantedN < hs[j].grantedN
 	})
 	return hs
 }
@@ -1212,12 +1225,14 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	b.nextID++
 	now := b.now()
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	l.arrivedN = b.order()
 	if r.Container != "" {
 		l.container = strings.ToLower(r.Container)
 	}
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
 	l.granted = now
+	l.grantedN = b.order()
 	close(l.grantCh)
 	b.leases[l.id] = l
 	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)
@@ -1244,6 +1259,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 	}
 	b.nextID++
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
+	l.arrivedN = b.order()
 	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
