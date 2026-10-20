@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +194,204 @@ func TestCardView(t *testing.T) {
 		if got.State != c.state || !strings.Contains(got.Message, c.want) {
 			t.Errorf("%s: %s %q, want %s containing %q", c.name, got.State, got.Message, c.state, c.want)
 		}
+	}
+}
+
+// guiPlaneRows reads the plane's state endpoint the way the index does.
+func guiPlaneRows(t *testing.T, base string) []guiRow {
+	t.Helper()
+	resp := guiReq(t, "GET", base+"/gui/state", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/gui/state = %d", resp.StatusCode)
+	}
+	var rows []guiRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+func planeRow(rows []guiRow, name string) guiRow {
+	for _, r := range rows {
+		if r.Name == name {
+			return r
+		}
+	}
+	return guiRow{}
+}
+
+// rowFragment is the page's markup for one engine's row.
+func rowFragment(body, name string) string {
+	i := strings.Index(body, "data-name=\""+name+"\"")
+	if i < 0 {
+		return ""
+	}
+	j := strings.Index(body[i:], "</li>")
+	if j < 0 {
+		return body[i:]
+	}
+	return body[i : i+j]
+}
+
+// The plane's index lists every configured engine as one row: the
+// launchable one with a button and a deep link, the gui-only one with a
+// link, the api-only one with its address. /gui/state says what each is
+// doing on the card, and reading it takes nothing.
+func TestGUIPlaneIndex(t *testing.T) {
+	sock, b := daemon(t)
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_COMFY", addr)
+	const gui = "https://box.example.ts.net:8188/"
+	const apiUrl = "http://127.0.0.1:1"
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{
+			{Name: "comfyui", Type: "comfyui", URL: "http://" + addr,
+				Start: []string{os.Args[0]}, Priority: "interactive", GUI: gui},
+			{Name: "noinfer", Type: "llamacpp", URL: "http://127.0.0.1:2", GUI: "http://127.0.0.1:2/"},
+			{Name: "mcp", Type: "custom", URL: apiUrl, Serves: []string{"m"}},
+		}}
+	srv := httptest.NewServer(g.GUIHandler())
+	defer srv.Close()
+
+	resp := guiReq(t, "GET", srv.URL+"/gui/", nil)
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("index = %d", resp.StatusCode)
+	}
+	body := string(page)
+	comfy := rowFragment(body, "comfyui")
+	if !strings.Contains(comfy, "data-launch") {
+		t.Errorf("launchable row carries no data-launch: %s", comfy)
+	}
+	if !strings.Contains(comfy, `href="/gui/comfyui"`) {
+		t.Errorf("launchable gui row has no deep link: %s", comfy)
+	}
+	noinfer := rowFragment(body, "noinfer")
+	if !strings.Contains(noinfer, `data-gui="http://127.0.0.1:2/"`) {
+		t.Errorf("gui-only row carries no gui: %s", noinfer)
+	}
+	if strings.Contains(noinfer, "data-launch") {
+		t.Errorf("gui-only row is launchable: %s", noinfer)
+	}
+	mcp := rowFragment(body, "mcp")
+	if !strings.Contains(mcp, `data-api="`+apiUrl+`"`) {
+		t.Errorf("no-ui row carries no api address: %s", mcp)
+	}
+	if !strings.Contains(mcp, "No UI") {
+		t.Errorf("no-ui row has no No UI marker: %s", mcp)
+	}
+
+	rows := guiPlaneRows(t, srv.URL)
+	want := []struct {
+		name   string
+		launch bool
+		gui    string
+		api    string
+	}{
+		{"comfyui", true, gui, ""},
+		{"noinfer", false, "http://127.0.0.1:2/", ""},
+		{"mcp", false, "", apiUrl},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("state rows = %d, want %d: %+v", len(rows), len(want), rows)
+	}
+	for i, w := range want {
+		if rows[i].Name != w.name {
+			t.Fatalf("row %d = %s, want %s (config order)", i, rows[i].Name, w.name)
+		}
+		if rows[i].Launch != w.launch || rows[i].GUI != w.gui || rows[i].API != w.api {
+			t.Errorf("%s row = %+v, want launch=%v gui=%q api=%q", w.name, rows[i], w.launch, w.gui, w.api)
+		}
+	}
+	if st := planeRow(rows, "comfyui"); st.State != "offline" || !strings.Contains(st.Message, "the card is free") {
+		t.Fatalf("stopped launchable row = %+v", st)
+	}
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("reading the plane took a lease: %+v", st.Leases)
+	}
+
+	// The launchable engine answers on its own once it comes up; the row
+	// turns up without anyone asking the card. The child is the test binary
+	// serving the ComfyUI stand-in, as the wake page's start would.
+	proc := exec.Command(os.Args[0])
+	if err := proc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = proc.Process.Kill(); _ = proc.Wait() })
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		r := planeRow(guiPlaneRows(t, srv.URL), "comfyui")
+		if r.State == "up" {
+			if !strings.Contains(r.Message, "is ready") {
+				t.Fatalf("up row = %+v", r)
+			}
+			break
+		}
+		if r.State == "failed" || time.Now().After(deadline) {
+			t.Fatalf("engine never came up: %+v", r)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// The plane's Launch button does what the wake page's did: a same-origin
+// POST takes one lease, the row follows the start to up, and the card holds
+// exactly that engine.
+func TestGUIPlaneLaunchFlow(t *testing.T) {
+	sock, b := daemon(t)
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_COMFY", addr)
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{
+			{Name: "comfyui", Type: "comfyui", URL: "http://" + addr,
+				Start: []string{os.Args[0]}, Priority: "interactive", GUI: "https://box.example.ts.net:8188/"},
+			{Name: "mcp", Type: "custom", URL: "http://127.0.0.1:1", Serves: []string{"m"}},
+		}}
+	srv := httptest.NewServer(g.GUIHandler())
+	defer srv.Close()
+
+	resp := guiReq(t, "POST", srv.URL+"/gui/comfyui/wake", map[string]string{"Sec-Fetch-Site": "same-origin"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("wake = %d", resp.StatusCode)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		r := planeRow(guiPlaneRows(t, srv.URL), "comfyui")
+		if r.State == "up" {
+			break
+		}
+		if r.State == "failed" || time.Now().After(deadline) {
+			t.Fatalf("row never came up: %+v", r)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].Engine != "comfyui" {
+		t.Fatalf("leases = %+v", st.Leases)
+	}
+}
+
+// A rebinding name cannot read the plane's state.
+func TestGUIPlaneGuard(t *testing.T) {
+	sock, b := daemon(t)
+	g := &Gateway{Socket: sock, Ready: time.Second, Key: testKey,
+		Engines: []config.Engine{{Name: "comfyui", Type: "comfyui", URL: "http://127.0.0.1:1", Start: []string{"false"}, GUI: "http://127.0.0.1:1/"}}}
+	srv := httptest.NewServer(g.GUIHandler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/gui/state", nil)
+	req.Host = "evil.example"
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign host read the plane: %d", resp.StatusCode)
+	}
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("a refused request took a lease: %+v", st.Leases)
 	}
 }
