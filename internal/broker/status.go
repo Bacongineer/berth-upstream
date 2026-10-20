@@ -17,7 +17,7 @@ import (
 func (b *Broker) Status() proto.Status {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	now := time.Now()
+	now := b.now()
 	st := proto.Status{
 		API:         proto.APIVersion,
 		Version:     b.cfg.Version,

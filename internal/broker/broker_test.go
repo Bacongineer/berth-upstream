@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -206,6 +207,38 @@ func TestReleaseWithAWrapperPIDFreesOnTheNextTick(t *testing.T) {
 	b.Tick(context.Background())
 	if st := b.Status(); len(st.Leases) != 0 {
 		t.Fatalf("leases = %+v, want none after the freeing tick", st.Leases)
+	}
+}
+
+// On a coarse clock (Windows, ~15 ms) a release and the tick that frees
+// the lease share one Now() value. The tick's read still counts as
+// read-after, so the lease frees on that tick and the waiter is granted.
+func TestReleaseFreesWhenTheTickSharesTheReleaseQuantum(t *testing.T) {
+	tree := procs.Map{101: 100}
+	b, c, _ := setup(t, tree)
+	ninfer := must(t, acquire(b, Request{Engine: "ninfer"}))
+	ninfer.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-serve", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata"})
+	pending(t, strata)
+	drained(t, ninfer)
+	ninfer.Release()
+	c.set()
+
+	// Pin the broker's clock to the release instant, so the next tick's
+	// read starts in the release's own quantum.
+	released := b.leases[ninfer.ID()].released
+	b.nowFn = func() time.Time { return released }
+	b.Tick(context.Background())
+
+	if got := b.Status().Counters; got.VRAMHandedOff != 22*GiB {
+		t.Fatalf("the same-quantum tick did not free the lease: counters = %+v", got)
+	}
+	must(t, strata)
+	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].Engine != "strata" {
+		t.Fatalf("leases = %+v, want only strata", st.Leases)
 	}
 }
 
@@ -696,8 +729,14 @@ func TestBoardSurvivesRestart(t *testing.T) {
 	if first.CollisionsAvoided != 1 || first.Drains != 1 {
 		t.Fatalf("first daemon counters = %+v", first)
 	}
-	if st, err := os.Stat(file); err != nil || st.Mode().Perm() != 0o600 {
-		t.Fatalf("counters file: %v %v", st, err)
+	st, err := os.Stat(file)
+	if err != nil {
+		t.Fatalf("counters file: %v", err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
+		// NTFS carries no Unix mode bits, so on Windows the file's
+		// existence is the whole check.
+		t.Fatalf("counters file mode %v", st.Mode())
 	}
 
 	c.set()
