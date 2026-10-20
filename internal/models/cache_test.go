@@ -119,9 +119,9 @@ func makeSparse(path string, size int64) error {
 // cache, so the share is 0 and the model reads as COLD.
 func TestCacheColdBelowTheWarmLine(t *testing.T) {
 	ms := []Model{{
-		Name:   "sparse",
-		Path:   filepath.Join(t.TempDir(), "sparse.bin"),
-		Files:  nil,
+		Name:  "sparse",
+		Path:  filepath.Join(t.TempDir(), "sparse.bin"),
+		Files: nil,
 	}}
 	if err := makeSparse(ms[0].Path, 4<<20); err != nil {
 		t.Fatal(err)

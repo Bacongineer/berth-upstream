@@ -17,8 +17,8 @@ import (
 // argument resolved to, the files the kernel was asked to read, and the
 // bytes that asks for.
 type prefetchDoc struct {
-	Status string   `json:"status" yaml:"status"` // ok | failed
-	Model  string   `json:"model" yaml:"model"`   // the name or path as given
+	Status string   `json:"status" yaml:"status"`                     // ok | failed
+	Model  string   `json:"model" yaml:"model"`                       // the name or path as given
 	Target string   `json:"target,omitempty" yaml:"target,omitempty"` // the model it resolved to
 	Files  []string `json:"files,omitempty" yaml:"files,omitempty"`
 	Bytes  uint64   `json:"bytes,omitempty" yaml:"bytes,omitempty"` // the ask, in bytes

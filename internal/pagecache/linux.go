@@ -35,7 +35,7 @@ func resident(f *os.File, size int64) (int64, error) {
 	ps := int64(unix.Getpagesize())
 	var cached int64
 	for off := int64(0); off < size; off += chunk {
-		pages := (min(off+chunk, size)-off + ps - 1) / ps
+		pages := (min(off+chunk, size) - off + ps - 1) / ps
 		data, err := unix.Mmap(int(f.Fd()), off, int(pages*ps), unix.PROT_READ, unix.MAP_SHARED)
 		if err != nil {
 			return cached, fmt.Errorf("map %s: %w", f.Name(), err)
