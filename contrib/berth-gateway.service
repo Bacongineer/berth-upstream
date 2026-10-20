@@ -1,7 +1,10 @@
 # systemd user unit: berth gateway, one OpenAI-compatible port that starts engines on demand under a lease.
 # Install: cp contrib/berth-gateway.service ~/.config/systemd/user/ && systemctl --user enable --now berth-gateway
 # Undo:    systemctl --user disable --now berth-gateway && rm ~/.config/systemd/user/berth-gateway.service
-# Engines it starts are its children: stopping this unit stops them. Set WorkingDirectory if an engine's
+# Keep the default KillMode (control-group): the gateway is a thin proxy, and nothing but it belongs to its
+# cgroup. An engine it starts runs as its own `berth run` process in its own transient scope
+# (berth-engine-*), so a restart of this unit does not stop a Strata that is loading or serving;
+# the gateway adopts those engines again on its next start. Set WorkingDirectory if an engine's
 # start command uses relative paths. Clients send the API key the gateway creates on first start
 # (`berth key` prints it; ~/.config/berth/api.key, mode 600) as their bearer token.
 [Unit]
