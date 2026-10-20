@@ -42,6 +42,12 @@ func (realShell) Run(bin string, dir string, args ...string) error {
 	return nil
 }
 
+// ErrNotACheckout names the refusal to adopt a path that is not a ComfyUI
+// checkout (no such directory, no main.py or no .git); the CLI maps it to a
+// validation refusal, while a git read failure behind a valid checkout is a
+// system failure.
+var ErrNotACheckout = errors.New("not a ComfyUI checkout")
+
 // isCheckout reports whether dir is a git checkout: the marker is a .git
 // entry, a directory on a normal clone and a file on a worktree or submodule.
 func isCheckout(dir string) bool {
@@ -138,11 +144,11 @@ func (m Manager) investigate(path string) ([]Component, error) {
 func (m Manager) Adopt(name, path string, port int, priority string, keepUp bool) (Install, error) {
 	fi, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Install{}, fmt.Errorf("%s: no such directory", path)
+		return Install{}, errors.Join(ErrNotACheckout, fmt.Errorf("%s: no such directory", path))
 	} else if err != nil {
 		return Install{}, err
 	} else if !fi.IsDir() {
-		return Install{}, fmt.Errorf("%s is not a directory", path)
+		return Install{}, errors.Join(ErrNotACheckout, fmt.Errorf("%s is not a directory", path))
 	}
 	var missing []string
 	if _, err := os.Stat(filepath.Join(path, "main.py")); errors.Is(err, os.ErrNotExist) {
@@ -152,7 +158,8 @@ func (m Manager) Adopt(name, path string, port int, priority string, keepUp bool
 		missing = append(missing, ".git (a git checkout)")
 	}
 	if len(missing) > 0 {
-		return Install{}, fmt.Errorf("%s: not a ComfyUI checkout, missing %s", path, strings.Join(missing, " and "))
+		return Install{}, errors.Join(ErrNotACheckout,
+			fmt.Errorf("%s: not a ComfyUI checkout, missing %s", path, strings.Join(missing, " and ")))
 	}
 	components, err := m.investigate(path)
 	if err != nil {
