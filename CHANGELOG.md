@@ -6,6 +6,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- `berth update` and `berth update --check` always ask GitHub; before, a "no newer release" the
+  harbor had kept for up to a day could answer them right after a release.
+- A pre-release or pseudo-version build (`0.3.0-rc`, `0.2.1-0.2026...`) now sees its release as
+  newer; a pre-release is still never offered as an update.
+
 ## [v0.3.0] - 2026-10-20
 
 Fast swap and proof. Engines that can offload themselves park in RAM on a drain and come back
