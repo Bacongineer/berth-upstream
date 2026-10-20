@@ -31,6 +31,18 @@ has a matching GitHub release whose body comes from its section below.
   floor, and warms a model's snapshots into the kernel page cache, the
   RAM tier, which is cached, never reserved. Groundwork; wired into the
   drain and start paths in a later PR.
+- Windows sees what the card holds: per-process VRAM comes from the GPU
+  Process Memory counter (the PDH counter Task Manager reads), which
+  fills in an engine's own figure where the driver says [N/A] and lists
+  a graphics process or game holding more than 64 MiB of dedicated VRAM,
+  so squatters and claims count it. Host RAM and the page file come
+  from GlobalMemoryStatusEx, so the gateway headroom guard and park
+  admission work on Windows, and root space comes from GetDiskFreeSpaceEx,
+  so roots, floors and `berth storage` work on an NTFS drive.
+- The test suite runs on windows-latest in CI, alongside the Linux job
+  and the existing Windows cross-build check. Tests that shell out to
+  sh, sleep or true, or depend on the Unix signal ladder, run where
+  those exist and are marked `//go:build unix`.
 
 - The page-cache warmth of a model library: `berth models` gains a CACHED
   column (the share of a model's files the kernel page cache still holds,

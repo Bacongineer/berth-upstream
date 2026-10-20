@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,87 @@ func (s Snapshot) Baseline() uint64 {
 	return s.Used - procs
 }
 
+// graphicsProcBytes is how much dedicated VRAM a process nvidia-smi does
+// not list must hold before it joins the snapshot's process list. Desktop
+// compositors sit well under it; a game, a renderer or a stray compute
+// process does not.
+const graphicsProcBytes = 64 * MiB
+
+// instancePID reads the PID out of a "GPU Process Memory" instance name,
+// which the engine dresses as "pid_1234_luid_0x00000000_0x00003f9d_phys_0".
+func instancePID(instance string) (int, bool) {
+	const prefix = "pid_"
+	if !strings.HasPrefix(instance, prefix) {
+		return 0, false
+	}
+	digits := strings.TrimPrefix(instance, prefix)
+	if i := strings.IndexByte(digits, '_'); i >= 0 {
+		digits = digits[:i]
+	}
+	pid, err := strconv.Atoi(digits)
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+// dedicatedUsage is one PDH sample: the instance name and its Dedicated
+// Usage in bytes.
+type dedicatedUsage struct {
+	Instance string
+	Bytes    uint64
+}
+
+// dedicatedByPid sums one read's samples by the PID their instance names
+// carry. One process can hold both cards of a multi-adapter board, so a
+// PID's figures come together. An instance that is not a process (none is
+// known) and a zero sample contribute nothing.
+func dedicatedByPid(items []dedicatedUsage) map[int]uint64 {
+	out := map[int]uint64{}
+	for _, it := range items {
+		pid, ok := instancePID(it.Instance)
+		if !ok || it.Bytes == 0 {
+			continue
+		}
+		out[pid] += it.Bytes
+	}
+	return out
+}
+
+// mergeProcs folds PDH's dedicated-memory figures into the compute-app
+// list. A listed process whose Used is 0 (WDDM reports [N/A]) takes the
+// PDH figure, and nvidia-smi's own number wins when it has one. A PID the
+// list lacks, a graphics client or a game, joins when its dedicated use
+// clears graphicsProcBytes; PDH does not say its name, so the Name stays
+// empty. Card totals still come from the driver.
+func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
+	if len(dedicated) == 0 {
+		return procs
+	}
+	listed := make(map[int]bool, len(procs))
+	out := make([]Proc, 0, len(procs)+len(dedicated))
+	for _, p := range procs {
+		listed[p.PID] = true
+		if p.Used == 0 {
+			if d := dedicated[p.PID]; d > 0 {
+				p.Used = d
+			}
+		}
+		out = append(out, p)
+	}
+	var fresh []int
+	for pid, d := range dedicated {
+		if !listed[pid] && d > graphicsProcBytes {
+			fresh = append(fresh, pid)
+		}
+	}
+	sort.Ints(fresh)
+	for _, pid := range fresh {
+		out = append(out, Proc{PID: pid, Used: dedicated[pid]})
+	}
+	return out
+}
+
 // Probe reads the card.
 type Probe interface {
 	Read(ctx context.Context) (Snapshot, error)
@@ -110,7 +192,11 @@ func (n NvidiaSMI) Read(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Parse(n.Index, mem, apps, time.Now())
+	s, err := Parse(n.Index, mem, apps, time.Now())
+	if err != nil {
+		return s, err
+	}
+	return withPDH(s), nil
 }
 
 // ParseDevices reads "index, name, total, used, free[, telemetry...]" lines

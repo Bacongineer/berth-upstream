@@ -7,36 +7,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // exec runs the CLI in process with isolated streams, the way the binary runs
 // it, so an exit code and a stream can be asserted together.
-func runCLI(t *testing.T, args ...string) (int, string, string) {
-	t.Helper()
-	var out, errOut bytes.Buffer
-	code := Run(Env{Args: args, Out: &out, Err: &errOut, Version: "test"})
-	return code, out.String(), errOut.String()
-}
-
-// isolate points every path the CLI reads at a temp dir, so a test never
-// touches the operator's config, socket or key.
-func isolate(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
-	t.Setenv("BERTH_SOCKET", filepath.Join(home, "run", "berth.sock"))
-	t.Setenv("BERTH_CONFIG", "")
-	t.Setenv("BERTH_API_KEY_FILE", filepath.Join(home, "config", "berth", "api.key"))
-	t.Setenv("NO_COLOR", "1")
-	return home
-}
-
 func TestNoArgsIsUsageError(t *testing.T) {
 	isolate(t)
 	code, out, errOut := runCLI(t)

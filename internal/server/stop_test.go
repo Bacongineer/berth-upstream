@@ -1,6 +1,8 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix
+
 package server_test
 
 // OpStop through the real socket and wrapper: the named engine's lease is
