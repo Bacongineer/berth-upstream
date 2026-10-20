@@ -70,19 +70,19 @@ func (m Model) CachedShare() int {
 	return int(100 * m.CachedBytes / m.CachedSize)
 }
 
-// warm is the share that reads as a model the machine can restart quickly:
-// half its bytes in memory.
-const warm = 50
+// coolShare is the resident share that reads as COOL: half the model's bytes
+// in memory, and a restart likely to skip the disk.
+const coolShare = 50
 
-// Warmth names the tier a listing shows beside the share: COOL when half or
-// more of the model's bytes sit in the page cache, COLD below that, and an
+// Warmth names the tier a listing shows beside the share: COOL at coolShare
+// or more of the model's bytes in the page cache, COLD below that, and an
 // empty string when the check measured nothing.
 func (m Model) Warmth() string {
 	share := m.CachedShare()
 	if share < 0 {
 		return ""
 	}
-	if share >= warm {
+	if share >= coolShare {
 		return "COOL"
 	}
 	return "COLD"
