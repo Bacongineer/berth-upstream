@@ -124,9 +124,17 @@ type Config struct {
 	// descendant of an attached lease under that lease, so a child that
 	// escapes before any GPU poll is still the lease's. nil = no table.
 	ProcTable func() []procs.Proc
-	Version   string
-	Reporter  Reporter
-	Log       *slog.Logger
+	// Containers reads a process's runtime container id (procs.Container
+	// on Linux); "" = a host process. Tests fake it. A GPU process whose
+	// container matches an attached lease's belongs to that lease.
+	Containers func(pid int) (string, bool)
+	// ContainerName resolves a container id to its runtime name (docker,
+	// then podman, inspect); "" when neither answers. Used to name a
+	// stowaway's container in the report; never affects scheduling.
+	ContainerName func(id string) string
+	Version       string
+	Reporter      Reporter
+	Log           *slog.Logger
 }
 
 type Request struct {
@@ -139,6 +147,10 @@ type Request struct {
 	// app that must not be stopped (berth run --pinned) keeps the card until
 	// it lets go; waiters are told who pins it.
 	Pinned bool
+	// Container is the engine's container: Acquire takes the name the
+	// operator gave (--container), the attach resolves the full ID. A GPU
+	// process inside it belongs to the lease.
+	Container string
 }
 
 // ident is a process identity. PIDs are reused, so a PID only means the same
@@ -149,25 +161,29 @@ type ident struct {
 }
 
 type lease struct {
-	id        string
-	engine    string
-	group     string
-	lostTo    string // a juggle this waiter lost: the winner's lease id; it waits, never drains it
-	lostWhy   string
-	reattach  bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
-	pinned    bool // never drained (Request.Pinned)
-	prio      Priority
-	needs     uint64
-	state     state
-	pid       int
-	pidStart  uint64
-	gpu       map[ident]gpu.Proc
-	desc      map[ident]struct{} // descendants recorded while the lease ran
-	contested uint64             // squatter bytes on the card when granted
-	peak      uint64             // most memory its processes were measured holding
-	arrived   time.Time
-	granted   time.Time
-	released  time.Time
+	id       string
+	engine   string
+	group    string
+	lostTo   string // a juggle this waiter lost: the winner's lease id; it waits, never drains it
+	lostWhy  string
+	reattach bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
+	pinned   bool // never drained (Request.Pinned)
+	prio     Priority
+	needs    uint64
+	state    state
+	pid      int
+	pidStart uint64
+	// container is the full ID of the runtime container the engine runs in
+	// ("" for a host process), containerName the name the operator gave.
+	container     string
+	containerName string
+	gpu           map[ident]gpu.Proc
+	desc          map[ident]struct{} // descendants recorded while the lease ran
+	contested     uint64             // squatter bytes on the card when granted
+	peak          uint64             // most memory its processes were measured holding
+	arrived       time.Time
+	granted       time.Time
+	released      time.Time
 
 	grantCh  chan struct{}
 	drainCh  chan string
@@ -206,7 +222,12 @@ type squatter struct {
 	id   ident
 	proc gpu.Proc
 	run  string // the unprotected run it descends from, if any
-	seen time.Time
+	// container is the runtime container the process holds memory in
+	// (lowercase, full ID), "" for a host process; containerName is the
+	// name a lease gave it, "" when no lease named it.
+	container     string
+	containerName string
+	seen          time.Time
 }
 
 type Broker struct {
@@ -221,6 +242,10 @@ type Broker struct {
 	leases    map[string]*lease // granted: active, draining, releasing
 	queue     []*lease
 	squatters map[ident]*squatter
+	// containerNames caches container id -> runtime name ("" while unknown
+	// or resolving); containerAsked marks the ids already sent to resolve.
+	containerNames map[string]string
+	containerAsked map[string]bool
 	// comfyPoked is the last unload ask per ComfyUI engine, rate limiting
 	// comfyPoke while a waiter is blocked.
 	comfyPoked map[string]time.Time
@@ -368,6 +393,12 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	if cfg.ProcTable == nil {
 		cfg.ProcTable = procs.List
 	}
+	if cfg.Containers == nil {
+		cfg.Containers = procs.Container
+	}
+	if cfg.ContainerName == nil {
+		cfg.ContainerName = containerNameCLI
+	}
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
@@ -406,16 +437,18 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	}
 	return &Broker{
 		cfg: cfg, probe: probe, tree: tree, log: log, runs: rs,
-		leases:     map[string]*lease{},
-		squatters:  map[ident]*squatter{},
-		comfyPoked: map[string]time.Time{},
-		subs:       map[chan proto.Event]struct{}{},
-		counters:   counters,
-		saved:      counters,
-		verdicts:   map[string]verdict{},
-		usage:      use,
-		footprints: foots,
-		started:    time.Now(),
+		leases:         map[string]*lease{},
+		squatters:      map[ident]*squatter{},
+		containerNames: map[string]string{},
+		containerAsked: map[string]bool{},
+		comfyPoked:     map[string]time.Time{},
+		subs:           map[chan proto.Event]struct{}{},
+		counters:       counters,
+		saved:          counters,
+		verdicts:       map[string]verdict{},
+		usage:          use,
+		footprints:     foots,
+		started:        time.Now(),
 	}
 }
 
@@ -476,7 +509,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	for _, p := range snap.Procs {
 		id := b.identify(p.PID)
 		present[id] = true
-		if l := b.owner(id); l != nil {
+		if l := b.owner(id, b.containerOf(p.PID)); l != nil {
 			if l.state != active && l.state != draining && b.runFor(p.PID) != nil {
 				// A released lease keeps blocking while its processes hold
 				// memory, unless a run record says they were left behind on
@@ -517,10 +550,26 @@ func (b *Broker) Tick(ctx context.Context) {
 		if run != nil {
 			s.run = run.Engine
 		}
+		if cid := b.containerOf(p.PID); cid != "" {
+			s.container = cid
+			id := id
+			b.containerLabel(cid, func(name string) {
+				if s, ok := b.squatters[id]; ok && s.container == cid {
+					s.containerName = name
+				}
+			})
+		}
 		b.squatters[id] = s
-		b.log.Warn("squatter: GPU memory held without a lease", "pid", p.PID, "name", p.Name, "mib", p.Used/gpu.MiB, "unprotected_run", s.run)
+		detail := p.Name
+		if s.container != "" {
+			detail += fmt.Sprintf(" in container %s", short(s.container))
+			if s.containerName != "" {
+				detail += " (" + s.containerName + ")"
+			}
+		}
+		b.log.Warn("squatter: GPU memory held without a lease", "pid", p.PID, "name", p.Name, "mib", p.Used/gpu.MiB, "unprotected_run", s.run, "container", short(s.container))
 		b.counters.SquattersCaught++
-		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: p.Name})
+		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: detail})
 		if b.cfg.Reporter != nil {
 			b.cfg.Reporter.Squatter(true, p)
 		}
@@ -594,10 +643,11 @@ func (b *Broker) reportGone(s *squatter) {
 }
 
 // owner finds the lease a GPU process belongs to: one it was already
-// attributed to, else the lease whose wrapped engine it descends from. The
-// engine's PID only counts while its start time still matches, so a reused
-// PID never inherits a lease.
-func (b *Broker) owner(id ident) *lease {
+// attributed to, else a recorded descendant of an attached lease, else a
+// container the lease names, else the lease whose wrapped engine it
+// descends from. The engine's PID only counts while its start time still
+// matches, so a reused PID never inherits a lease.
+func (b *Broker) owner(id ident, container string) *lease {
 	for _, l := range b.leases {
 		if _, ok := l.gpu[id]; ok {
 			return l
@@ -606,6 +656,13 @@ func (b *Broker) owner(id ident) *lease {
 	for _, l := range b.leases {
 		if _, ok := l.desc[id]; ok {
 			return l
+		}
+	}
+	if container != "" {
+		for _, l := range b.leases {
+			if (l.state == active || l.state == draining || l.state == releasing) && l.container == container {
+				return l
+			}
 		}
 	}
 	for _, l := range b.leases {
@@ -958,21 +1015,22 @@ func (l *Lease) Attach(pid int) {
 
 // beginRelease takes a granted lease off the grant path: releasing waits for
 // a tick whose card read happened after now to show none of its processes.
-// A lease that never recorded a process (no attached wrapper, nothing on the
-// card) has nothing that could turn up later, and goes at once. announce
-// keeps abandon quiet, as it has always been.
+// A lease that never recorded anything (no attached wrapper, nothing on the
+// card, no container named) has nothing that could turn up later, and goes
+// at once. announce keeps abandon quiet, as it has always been.
 func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	x.state = releasing
 	x.released = now
+	nothing := x.pid == 0 && len(x.gpu) == 0 && x.container == "" && len(x.desc) == 0
 	if !announce {
-		if x.pid == 0 && len(x.gpu) == 0 {
+		if nothing {
 			delete(b.leases, x.id)
 		}
 		return
 	}
 	b.log.Info("released", "lease", x.id, "engine", x.engine, "held", now.Sub(x.granted).Round(time.Second))
 	b.emit(proto.Event{Kind: proto.EvReleased, Lease: x.id, Engine: x.engine, Bytes: x.used()})
-	if x.pid == 0 && len(x.gpu) == 0 {
+	if nothing {
 		b.counters.VRAMHandedOff += x.peak
 		b.emit(proto.Event{Kind: proto.EvFreed, Lease: x.id, Engine: x.engine, Bytes: x.peak})
 		delete(b.leases, x.id)
@@ -1011,6 +1069,9 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	b.nextID++
 	now := time.Now()
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	if r.Container != "" {
+		l.container = strings.ToLower(r.Container)
+	}
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
 	l.granted = now
@@ -1040,6 +1101,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 	}
 	b.nextID++
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, time.Now())
+	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
 	b.emit(proto.Event{Kind: proto.EvRequested, Lease: l.id, Engine: l.engine, Bytes: l.needs, Detail: l.prio.String()})

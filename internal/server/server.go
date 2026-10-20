@@ -215,12 +215,13 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 	}()
 
 	r := broker.Request{
-		Engine:   req.Engine,
-		Group:    req.Group,
-		Priority: prio,
-		Needs:    req.Needs,
-		Wait:     time.Duration(req.Wait * float64(time.Second)),
-		Pinned:   req.Pinned,
+		Engine:    req.Engine,
+		Group:     req.Group,
+		Priority:  prio,
+		Needs:     req.Needs,
+		Wait:      time.Duration(req.Wait * float64(time.Second)),
+		Pinned:    req.Pinned,
+		Container: req.Container,
 	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {
@@ -259,6 +260,10 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			if m.Op == proto.OpAttach && m.PID > 0 {
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)
+			}
+			if m.Container != "" {
+				lease.AttachContainer(m.Container)
+				log.Info("attached container", "lease", lease.ID(), "container", m.Container)
 			}
 		}
 	}

@@ -56,7 +56,9 @@ func (b *Broker) Status() proto.Status {
 		sort.Ints(pids)
 		return proto.Lease{
 			ID: l.id, Engine: l.engine, Group: l.group, Priority: l.prio.String(), State: l.state.String(),
-			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart, GPUPIDs: pids, Used: l.used(),
+			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart,
+			Container: l.container, ContainerName: l.containerName,
+			GPUPIDs: pids, Used: l.used(),
 			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}
 	}
@@ -69,7 +71,8 @@ func (b *Broker) Status() proto.Status {
 	for _, s := range b.squatters {
 		st.Squatters = append(st.Squatters, proto.Squatter{
 			PID: s.proc.PID, PIDStart: s.id.start, Name: s.proc.Name, Used: s.proc.Used,
-			Run: s.run, Age: now.Sub(s.seen).Seconds(),
+			Run: s.run, Container: short(s.container), ContainerName: s.containerName,
+			Age: now.Sub(s.seen).Seconds(),
 		})
 	}
 	sort.Slice(st.Squatters, func(i, j int) bool { return st.Squatters[i].PID < st.Squatters[j].PID })
