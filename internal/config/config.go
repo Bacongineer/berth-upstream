@@ -119,6 +119,23 @@ type Config struct {
 	Park     ParkConfig     `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
 	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
 	Library  LibraryConfig  `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
+	Update   UpdateConfig   `toml:"update,omitempty" json:"update,omitempty" yaml:"update,omitempty"`
+}
+
+// UpdateConfig switches the check for a newer release. On, the harbor asks
+// the GitHub API once every 24 h, one GET to releases/latest, and shows a
+// new release in its header. Off, Berth never contacts GitHub on its own;
+// typing `berth update` is the operator asking, and still reaches it.
+type UpdateConfig struct {
+	Check *bool `toml:"check" json:"check" yaml:"check"` // default on
+}
+
+// UpdateCheck is the configured switch, on when the config names none.
+func (c *Config) UpdateCheck() bool {
+	if c.Update.Check != nil {
+		return *c.Update.Check
+	}
+	return true
 }
 
 // ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope

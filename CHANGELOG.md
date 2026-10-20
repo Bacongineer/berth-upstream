@@ -8,6 +8,16 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth update [--check] [--yes] [--force]`: asks the release page whether a newer
+  berth exists, and without `--check` downloads this machine's binary and the
+  release's SHA256SUMS, checks the hash, and replaces the running binary in place
+  after confirmation, then names what to restart without restarting anything. The
+  check is one GET to api.github.com's releases/latest, at most once every 24 h
+  (the answer is cached in the state directory, the User-Agent is the running
+  version and nothing else); the `[update] check` config key, on by default, is
+  Berth's own contact with GitHub, off by that one line. A dev build is refused
+  unless `--force`, and a checksum mismatch refuses the download.
+
 - `berth service install [--gateway] [--harbor] [--dry-run]`, `berth
   service uninstall` and `berth service status`: run the node, and the
   gateway and the harbor when asked, as user services. On Linux they are
