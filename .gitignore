@@ -5,3 +5,6 @@ bin/
 
 # agent briefs and plans: machine-specific, never part of the repo
 .router/
+
+# OME boards stay local; this repo is public
+.ome/
