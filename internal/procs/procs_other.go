@@ -15,3 +15,7 @@ func (System) StartTime(int) uint64 { return 0 }
 // List has no process table on this platform, so no descendants are
 // recorded.
 func List() []Proc { return nil }
+
+// Container has no cgroups on this platform, so no process is ever in a
+// container: engines run on the host.
+func Container(int) (string, bool) { return "", false }

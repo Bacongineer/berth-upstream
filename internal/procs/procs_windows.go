@@ -89,3 +89,7 @@ func Walk(fn func(*windows.ProcessEntry32)) error {
 // List has no process table yet, so no descendants are recorded. A walk
 // over snapshotParents' data can follow when Windows needs it.
 func List() []Proc { return nil }
+
+// Container has no cgroups on Windows, so no process is ever in a container:
+// engines run on the host.
+func Container(int) (string, bool) { return "", false }

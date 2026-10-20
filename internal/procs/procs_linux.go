@@ -4,6 +4,7 @@
 package procs
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
@@ -54,6 +55,18 @@ func List() []Proc {
 		ps = append(ps, Proc{PID: pid, Parent: ppid, Start: start, Name: name})
 	}
 	return ps
+}
+
+// Container is the container id that owns pid, from an actual
+// /proc/<pid>/cgroup: docker runs its engine images in a docker-<64hex>.scope
+// (v2) or a /docker/<64hex> directory (v1), podman in a libpod-<64hex>.scope,
+// containerd/CRI in a cri-containerd-<64hex>.scope. A host process reads "".
+func Container(pid int) (string, bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return "", false
+	}
+	return containerID(bytes.NewReader(b))
 }
 
 // statFields reads /proc/<pid>/stat once: the command name inside the
