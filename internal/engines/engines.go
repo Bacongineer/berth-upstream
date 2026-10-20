@@ -370,6 +370,14 @@ func (w *Watcher) custom(ctx context.Context, base string, e config.Engine, out 
 	return nil
 }
 
+// httpStatusError preserves the response status without parsing error text.
+type httpStatusError struct {
+	code int
+	msg  string
+}
+
+func (e *httpStatusError) Error() string { return e.msg }
+
 func (w *Watcher) get(ctx context.Context, url string) ([]byte, error) {
 	return w.getKey(ctx, url, "")
 }
@@ -392,7 +400,7 @@ func (w *Watcher) getKey(ctx context.Context, url, keyEnv string) ([]byte, error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+		return nil, &httpStatusError{code: resp.StatusCode, msg: fmt.Sprintf("GET %s: %s", url, resp.Status)}
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
