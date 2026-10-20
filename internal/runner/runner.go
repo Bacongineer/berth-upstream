@@ -56,6 +56,10 @@ type Options struct {
 	Retry       time.Duration // how often a run that lost berthd dials it again; 0 = 2s
 	Argv        []string
 	Stderr      io.Writer
+	// Output, when set, gets a copy of the engine's own stdout and stderr
+	// (the terminal still gets them too). The gateway keeps its tail, so a
+	// start that dies says why in the engine's words, not berth's.
+	Output io.Writer
 }
 
 // ExitRefused is EX_TEMPFAIL: no berth was granted.
@@ -101,7 +105,7 @@ func Run(o Options) int {
 		}
 	}
 
-	cmd := command(o.Argv)
+	cmd := command(o.Argv, o.Output)
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
 		return 127
@@ -151,6 +155,9 @@ func Run(o Options) int {
 		select {
 		case err := <-waitCh:
 			close(done)
+			if errors.Is(err, exec.ErrWaitDelay) {
+				err = nil // exited cleanly; a grandchild still held the output copy
+			}
 			return err
 		case <-released:
 			// Keep-up: the engine stays up for its other clients; the
@@ -494,7 +501,7 @@ func slotsBusy(url string) (bool, error) {
 }
 
 func runUnleased(o Options, reason string) int {
-	cmd := command(o.Argv)
+	cmd := command(o.Argv, o.Output)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(o.Stderr, "berth: start %s: %v\n", o.Argv[0], err)
 		return 127
@@ -505,6 +512,9 @@ func runUnleased(o Options, reason string) int {
 	go forwardSignals(cmd, done)
 	err := cmd.Wait()
 	close(done)
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	return exitCode(cmd, err)
 }
 
@@ -522,9 +532,15 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 	return remove
 }
 
-func command(argv []string) *exec.Cmd {
+func command(argv []string, out io.Writer) *exec.Cmd {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if out != nil {
+		cmd.Stdout, cmd.Stderr = io.MultiWriter(os.Stdout, out), io.MultiWriter(os.Stderr, out)
+		// The copy runs through pipes. A grandchild that keeps them open
+		// after the engine exits must not hold Wait, and with it the lease.
+		cmd.WaitDelay = 2 * time.Second
+	}
 	isolate(cmd)
 	return cmd
 }
