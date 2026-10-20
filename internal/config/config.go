@@ -73,8 +73,10 @@ type Engine struct {
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a
-	// built-in adapter (comfyui, vllm, sglang) need no URLs; any other
-	// kind with park = "hook" needs both.
+	// built-in adapter (comfyui, vllm, sglang) need no URLs; a kind
+	// outside the table with no URLs uses the Berth park protocol if
+	// the engine answers GET /berth/state, and drains as today if it
+	// does not. One URL without the other is an error.
 	Park string `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
 	// ParkURL and ResumeURL are the hook's calls; each, when set, beats
 	// the built-in adapter for its side.
@@ -536,8 +538,8 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Errorf("%s: %s %q must be an absolute http(s) URL", where, u.key, u.url))
 			}
 		}
-		if e.Park == "hook" && !slices.Contains(park.BuiltInKinds(), e.Type) && (e.ParkURL == "" || e.ResumeURL == "") {
-			errs = append(errs, fmt.Errorf("%s: park = \"hook\" for a %s engine needs both park_url and resume_url", where, e.Type))
+		if e.Park == "hook" && !slices.Contains(park.BuiltInKinds(), e.Type) && (e.ParkURL == "") != (e.ResumeURL == "") {
+			errs = append(errs, fmt.Errorf("%s: park = \"hook\" for a %s engine needs both park_url and resume_url, or neither: with neither, Berth tries the Berth park protocol", where, e.Type))
 		}
 		switch e.Priority {
 		case "", "batch", "interactive", "foreground":

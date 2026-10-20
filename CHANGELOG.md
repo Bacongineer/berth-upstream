@@ -17,6 +17,12 @@ has a matching GitHub release whose body comes from its section below.
   the card; a park that leaves the card full falls back to the normal
   drain. The contract, timing, idempotency rules and a minimal reference
   server are in contrib/PARK-PROTOCOL.md, written for engine authors.
+- `park = "hook"` with no `park_url`/`resume_url` on an engine type
+  outside the built-in adapter table is now valid: on a drain Berth asks
+  the engine's `GET /berth/state`, and if it answers the Berth park
+  protocol the engine parks through it, otherwise it drains as today. A
+  config warning names the fall-back, and one URL without the other
+  stays an error.
 
 - `berth update [--check] [--yes] [--force]`: asks the release page whether a newer
   berth exists, and without `--check` downloads this machine's binary and the

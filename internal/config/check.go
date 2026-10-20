@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -121,6 +123,12 @@ func warnings(c *Config) []Warning {
 				out = append(out, Warning{Key: fmt.Sprintf("engine[%d].%s", i, u.key),
 					Message: fmt.Sprintf("%s is set but park is not hook, so Berth never calls it", u.key)})
 			}
+		}
+	}
+	for i, e := range c.Engine {
+		if e.Park == "hook" && e.ParkURL == "" && e.ResumeURL == "" && !slices.Contains(park.BuiltInKinds(), e.Type) {
+			out = append(out, Warning{Key: fmt.Sprintf("engine[%d].park", i),
+				Message: fmt.Sprintf("%s: park = hook with no park_url/resume_url; Berth uses the Berth park protocol if the engine answers GET /berth/state, otherwise this engine drains as today", e.Name)})
 		}
 	}
 	for i, d := range c.Models.Dirs {
