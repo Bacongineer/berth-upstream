@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
@@ -204,6 +205,12 @@ type lease struct {
 	arrived       time.Time
 	granted       time.Time
 	released      time.Time
+	// releasedRead and parkedRead are the card reads started when the lease
+	// was released or its park call was done: only a tick whose read is
+	// later frees it or marks it parked. Clock-free, so a coarse clock
+	// (Windows, ~15 ms) cannot put a read before the release in its quantum.
+	releasedRead uint64
+	parkedRead   uint64
 	// parkedAt is when the lease became parked; parkedCall is when the
 	// runner said its park call was done (the parked transition waits for
 	// a later card read). resumed marks a waiting lease that came from
@@ -269,6 +276,8 @@ type Broker struct {
 	// nowFn is the broker's clock. Tests pin it to replay a coarse clock
 	// quantum; with it nil the broker reads the wall clock.
 	nowFn func() time.Time
+	// reads counts the card reads started, bumped before each probe read.
+	reads atomic.Uint64
 
 	mu        sync.Mutex
 	snap      gpu.Snapshot
@@ -541,7 +550,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	defer b.persist() // after the unlock below; also saves counts made between ticks
 	defer b.persistFootprints()
 	defer func() { b.persistUsage(b.now(), false) }()
-	readAt := b.now()
+	read := b.reads.Add(1)
 	snap, err := b.probe.Read(ctx)
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
@@ -653,18 +662,16 @@ func (b *Broker) Tick(ctx context.Context) {
 			}
 		}
 		if l.state == parking {
-			b.parkingTick(key, l, now, readAt)
+			b.parkingTick(key, l, now, read)
 			continue
 		}
 		if l.state != releasing && l.state != stuck {
 			continue
 		}
-		if len(l.gpu) == 0 && !readAt.Before(l.released) {
-			// Only a tick whose card read happened at or after the
-			// release frees the lease: an earlier read knows nothing
-			// about a process that appeared after it. On a coarse clock
-			// (Windows, ~15 ms) the tick can start in the release's own
-			// quantum, and its read is still after the release.
+		if len(l.gpu) == 0 && read > l.releasedRead {
+			// Only a tick whose card read started after the release frees
+			// the lease: an earlier read knows nothing about a process that
+			// appeared after it. Read order, not the clock, decides.
 			b.log.Info("lease freed", "lease", key, "engine", l.engine)
 			b.counters.VRAMHandedOff += l.peak
 			b.foldFootprint(l, now)
@@ -1156,6 +1163,7 @@ func (l *Lease) Attach(pid int) {
 func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	x.state = releasing
 	x.released = now
+	x.releasedRead = b.reads.Load()
 	nothing := x.pid == 0 && len(x.gpu) == 0 && x.container == "" && len(x.desc) == 0
 	if !announce {
 		if nothing {

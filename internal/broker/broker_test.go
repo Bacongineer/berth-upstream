@@ -29,9 +29,10 @@ const GiB = 1 << 30
 
 // card is a fake GPU whose processes the test sets directly.
 type card struct {
-	mu    sync.Mutex
-	total uint64
-	procs []gpu.Proc
+	mu     sync.Mutex
+	total  uint64
+	procs  []gpu.Proc
+	onRead func() // runs at the start of a read, outside the card lock
 }
 
 func (c *card) set(ps ...gpu.Proc) {
@@ -41,6 +42,12 @@ func (c *card) set(ps ...gpu.Proc) {
 }
 
 func (c *card) Read(context.Context) (gpu.Snapshot, error) {
+	c.mu.Lock()
+	hook := c.onRead
+	c.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var used uint64
@@ -240,6 +247,35 @@ func TestReleaseFreesWhenTheTickSharesTheReleaseQuantum(t *testing.T) {
 	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].Engine != "strata" {
 		t.Fatalf("leases = %+v, want only strata", st.Leases)
 	}
+}
+
+// B1, read order: a release that lands while a tick is already reading the
+// card does not free on that tick, whatever the clock says.
+// The read began before the release, so it says nothing about a process that
+// started after it; the next read does.
+func TestReleaseDuringATicksReadWaitsForTheNextRead(t *testing.T) {
+	tree := procs.Map{101: 100}
+	b, c, _ := setup(t, tree)
+	ninfer := must(t, acquire(b, Request{Engine: "ninfer"}))
+	ninfer.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-serve", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata"})
+	pending(t, strata)
+	drained(t, ninfer)
+	c.set()
+	c.mu.Lock()
+	c.onRead = func() { ninfer.Release() } // the release lands mid-read
+	c.mu.Unlock()
+	b.Tick(context.Background())
+	pending(t, strata)
+
+	c.mu.Lock()
+	c.onRead = nil
+	c.mu.Unlock()
+	b.Tick(context.Background())
+	must(t, strata)
 }
 
 func TestHigherPriorityHolderIsNotDrained(t *testing.T) {

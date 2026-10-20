@@ -31,6 +31,7 @@ func (l *Lease) Park() (bool, string) { return l.b.Park(l.l.id) }
 func (l *Lease) Parked() {
 	l.b.mu.Lock()
 	l.l.parkedCall = l.b.now()
+	l.l.parkedRead = l.b.reads.Load()
 	l.b.mu.Unlock()
 }
 
@@ -113,8 +114,8 @@ func (b *Broker) Park(id string) (bool, string) {
 // after the park call shows the residual, and gives up on the park after
 // the grace: the runner is told to stop the engine the usual way. Called
 // with b.mu held, from Tick.
-func (b *Broker) parkingTick(key string, l *lease, now, readAt time.Time) {
-	if l.parkedCall.IsZero() || readAt.Before(l.parkedCall) {
+func (b *Broker) parkingTick(key string, l *lease, now time.Time, read uint64) {
+	if l.parkedCall.IsZero() || read <= l.parkedRead {
 		return
 	}
 	if l.used() <= b.cfg.ParkResidualMax {
