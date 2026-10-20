@@ -64,35 +64,18 @@ func BuiltInKinds() []string {
 }
 
 // Protocol probes once whether the engine speaks Berth's park protocol
-// (contrib/PARK-PROTOCOL.md): GET map /berth/state answers 2xx. No answer
-// means not, and the engine drains as today.
+// (contrib/PARK-PROTOCOL.md) and returns its adapter when it does. Any
+// other answer, or none, means not: the engine drains as today.
 func Protocol(ctx context.Context, base string) (Adapter, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/berth/state", nil)
-	if err != nil {
+	if ok, err := Probe(ctx, base); err != nil || !ok {
 		return Adapter{}, false
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return Adapter{}, false
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return Adapter{}, false
-	}
-	return builtIn["berth"], true
+	return ForProtocol(base), true
 }
 
 // builtIn is one entry per engine that can park itself through the API it
 // already serves.
 var builtIn = map[string]Adapter{
-	// Berth's own park protocol (contrib/PARK-PROTOCOL.md): two POSTs and
-	// a state check any engine can serve. Not an engine type; the runner
-	// reaches it through Protocol when a hook names no URLs.
-	"berth": {
-		Park:   postPath("/berth/park"),
-		Resume: postPath("/berth/resume"),
-	},
 	// ComfyUI's /free with free_memory off moves the models to the CPU
 	// offload device and keeps them there until free_memory or pressure,
 	// so a park lands in RAM. Resume is a no-op: ComfyUI loads on the

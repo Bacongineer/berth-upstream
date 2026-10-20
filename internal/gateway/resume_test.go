@@ -1,6 +1,8 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix
+
 package gateway
 
 // The gateway's resume: a parked engine's lease is queued and woken, and
@@ -80,7 +82,6 @@ func parkDaemon(t *testing.T, card *wakeCard, avail uint64) (string, *broker.Bro
 type wakeStub struct {
 	sleeps    atomic.Int64
 	wakes     atomic.Int64
-	gens      atomic.Int64
 	wakeDelay time.Duration
 
 	mu    sync.Mutex

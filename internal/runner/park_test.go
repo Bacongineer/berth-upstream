@@ -1,6 +1,8 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix
+
 package runner
 
 // Park driven through a real daemon and a real Run: admission and the

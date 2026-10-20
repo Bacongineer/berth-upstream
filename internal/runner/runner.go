@@ -235,18 +235,11 @@ func Run(o Options) int {
 		}
 	}()
 
-	err = func() error {
-		waitCh := make(chan error, 1)
-		go func() { waitCh <- cmd.Wait() }()
-		select {
-		case err := <-waitCh:
-			close(done)
-			if errors.Is(err, exec.ErrWaitDelay) {
-				err = nil // exited cleanly; a grandchild still held the output copy
-			}
-			return err
-		}
-	}()
+	err = cmd.Wait()
+	close(done)
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil // exited cleanly; a grandchild still held the output copy
+	}
 	return exitCode(cmd, err)
 }
 
