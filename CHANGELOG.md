@@ -8,6 +8,28 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth service install [--gateway] [--harbor] [--dry-run]`, `berth
+  service uninstall` and `berth service status`: run the node, and the
+  gateway and the harbor when asked, as user services. On Linux they are
+  systemd user units rendered from the files in contrib/ (the binary the
+  user runs in place of the one those files name) under
+  ~/.config/systemd/user/, started with `systemctl --user enable --now`;
+  on Windows they are Task Scheduler logon tasks under \Berth, created
+  with schtasks, no admin needed, running in the user's session where
+  their GPU apps are, hidden, without a time limit, and restarted on
+  failure (three tries a minute apart). A unit file that differs is kept
+  as .bak, `--dry-run` prints what would be written and run and changes
+  nothing, and status says for each of the three whether it is installed
+  and running. On Windows the services run; the driver's per-process VRAM
+  reading is the next gap, W-1 in docs/WINDOWS-2026-10-20.md.
+- `contrib/windows/check.ps1`: the operator's checklist for a Windows
+  node on a real NVIDIA box. It writes one report file, ready for the
+  drain-report issue form: the berth version and the node's services,
+  nvidia-smi, the card and its processes with berth's reading next to the
+  driver's (the same counter Task Manager reads, plus the processes the
+  driver sees that berth does not), one run of a CUDA app of your choice
+  under `berth run`, and the event log around the run. Plain Windows
+  PowerShell 5.1, no modules.
 - The prediction of switch times: `internal/swapcost` records the times
   completed switches took, per engine and tier (hot on the card, warm
   parked in RAM, cool in the kernel page cache, cold on disk), keeping
