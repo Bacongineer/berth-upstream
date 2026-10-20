@@ -42,6 +42,10 @@ func TestWriteFile(t *testing.T) {
 			}
 			if st, err := os.Stat(tt.path); err != nil {
 				t.Fatalf("stat: %v", err)
+			} else if runtime.GOOS == "windows" {
+				// Windows carries no Unix mode bits, so the perm cannot be
+				// read back and nothing else about it is expressible; the
+				// content above is the check.
 			} else if got := st.Mode().Perm(); got != tt.perm {
 				t.Fatalf("mode = %o, want %o", got, tt.perm)
 			}

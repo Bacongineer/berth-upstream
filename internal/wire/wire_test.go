@@ -6,6 +6,7 @@ package wire
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -277,7 +278,9 @@ func TestWriteBacksUpAndReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		// Windows carries no Unix mode bits; the file's existence and
+		// content are the check there.
 		t.Errorf("mode = %v, want 0600 preserved", fi.Mode().Perm())
 	}
 

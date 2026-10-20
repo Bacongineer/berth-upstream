@@ -6,6 +6,7 @@ package apikey
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -20,12 +21,21 @@ func TestLoadOrCreate(t *testing.T) {
 		t.Fatalf("key %q", k1)
 	}
 	st, err := os.Stat(path)
-	if err != nil || st.Mode().Perm() != 0o600 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("key file mode %v, %v", st.Mode().Perm(), err)
 	}
 	k2, err := LoadOrCreate(path)
 	if err != nil || k2 != k1 {
 		t.Fatalf("second load %q, %v; want the same key", k2, err)
+	}
+	if runtime.GOOS == "windows" {
+		// Windows carries no Unix mode bits, so os.Chmod cannot make the
+		// file world-readable and the refusal has nothing to refuse. The
+		// file's privacy there comes from the user folder's own ACL.
+		return
 	}
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
