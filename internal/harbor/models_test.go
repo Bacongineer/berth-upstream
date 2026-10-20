@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -108,7 +109,11 @@ func TestModelsEndpoint(t *testing.T) {
 		t.Fatalf("row: %+v", m)
 	}
 	// the CACHED figures ride on the model itself; the share is the kernel
-	// page cache's own reading, so the test pins the shape, never the number
+	// page cache's own reading, so the test pins the shape, never the number.
+	// Off Linux the page cache cannot be measured and the figures stay 0.
+	if runtime.GOOS != "linux" {
+		return
+	}
 	if m.CachedSize <= 0 || m.CachedBytes > m.CachedSize {
 		t.Fatalf("cached figures: %d of %d measured", m.CachedBytes, m.CachedSize)
 	}
