@@ -178,6 +178,8 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		reclaim(conn, log, first, b)
 	case proto.OpStop:
 		stop(conn, log, first, b)
+	case proto.OpResume:
+		resume(conn, log, first, b)
 	case proto.OpEvents:
 		events(ctx, c, conn, first, b, log)
 	default:
@@ -258,8 +260,25 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			if !u.send(proto.Msg{Op: proto.OpDrain, Reason: why}) {
 				return
 			}
+		case why := <-lease.Waits():
+			u.send(proto.Msg{Op: proto.OpWaiting, Reason: why})
+		case <-lease.Resumed():
+			if !u.send(proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Resume: true}) {
+				return
+			}
 		case m := <-incoming:
-			if m.Op == proto.OpAttach && m.PID > 0 {
+			switch {
+			case m.Op == proto.OpPark:
+				if ok, why := lease.Park(); ok {
+					u.send(proto.Msg{Op: proto.OpParkOK, Lease: lease.ID()})
+				} else {
+					u.send(proto.Msg{Op: proto.OpRefused, Reason: why})
+				}
+			case m.Op == proto.OpParked:
+				lease.Parked()
+			case m.Op == proto.OpParkFailed:
+				lease.ParkFailed()
+			case m.Op == proto.OpAttach && m.PID > 0:
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)
 			}

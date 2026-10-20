@@ -41,6 +41,19 @@ const (
 	// higher-priority waiter would. The server answers once with the leases
 	// it asked.
 	OpStop = "stop"
+	// OpPark: the runner holding a draining lease asks to park its engine
+	// in RAM; the daemon answers OpParkOK or OpRefused with the why line.
+	// OpParked: the runner's park call is done; the daemon watches for the
+	// residual to leave the card. OpParkFailed: the park call failed; the
+	// lease goes back to draining and the runner runs the stop ladder.
+	// OpResume: any client puts a parked engine back on the card at its
+	// own priority; the runner hears OpGranted{Resume: true} when it is
+	// granted, or the resuming client gets OpRefused when it is not parked.
+	OpPark       = "park"
+	OpParkOK     = "park_ok"
+	OpParked     = "parked"
+	OpParkFailed = "park_failed"
+	OpResume     = "resume"
 )
 
 // Msg is every message in both directions; unused fields are omitted.
@@ -77,6 +90,10 @@ type Msg struct {
 	Confirm bool     `json:"confirm,omitempty"`
 	Grace   float64  `json:"grace,omitempty"`
 	Holders []Holder `json:"holders,omitempty"`
+	// Resume is set on an OpGranted that hands a parked lease the card
+	// back, so the runner knows to call the adapter's resume instead of
+	// starting anything.
+	Resume bool `json:"resume,omitempty"`
 }
 
 // Event is one thing berthd saw or did. Seq is gap-free and increases by one,
@@ -110,9 +127,13 @@ const (
 	EvProbeRecovered = "probe.recovered"
 	EvAlertRaised    = "alert.raised"
 	EvAlertCleared   = "alert.cleared"
-	EvJuggle         = "lease.juggle"  // two engines at one priority fought over the card; the rank decided
-	EvClaimStarted   = "claim.started" // a claim rule matched: a hold is requested, or memory is now named
-	EvClaimEnded     = "claim.ended"   // its matches are gone (past the linger, for a hold)
+	EvJuggle         = "lease.juggle"       // two engines at one priority fought over the card; the rank decided
+	EvClaimStarted   = "claim.started"      // a claim rule matched: a hold is requested, or memory is now named
+	EvClaimEnded     = "claim.ended"        // its matches are gone (past the linger, for a hold)
+	EvParked         = "lease.parked"       // the engine's weights are in RAM and its residual is on the card
+	EvResumed        = "lease.resumed"      // a parked engine was granted the card back
+	EvParkRefused    = "lease.park_refused" // the RAM could not take the park; the drain runs as before
+	EvParkEvicted    = "lease.park_evicted" // the parked engine is being stopped: ttl, RAM floor or pressure
 	// EvFootprint: a freed run measured far more VRAM than the engine's
 	// learned footprint, so the estimate a next run is offered grows.
 	EvFootprint = "engine.footprint"
@@ -170,6 +191,10 @@ type Status struct {
 	Priority    *PriorityStatus   `json:"priority,omitempty"`
 	Claims      []Claim           `json:"claims,omitempty"`
 	Footprints  []EngineFootprint `json:"footprints,omitempty"`
+	// ParkedBytes is what the parked engines' footprints add up to: the
+	// RAM their warm copies are expected to hold. A reading, never a
+	// reservation.
+	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
 }
 
 // EngineFootprint is what the broker learned from one engine's leases: the
@@ -325,6 +350,9 @@ type Lease struct {
 	Contested     uint64  `json:"contested,omitempty"`
 	Age           float64 `json:"age_seconds"`
 	Pinned        bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
+	// ParkedSince is how long the engine has been parked, in seconds; 0
+	// when it is not parked.
+	ParkedSince float64 `json:"parked_since,omitempty"`
 }
 
 type Squatter struct {
