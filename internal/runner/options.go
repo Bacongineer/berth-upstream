@@ -47,7 +47,8 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
-		DrainMax: e.DrainMax.Duration, KeepComfyUI: e.KeepComfyUI, Grace: grace, FailClosed: o.FailClosed,
+		DrainMax: e.DrainMax.Duration, KeepComfyUI: e.KeepComfyUI, Container: e.Container,
+		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output,
 	}
 }
