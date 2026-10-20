@@ -49,7 +49,7 @@ func runGateway(c *Context) int {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
 	}
 	for _, w := range warns {
-		log.Warn(w.Key+": "+w.Message)
+		log.Warn(w.Key + ": " + w.Message)
 	}
 	log.Debug("config", "path", *cfgPath, "startable", len(cfg.Engine), "discover", *cfg.Engines.Discover)
 	key, err := apikey.LoadOrCreate(*keyFile)
