@@ -4,6 +4,7 @@
 package models
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -61,11 +62,33 @@ func TestCatalogAge(t *testing.T) {
 // A snapshot from the other boot of a shared root reads fine here.
 func TestReadForeignCatalog(t *testing.T) {
 	root := t.TempDir()
-	foreign := `{"root":"` + root + `","host":"galaxy","at":"2026-10-19T08:00:00Z","models":[{"name":"a","path":"` + root + `/a.gguf","shelf":"chat","bytes":3}]}`
+	// encoding/json builds the document, so a Windows root's backslashes
+	// come out escaped the way the reader expects.
+	d := struct {
+		Root   string `json:"root"`
+		Host   string `json:"host"`
+		At     string `json:"at"`
+		Models []struct {
+			Name  string `json:"name"`
+			Path  string `json:"path"`
+			Shelf string `json:"shelf"`
+			Bytes int    `json:"bytes"`
+		} `json:"models"`
+	}{Root: root, Host: "galaxy", At: "2026-10-19T08:00:00Z",
+		Models: []struct {
+			Name  string `json:"name"`
+			Path  string `json:"path"`
+			Shelf string `json:"shelf"`
+			Bytes int    `json:"bytes"`
+		}{{Name: "a", Path: root + "/a.gguf", Shelf: "chat", Bytes: 3}}}
+	b, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(CatalogPath(root)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(CatalogPath(root), []byte(foreign), 0o644); err != nil {
+	if err := os.WriteFile(CatalogPath(root), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err := ReadCatalog(root)

@@ -296,6 +296,10 @@ func TestScanMissingRoot(t *testing.T) {
 func TestScanDefaultRootsExist(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		// os.UserHomeDir reads USERPROFILE there.
+		t.Setenv("USERPROFILE", home)
+	}
 	if got := DefaultRoots(); len(got) != 0 {
 		t.Errorf("DefaultRoots = %v over an empty home, want none", got)
 	}
