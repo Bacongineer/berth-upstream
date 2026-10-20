@@ -6,10 +6,13 @@
 
   // Rows this tab launched: when one comes up, the tab goes to its web UI.
   const launched = new Set();
+  // The last state each row showed, so a click knows which button it pressed.
+  const seen = new Map();
 
   function showRow(s) {
     const li = rows.find((r) => r.dataset.name === s.name);
     if (!li) return; // the engine left berth.toml while the page is open
+    seen.set(s.name, s.state);
     const chip = li.querySelector(".state");
     const status = li.querySelector(".row-status");
     const detail = li.querySelector(".row-detail");
@@ -49,6 +52,10 @@
     const btn = li.querySelector(".row-btn");
     if (!btn) continue;
     btn.addEventListener("click", async () => {
+      if (seen.get(li.dataset.name) === "up") {
+        location.replace(li.dataset.gui); // already live: the tab goes there
+        return;
+      }
       btn.disabled = true;
       btn.textContent = "Launching...";
       launched.add(li.dataset.name);

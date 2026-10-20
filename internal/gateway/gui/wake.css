@@ -60,7 +60,10 @@ h1 { margin: .75rem 0 .25rem; color: var(--ink-strong); font-size: 1.4rem; font-
 .chip.active { background: var(--cyan); }
 .chip.draining, .chip.releasing { background: #e8b56f; }
 .chip.stuck, .chip.pinned { background: var(--magenta); }
-@media (prefers-reduced-motion: reduce) { .tide span, .chip.waiting, .chip.starting { animation: none !important; height: 28px; } }
+@media (prefers-reduced-motion: reduce) {
+  .tide span, .chip.waiting, .chip.starting { animation: none !important; height: 28px; }
+  .row .tide span { height: 8px; }
+}
 button {
   margin-top: 1rem; padding: .45rem 1.1rem;
   color: var(--ink-strong); background: var(--cyan-deep);

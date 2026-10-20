@@ -24,10 +24,10 @@ import (
 // it answers. A bookmark or a home-page tile can point there instead of at an
 // engine that may be stopped.
 //
-// It holds no key: it can only start an engine that has a start command, which
-// is what the operator asked for by writing it. A start is a POST that must
-// come from the page itself (same origin), so another site cannot make a
-// visitor's browser drain the card.
+// It holds no key: it can only start an engine that has a start command and
+// a gui URL in berth.toml, which is what the operator asked for by writing
+// both. A start is a POST that must come from the page itself (same origin),
+// so another site cannot make a visitor's browser drain the card.
 
 //go:embed gui
 var guiFS embed.FS
