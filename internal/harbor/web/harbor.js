@@ -2274,7 +2274,7 @@ function renderLight(s) {
   renderNoTicket(s);
   renderMachine(s);
   enginesMeta.textContent = (s.engines || []).length + " engine" + ((s.engines || []).length === 1 ? "" : "s");
-  engineView.renderCards((s && Array.isArray(s.engines)) ? s.engines : []);
+  engineView.renderCards((s && Array.isArray(s.engines)) ? s.engines : [], s && s.footprints);
   libraryView.render(state.models, s);
   engineView.renderPool(s, state.history, state.range);
   if (ticket.current) ticket.refresh();

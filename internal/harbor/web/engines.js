@@ -90,7 +90,7 @@ export class EngineView {
   }
   render(status) {
     const engines = status && Array.isArray(status.engines) ? status.engines : [];
-    this.renderCards(engines);
+    this.renderCards(engines, status && status.footprints);
     const ins = (status && status.insights) || null;
     this.renderTables(ins);
     if (this.lbMeta) this.lbMeta.textContent = "24 h, click a column to sort";
@@ -130,9 +130,16 @@ export class EngineView {
       this.restamp(this.lbMeta);
     }
   }
-  renderCards(engines) {
+  renderCards(engines, footprints) {
+    const fp = {};
+    for (const f of footprints || []) if (f.engine) fp[f.engine] = f;
     const skel = this.grid.querySelector(":scope > .skel-box");
     if (skel) skel.remove();
+    // secondsSince is a footprint stamp's age in seconds, "-" when unknown
+    function secondsSince(at) {
+      const t = new Date(at).getTime();
+      return Number.isNaN(t) ? null : Math.max(0, (Date.now() - t) / 1000);
+    }
     const seen = new Set();
     for (const eng of engines) {
       const key = eng.name || "?" + engines.indexOf(eng);
@@ -191,6 +198,14 @@ export class EngineView {
         c.extra.append(el("span", null, "window " + fmtTok(eng.window) + " tok"));
       }
       c.extra.append(el("span", null, "report " + fmtAge(eng.age_seconds) + " old"));
+      // the engine's learned footprint: what its past runs measured, so an
+      // operator can plan. An estimate of what a run needs, never "reserved".
+      const f = fp[eng.name];
+      if (f && f.estimated_vram_bytes > 0) {
+        const vram = el("span", "est-vram", "est. VRAM " + fmtGiB(f.estimated_vram_bytes) + "G (" + f.runs + " run" + (f.runs === 1 ? "" : "s") + ")");
+        vram.title = "the engine's learned footprint, measured over its past leases; last run " + fmtAge(secondsSince(f.at)) + " ago. An estimate of what a run needs, never a reservation";
+        c.extra.append(vram);
+      }
     }
     for (const [key, c] of this.cards) {
       if (!seen.has(key)) { c.card.remove(); this.cards.delete(key); }
