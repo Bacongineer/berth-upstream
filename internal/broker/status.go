@@ -30,6 +30,7 @@ func (b *Broker) Status() proto.Status {
 		LastEvent:   b.seq,
 		Priority:    b.priorityStatus(now),
 		Footprints:  b.footprintStatus(),
+		ParkedBytes: b.parkedFootprints(),
 	}
 	if b.probeErr != nil {
 		st.ProbeErr = b.probeErr.Error()
@@ -54,13 +55,17 @@ func (b *Broker) Status() proto.Status {
 			pids = append(pids, id.pid)
 		}
 		sort.Ints(pids)
-		return proto.Lease{
+		pl := proto.Lease{
 			ID: l.id, Engine: l.engine, Group: l.group, Priority: l.prio.String(), State: l.state.String(),
 			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart,
 			Container: l.container, ContainerName: l.containerName,
 			GPUPIDs: pids, Used: l.used(),
 			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}
+		if l.state == parked {
+			pl.ParkedSince = now.Sub(l.parkedAt).Seconds()
+		}
+		return pl
 	}
 	for _, l := range b.holders() {
 		st.Leases = append(st.Leases, view(l, l.granted))

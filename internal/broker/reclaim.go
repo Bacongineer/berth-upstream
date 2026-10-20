@@ -21,16 +21,16 @@ func (b *Broker) StillAlive(pid int, start uint64) bool {
 	return start != 0 && b.tree.StartTime(pid) == start
 }
 
-// Reclaim names the card processes in question: what the named lease, or
-// without an id every stuck and releasing lease, recorded, and what holds
-// memory on the card that no lease recorded.
+// Reclaim names the card processes in question: what the named lease
+// (which may still be releasing), or without an id every stuck lease,
+// recorded, and what holds memory on the card that no lease recorded.
 func (b *Broker) Reclaim(id string) ([]proto.Holder, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var ids []string
 	if id == "" {
 		for key, l := range b.leases {
-			if l.state == releasing || l.state == stuck {
+			if l.state == stuck {
 				ids = append(ids, key)
 			}
 		}

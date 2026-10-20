@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/host"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -66,12 +67,14 @@ const (
 	waiting state = iota
 	active
 	draining  // asked to give the berth back
+	parking   // the runner is calling the engine's park adapter
+	parked    // parked in RAM; only its residual stays on the card
 	releasing // connection gone; waiting for its GPU processes to let go
 	stuck     // released, but its processes still hold memory past ReleaseGrace
 )
 
 func (s state) String() string {
-	return [...]string{"waiting", "active", "draining", "releasing", "stuck"}[s]
+	return [...]string{"waiting", "active", "draining", "parking", "parked", "releasing", "stuck"}[s]
 }
 
 // Reporter hears about squatters (GPU processes no lease accounts for)
@@ -119,6 +122,23 @@ type Config struct {
 	// engines that lost the previous daemon mid-run are still alive and
 	// due to re-attach.
 	ReattachWindow time.Duration
+	// Park admission and eviction, from [park]. ParkFloor is the RAM a
+	// park must leave free, the park margin plus the gateway's headroom
+	// floor, in bytes; ParkMax caps what all parked engines may hold
+	// together; ParkTTL is how long a park lasts; ParkResidualMax is how
+	// much card memory a parked engine may keep and still count as
+	// parked; ParkPressure is the memory-pressure "some avg10" figure
+	// that evicts a parked engine. A zero keeps the default.
+	ParkFloor       uint64
+	ParkMax         uint64
+	ParkTTL         time.Duration
+	ParkResidualMax uint64
+	ParkPressure    float64
+	// MemAvailable reads the kernel's available RAM; nil = the real
+	// reading. MemPressure reads the same file's pressure figure; nil =
+	// the real reading, 0 when it cannot be read. Tests fake them.
+	MemAvailable func() uint64
+	MemPressure  func() float64
 	// ProcTable lists every process on the machine (procs.List on Linux):
 	// pid, parent, start time, name. Each tick the broker records every
 	// descendant of an attached lease under that lease, so a child that
@@ -184,8 +204,18 @@ type lease struct {
 	arrived       time.Time
 	granted       time.Time
 	released      time.Time
+	// parkedAt is when the lease became parked; parkedCall is when the
+	// runner said its park call was done (the parked transition waits for
+	// a later card read). resumed marks a waiting lease that came from
+	// parked: its grant goes out on resumeCh, not grantCh. beside is the
+	// note a beside-parked grant carries, read at the grant.
+	parkedAt   time.Time
+	parkedCall time.Time
+	resumed    bool
+	beside     string
 
 	grantCh  chan struct{}
+	resumeCh chan struct{}
 	drainCh  chan string
 	waitCh   chan string
 	lastWait string
@@ -203,18 +233,19 @@ func (l *lease) used() uint64 {
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
 	return &lease{
-		id:      id,
-		engine:  r.Engine,
-		group:   r.Group,
-		prio:    r.Priority,
-		needs:   r.Needs,
-		pinned:  r.Pinned,
-		gpu:     map[ident]gpu.Proc{},
-		desc:    map[ident]struct{}{},
-		arrived: now,
-		grantCh: make(chan struct{}),
-		drainCh: make(chan string, 1),
-		waitCh:  make(chan string, 8),
+		id:       id,
+		engine:   r.Engine,
+		group:    r.Group,
+		prio:     r.Priority,
+		needs:    r.Needs,
+		pinned:   r.Pinned,
+		gpu:      map[ident]gpu.Proc{},
+		desc:     map[ident]struct{}{},
+		arrived:  now,
+		grantCh:  make(chan struct{}),
+		resumeCh: make(chan struct{}),
+		drainCh:  make(chan string, 1),
+		waitCh:   make(chan string, 8),
 	}
 }
 
@@ -392,6 +423,30 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	}
 	if cfg.ProcTable == nil {
 		cfg.ProcTable = procs.List
+	}
+	if cfg.MemAvailable == nil {
+		cfg.MemAvailable = func() uint64 { return host.MemAvailable("") }
+	}
+	if cfg.MemPressure == nil {
+		cfg.MemPressure = func() float64 {
+			p, _ := host.MemPressure("")
+			return p
+		}
+	}
+	if cfg.ParkFloor == 0 {
+		// The park margin's default (4 GiB) plus the gateway headroom
+		// floor's default (2 GiB); the daemon wiring passes the real
+		// figures when they differ.
+		cfg.ParkFloor = 6 << 30
+	}
+	if cfg.ParkTTL == 0 {
+		cfg.ParkTTL = 30 * time.Minute
+	}
+	if cfg.ParkResidualMax == 0 {
+		cfg.ParkResidualMax = 2 << 30
+	}
+	if cfg.ParkPressure == 0 {
+		cfg.ParkPressure = 10.0
 	}
 	if cfg.Containers == nil {
 		cfg.Containers = procs.Container
@@ -585,6 +640,10 @@ func (b *Broker) Tick(ctx context.Context) {
 				delete(l.gpu, id)
 			}
 		}
+		if l.state == parking {
+			b.parkingTick(key, l, now, readAt)
+			continue
+		}
 		if l.state != releasing && l.state != stuck {
 			continue
 		}
@@ -607,6 +666,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 	}
 	b.claimed = claimed
+	b.evictParked(now)
 	b.schedule(now)
 }
 
@@ -755,7 +815,17 @@ func (b *Broker) schedule(now time.Time) {
 			w.granted = now
 			w.contested = b.squatBytes()
 			b.leases[w.id] = w
-			close(w.grantCh)
+			beside := w.beside
+			w.beside = ""
+			if w.resumed {
+				w.resumed = false
+				close(w.resumeCh)
+			} else {
+				close(w.grantCh)
+			}
+			if beside != "" {
+				b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
+			}
 			if w.contested > 0 {
 				b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB)
 				b.counters.ContestedGrants++
@@ -763,8 +833,11 @@ func (b *Broker) schedule(now time.Time) {
 			if w.lastWait != "" {
 				b.counters.CollisionsAvoided++
 			}
-			b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested,
-				Detail: fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))})
+			detail := fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))
+			if beside != "" {
+				detail += "; " + beside
+			}
+			b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested, Detail: detail})
 			b.log.Info("granted", "lease", w.id, "engine", w.engine, "priority", w.prio, "needs_mib", w.needs/gpu.MiB, "waited", now.Sub(w.arrived).Round(time.Millisecond))
 			continue
 		}
@@ -799,6 +872,12 @@ func (b *Broker) setWait(w *lease, reason string) {
 // budget is what a holder counts against the card: the whole card if it
 // asked for it, else whichever is larger of what it asked for and what it holds.
 func (b *Broker) budget(l *lease) uint64 {
+	if l.state == parking || l.state == parked {
+		// A parked engine cannot load anything more; what it counts for
+		// is the residual it still measures on the card, never promised
+		// free until the driver shows it gone.
+		return l.used()
+	}
 	if l.needs == 0 {
 		return b.snap.Total
 	}
@@ -910,11 +989,17 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	}
 	exclusive := w.needs == 0 || b.snap.Total == 0
 
-	var blockers, pending, drainable, kept []*lease
+	var blockers, pending, drainable, kept, warm []*lease
 	var keptWhy string
 	for _, h := range hs {
 		switch {
+		case h.state == parked:
+			warm = append(warm, h)
 		case h.state != active:
+			// Draining, releasing, stuck, and parking: a parking engine is
+			// still moving its weights off the card, so the waiter waits
+			// for it to become parked (or fall back to a drain); evicting
+			// it mid-park would throw the park away.
 			pending = append(pending, h)
 		case h.pinned || h.prio > w.prio:
 			blockers = append(blockers, h)
@@ -939,6 +1024,42 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		if len(drainable) > 0 {
 			return false, "draining " + describe(drainable), drainable
 		}
+		if len(pending) > 0 {
+			return false, "waiting for " + describe(pending) + " to free memory", nil
+		}
+		// A parked engine's residual is small enough to build a load
+		// beside: when the parked leases together keep no more than
+		// ParkResidualMax on the card, the whole card is granted beside
+		// them, and the grant event names what it sits next to.
+		var residual uint64
+		for _, p := range warm {
+			residual += p.used()
+		}
+		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax {
+			w.beside = besideLine(warm, residual)
+			return true, "", nil
+		}
+		// Otherwise the parked leases give way first, least recently
+		// parked first, and the waiter is told to wait while they stop.
+		if len(warm) > 0 {
+			var victims []*lease
+			var evicted uint64
+			for _, p := range sortParked(warm) {
+				if residual-evicted <= b.cfg.ParkResidualMax {
+					break
+				}
+				victims = append(victims, p)
+				evicted += p.used()
+			}
+			keepWarm := subtract(warm, victims)
+			reason := "evicting parked " + describe(victims)
+			if len(keepWarm) > 0 {
+				reason += "; keeping parked " + describe(keepWarm)
+			}
+			return false, reason, victims
+		}
+		// (unreachable: the buckets above partition the holders, so one
+		// of them is non-empty whenever a holder exists)
 		return false, "waiting for " + describe(pending) + " to free memory", nil
 	}
 

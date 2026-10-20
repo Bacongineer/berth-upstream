@@ -230,6 +230,16 @@ type ParkConfig struct {
 	MaxGiB float64 `toml:"max_gib,omitempty" json:"max_gib,omitempty" yaml:"max_gib,omitempty"`
 	// TTL is how long a parked engine stays parked before Berth stops it.
 	TTL Duration `toml:"ttl" json:"ttl" yaml:"ttl"`
+	// ResidualMaxGiB is how much card memory a parked engine may keep
+	// (its CUDA context, and any weights that did not move) and still
+	// count as parked; a whole-card grant is allowed beside it. More than
+	// this after the park call, past the release grace, stops the engine
+	// as any drain. 0 = the default, 2 GiB.
+	ResidualMaxGiB float64 `toml:"residual_max_gib,omitempty" json:"residual_max_gib,omitempty" yaml:"residual_max_gib,omitempty"`
+	// Pressure is the /proc/pressure/memory "some avg10" figure that
+	// evicts a parked engine even when the RAM floor holds. 0 = the
+	// default, 10.0.
+	Pressure float64 `toml:"pressure,omitempty" json:"pressure,omitempty" yaml:"pressure,omitempty"`
 }
 
 // DefaultParkFloorGiB is the RAM a park leaves free when the config
@@ -239,6 +249,9 @@ const DefaultParkFloorGiB = 4.0
 // DefaultParkTTL is how long a parked engine stays parked when the
 // config names no ttl.
 const DefaultParkTTL = 30 * time.Minute
+
+// gib is a GiB in bytes.
+const gib = uint64(1) << 30
 
 // ParkFloorGiB is the configured floor, or the default when the config
 // names none.
@@ -256,6 +269,24 @@ func (c *Config) ParkTTL() time.Duration {
 		return c.Park.TTL.Duration
 	}
 	return DefaultParkTTL
+}
+
+// ParkResidualMax is the configured residual a parked engine may keep on
+// the card, in bytes, or the default (2 GiB).
+func (c *Config) ParkResidualMax() uint64 {
+	if c.Park.ResidualMaxGiB > 0 {
+		return uint64(c.Park.ResidualMaxGiB * float64(gib))
+	}
+	return 2 * gib
+}
+
+// ParkPressure is the configured memory-pressure threshold that evicts a
+// parked engine, or the default (10.0 "some avg10").
+func (c *Config) ParkPressure() float64 {
+	if c.Park.Pressure > 0 {
+		return c.Park.Pressure
+	}
+	return 10.0
 }
 
 // PriorityConfig decides juggles: two engines at the same priority asking for

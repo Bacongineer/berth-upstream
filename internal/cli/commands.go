@@ -355,10 +355,10 @@ Gated and private models read a token from $HF_TOKEN or $CIVITAI_API_KEY.`,
 		Name:    "reclaim",
 		Summary: "what a stuck lease left on the card; --yes stops it",
 		Args:    "[LEASE] [--yes] [--grace D] [--socket P] [--format F]",
-		Help: `List the card processes a stuck or releasing lease recorded, each with its
-lease, PID, start time, memory and command, plus any card process no lease
-recorded ("not Berth's", report only). No LEASE covers every stuck and
-releasing lease.
+		Help: `List the card processes a stuck lease recorded, each with its lease, PID,
+start time, memory and command, plus any card process no lease recorded
+("not Berth's", report only). No LEASE covers every stuck lease; a named
+lease may still be releasing.
 
 Without --yes nothing is signalled: rerun with --yes to stop exactly the
 recorded processes, SIGTERM first and SIGKILL to the survivors after
@@ -366,6 +366,17 @@ recorded processes, SIGTERM first and SIGKILL to the survivors after
 signal and skips a mismatch, so a reused PID is never signalled.`,
 		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 		Run:     runReclaim,
+	},
+	{
+		Name:    "resume",
+		Summary: "put a parked engine back on the card",
+		Args:    "ENGINE [--socket P] [--format F]",
+		Help: `Queue a parked engine for the card again, at its own priority. The runner
+keeps its connection, hears the grant with resume set, and calls the adapter's
+resume; the lease is active when the engine answers again. An engine that is
+not parked is refused, so the caller starts it the normal way.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runResume,
 	},
 	{
 		Name:    "run",

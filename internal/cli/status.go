@@ -41,6 +41,9 @@ func (v statusView) Human(c *Context, ok bool) error {
 	if st.ProbeErr != "" {
 		c.Printf("probe   %s\n", c.Style.Err("FAILING: "+st.ProbeErr))
 	}
+	if st.ParkedBytes > 0 {
+		c.Printf("warm    parked engines hold %s of RAM\n", server.MiB(st.ParkedBytes))
+	}
 	if c.Verbose {
 		hostLine(c, st.Host)
 		alertsLine(c, st.Alerts)
@@ -184,7 +187,11 @@ func leaseState(c *Context, l proto.Lease) string {
 	word := l.State
 	switch l.State {
 	case "active":
-		word = c.Style.OK(word)
+		word = c.Style.OK("HOT")
+	case "parked":
+		word = c.Style.OK("WARM")
+	case "parking":
+		word = c.Style.Warn(word)
 	case "draining":
 		word = c.Style.Warn(word)
 	case "stuck", "aground":
@@ -192,6 +199,9 @@ func leaseState(c *Context, l proto.Lease) string {
 	}
 	if l.Contested > 0 {
 		word += " (contested " + server.MiB(l.Contested) + ")"
+	}
+	if l.ParkedSince > 0 {
+		word += " (" + age(l.ParkedSince) + ")"
 	}
 	return esc(word)
 }

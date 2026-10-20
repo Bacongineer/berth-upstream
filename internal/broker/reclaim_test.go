@@ -57,6 +57,26 @@ func TestReclaimRefusesWrongLeases(t *testing.T) {
 	}
 }
 
+// Without a lease named, reclaim covers stuck leases only: a merely
+// releasing lease is still on its way out and is not the user's to
+// reclaim. Named, a releasing lease works.
+func TestReclaimWithoutALeaseNamedIsStuckOnly(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{101: 100}, Starts: map[int]uint64{100: 10, 101: 11}}
+	b, c, _ := setup(t, tree)
+	l := must(t, acquire(b, Request{Engine: "a"}))
+	l.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "hog", Used: 8 * GiB})
+	b.Tick(context.Background())
+	l.Release()
+
+	if hs, err := b.Reclaim(""); err != nil || len(hs) != 0 {
+		t.Fatalf("empty target = %+v, %v, want the releasing lease skipped", hs, err)
+	}
+	if hs, err := b.Reclaim("a-1"); err != nil || len(hs) != 1 || hs[0].Lease != "a-1" {
+		t.Fatalf("named target = %+v, %v, want the releasing lease's holder", hs, err)
+	}
+}
+
 // A card PID the lease once held, reused by something else, is not the
 // lease's any more: it comes back as a stranger, never as a candidate.
 func TestReclaimSkipsAReusedPID(t *testing.T) {
