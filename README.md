@@ -134,7 +134,7 @@ line goes away.
 ```sh
 go install github.com/T-Crypt/berth/cmd/berth@latest      # or a release binary, see Install
 berth daemon &                                            # the broker for this card
-berth status                                              # the card, leases, engines found
+berth status                                              # the card, leases, the engines and their estimated VRAM
 berth run --as llama --priority foreground -- llama-server -m model.gguf --port 8080
 berth harbor                                              # the web UI on http://127.0.0.1:9798/
 ```
@@ -219,7 +219,7 @@ mkdir -p ~/.config/systemd/user
 cp contrib/berthd.service contrib/berth-harbor.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now berthd berth-harbor
-berth status            # the card, leases, stowaways, engines found
+berth status            # the card, leases, stowaways, the engines and their estimated VRAM
 ```
 
 Open <http://127.0.0.1:9798/>. Engines on their default ports appear on their own.
@@ -622,6 +622,13 @@ applies to a ComfyUI queue that will not empty.
   (`--counters`), so a restart or a reboot carries the counts on. The harbor stores a
   reading a minute and its ticket counter shows the last 5 min, 15 min, hour, 24 h or
   7 days next to the all-time board (`GET /v1/counters?range=5m|15m|1h|24h|7d`).
+- **The engines' estimated VRAM:** a run measures how much VRAM its leases held at their
+  peak, and the broker keeps the last figure per engine in `~/.local/state/berth/footprint.json`
+  (`--footprint`), across restarts. `berth status` shows it as EST. VRAM beside the
+  engine's own figures, and the JSON names it `estimated_vram_bytes`. It is an estimate
+  of what a run needs, never a reservation: a run that holds far more than the learned
+  figure (1.5x, once the engine has three runs) logs an `engine.footprint` event, so a
+  grown engine is seen instead of mis-sized.
 - **Alerts:** one threshold table in `berth.toml` (`[alerts]`): warn and crit per key
   (`queue`, `ttft`, `tpot`, `p95`, `cache`, `reingest`, `vram`, `temp`, `power`, `kv`).
   The node evaluates it on its 5 s sample cycle, fires a desktop notification and webhook

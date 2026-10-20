@@ -100,6 +100,9 @@ const (
 	EvJuggle         = "lease.juggle"  // two engines at one priority fought over the card; the rank decided
 	EvClaimStarted   = "claim.started" // a claim rule matched: a hold is requested, or memory is now named
 	EvClaimEnded     = "claim.ended"   // its matches are gone (past the linger, for a hold)
+	// EvFootprint: a freed run measured far more VRAM than the engine's
+	// learned footprint, so the estimate a next run is offered grows.
+	EvFootprint = "engine.footprint"
 )
 
 // Counters are the collisions board. Every count is an event berthd can
@@ -137,22 +140,33 @@ const APIVersion = 1
 // Status is berthd's view: the body of the socket status reply and of
 // GET /v1/status. Memory is bytes, ages are seconds.
 type Status struct {
-	API         int             `json:"api"`
-	Version     string          `json:"version"`
-	GPUs        []GPU           `json:"gpus"`
-	Leases      []Lease         `json:"leases"`
-	Waiting     []Lease         `json:"waiting"`
-	Squatters   []Squatter      `json:"squatters"`
-	Unprotected []Run           `json:"unprotected"`
-	Engines     []Engine        `json:"engines"`
-	Host        *Host           `json:"host,omitempty"`
-	Insights    *Insights       `json:"insights,omitempty"`
-	Counters    Counters        `json:"counters"`
-	LastEvent   uint64          `json:"last_event"`
-	ProbeErr    string          `json:"probe_error,omitempty"`
-	Alerts      *Alerts         `json:"alerts,omitempty"`
-	Priority    *PriorityStatus `json:"priority,omitempty"`
-	Claims      []Claim         `json:"claims,omitempty"`
+	API         int               `json:"api"`
+	Version     string            `json:"version"`
+	GPUs        []GPU             `json:"gpus"`
+	Leases      []Lease           `json:"leases"`
+	Waiting     []Lease           `json:"waiting"`
+	Squatters   []Squatter        `json:"squatters"`
+	Unprotected []Run             `json:"unprotected"`
+	Engines     []Engine          `json:"engines"`
+	Host        *Host             `json:"host,omitempty"`
+	Insights    *Insights         `json:"insights,omitempty"`
+	Counters    Counters          `json:"counters"`
+	LastEvent   uint64            `json:"last_event"`
+	ProbeErr    string            `json:"probe_error,omitempty"`
+	Alerts      *Alerts           `json:"alerts,omitempty"`
+	Priority    *PriorityStatus   `json:"priority,omitempty"`
+	Claims      []Claim           `json:"claims,omitempty"`
+	Footprints  []EngineFootprint `json:"footprints,omitempty"`
+}
+
+// EngineFootprint is what the broker learned from one engine's leases: the
+// last run's peak VRAM, an estimate of what a run needs. It is a measured
+// figure, never a reservation of memory.
+type EngineFootprint struct {
+	Engine string    `json:"engine"`
+	Bytes  uint64    `json:"estimated_vram_bytes"`
+	Runs   int       `json:"runs"`
+	At     time.Time `json:"at"`
 }
 
 // Claim is one claim rule and what it matches right now: work Berth does not
