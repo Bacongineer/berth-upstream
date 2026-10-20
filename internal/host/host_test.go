@@ -6,6 +6,7 @@ package host
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +27,55 @@ func TestRead(t *testing.T) {
 	}
 	if (&Reader{ProcRoot: filepath.Join(dir, "none")}).Read().Supported {
 		t.Fatal("missing /proc must read as unsupported")
+	}
+	if got := MemAvailable(dir); got != 250*1024 {
+		t.Fatalf("MemAvailable = %d, want the 250 kB the fixture holds", got)
+	}
+	if got := MemAvailable(filepath.Join(dir, "none")); got != 0 {
+		t.Fatalf("missing meminfo = %d, want 0", got)
+	}
+}
+
+func TestMemPressure(t *testing.T) {
+	dir := t.TempDir()
+	w := func(n, s string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, n), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "pressure"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w("pressure/memory", "some avg10=2.50 avg60=1.00 avg300=0.50 total=123456\nfull avg10=9.99 avg60=0.00 avg300=0.00 total=0\n")
+	if v, ok := MemPressure(dir); !ok || v != 2.5 {
+		t.Fatalf("MemPressure = %v, %v, want 2.5 from the some line", v, ok)
+	}
+	if _, ok := MemPressure(filepath.Join(dir, "none")); ok {
+		t.Fatal("missing PSI file must read as unavailable")
+	}
+}
+
+func TestPsiSomeAvg10(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    float64
+		wantErr bool
+	}{
+		{"some line first", "some avg10=3.25 avg60=1.00 avg300=0.00 total=1\nfull avg10=9.99 avg60=0.00 avg300=0.00 total=0\n", 3.25, false},
+		{"no some line", "full avg10=9.99 avg60=0.00 avg300=0.00 total=0\n", 0, true},
+		{"empty", "", 0, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, err := psiSomeAvg10(strings.NewReader(tc.in))
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("psiSomeAvg10 = %v, %v", v, err)
+			}
+			if !tc.wantErr && v != tc.want {
+				t.Fatalf("psiSomeAvg10 = %v, want %v", v, tc.want)
+			}
+		})
 	}
 }
