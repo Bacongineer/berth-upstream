@@ -8,11 +8,41 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/proto"
 )
+
+// OpStop and its reply share the wire: the engine name goes out on the ask,
+// the leases asked come back on the reply.
+func TestStopRoundTripsOverTheWire(t *testing.T) {
+	out := &bytes.Buffer{}
+	if err := proto.NewConn(out).Send(proto.Msg{Op: proto.OpStop, Engine: "ninfer"}); err != nil {
+		t.Fatal(err)
+	}
+	js := out.String()
+	for _, want := range []string{`"op":"stop"`, `"engine":"ninfer"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("ask %q lacks %q", js, want)
+		}
+	}
+
+	reply := &bytes.Buffer{}
+	leases := []string{"ninfer-1", "ninfer-2"}
+	if err := proto.NewConn(reply).Send(proto.Msg{Op: proto.OpStop, Engine: "ninfer", Leases: leases}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := proto.NewConn(bytes.NewBufferString(reply.String())).Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Op != proto.OpStop || got.Engine != "ninfer" || len(got.Leases) != len(leases) ||
+		got.Leases[0] != "ninfer-1" || got.Leases[1] != "ninfer-2" {
+		t.Fatalf("reply = %+v", got)
+	}
+}
 
 // A writer without deadline support sends exactly like Send.
 func TestSendWithDeadlinePlainWriterMatchesSend(t *testing.T) {
