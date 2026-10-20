@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/runner"
@@ -94,7 +95,8 @@ func TestApplyEngineEntry(t *testing.T) {
 	c := &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	prio, keep := "interactive", false
 	needs, dp, ds, dc := uint64(0), "", "", ""
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep)
+	var dm time.Duration
+	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if prio != "batch" || needs != 8192 || dp != "http://127.0.0.1:1/free" ||
 		ds != "http://127.0.0.1:2" || dc != "http://127.0.0.1:3" {
 		t.Errorf("defaults from the entry = %q %d %q %q %q", prio, needs, dp, ds, dc)
@@ -107,7 +109,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	c = &Context{setFlags: map[string]bool{"priority": true, "needs-mib": true, "drain-post": true,
 		"drain-slots": true, "drain-comfyui": true}, Err: &errBuf}
 	prio, needs, dp, ds, dc = "foreground", 4096, "http://127.0.0.1:9", "http://127.0.0.1:9", "http://127.0.0.1:9"
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep)
+	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if prio != "foreground" || needs != 4096 || dp != "http://127.0.0.1:9" {
 		t.Errorf("explicit flags lost to the entry: %q %d %q", prio, needs, dp)
 	}
@@ -126,7 +128,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"priority": true}, Err: &errBuf}
 	prio = "batch"
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep)
+	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if errBuf.String() != "" {
 		t.Errorf("a flag equal to the entry printed a notice: %q", errBuf.String())
 	}
@@ -135,7 +137,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep)
+	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if !keep {
 		t.Error("the entry's keep_comfyui_up = true was not applied")
 	}
@@ -144,7 +146,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"keep-comfyui-up": true}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, off, &prio, &needs, &dp, &ds, &dc, &keep)
+	applyEngineEntry(c, off, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if !strings.Contains(errBuf.String(), "berth: --keep-comfyui-up overrides berth.toml keep_comfyui_up = false for comfyui") {
 		t.Errorf("stderr = %q, want the keep-comfyui-up notice", errBuf.String())
 	}

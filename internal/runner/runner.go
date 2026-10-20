@@ -56,11 +56,17 @@ type Options struct {
 	// unload, which is also the fallback when the idle footprint still
 	// blocks the next engine. No-op without DrainComfyUI.
 	KeepComfyUI bool
-	Grace       time.Duration // per drain step before escalating
-	FailClosed  bool          // refuse to start when berthd is unreachable
-	Retry       time.Duration // how often a run that lost berthd dials it again; 0 = 2s
-	Argv        []string
-	Stderr      io.Writer
+	// DrainMax is a ceiling on how long a drain may wait at a boundary (a
+	// processing slot, a running ComfyUI job) before it runs the normal
+	// stop ladder anyway: a wedged engine that keeps reporting busy holds
+	// the card without it. 0 = unbounded, the default, so a long
+	// generation is never cut off.
+	DrainMax   time.Duration
+	Grace      time.Duration // per drain step before escalating
+	FailClosed bool          // refuse to start when berthd is unreachable
+	Retry      time.Duration // how often a run that lost berthd dials it again; 0 = 2s
+	Argv       []string
+	Stderr     io.Writer
 	// Output, when set, gets a copy of the engine's own stdout and stderr
 	// (the terminal still gets them too). The gateway keeps its tail, so a
 	// start that dies says why in the engine's words, not berth's.
@@ -237,10 +243,12 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}) (*proto.Conn, net.
 // jobBoundary waits for ComfyUI's queue to empty. It reports false when
 // the engine exited meanwhile, true at the boundary. An unreadable queue
 // (ComfyUI still starting, or wedged) is reported and waited out the same
-// way: Berth has no proof a job is not running.
+// way: Berth has no proof a job is not running. A DrainMax ends the wait
+// and the drain goes on to the stop ladder.
 func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
 	every := o.pollEvery()
 	last := ""
+	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		running, pending, err := comfy.Queue(ctx, o.DrainComfyUI)
@@ -249,15 +257,25 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 		switch {
 		case err != nil:
 			now = fmt.Sprintf("cannot read the ComfyUI queue (%v); waiting", err)
+			wait.note("queue unreadable", "queue unreadable")
 		case running == 0 && pending == 0:
 			say("ComfyUI queue empty; handing off")
 			return true
 		default:
 			now = fmt.Sprintf("waiting for ComfyUI to finish: %d running, %d queued", running, pending)
+			noun := "jobs"
+			if running == 1 {
+				noun = "job"
+			}
+			desc := fmt.Sprintf("%d %s running, %d queued", running, noun, pending)
+			wait.note(desc, desc)
 		}
 		if now != last {
 			say("%s", now)
 			last = now
+		}
+		if wait.tick(say) {
+			return true
 		}
 		select {
 		case <-done:
@@ -298,29 +316,89 @@ func comfyUnloaded(base string, within time.Duration) bool {
 	}
 }
 
+// drainProgressEvery is how often a drain boundary that is still busy
+// says so, so the journal shows why the drain is taking.
+var drainProgressEvery = 60 * time.Second
+
+// boundaryWait tracks a drain boundary that has to wait (a processing
+// slot, a running ComfyUI job, an unreadable queue): when the wait
+// started and what its reads showed. It says so once a minute and ends
+// the wait when a max has elapsed.
+type boundaryWait struct {
+	engine   string
+	max      time.Duration // 0 = wait as long as it takes
+	start    time.Time     // zero until the first note
+	last     time.Time     // when the last progress line was printed
+	progress string        // what the last read showed, in a progress line
+	stop     string        // ...and in the line that ends the wait
+}
+
+// note remembers what the boundary shows and starts the wait clock on
+// the first note.
+func (w *boundaryWait) note(progress, stop string) {
+	if w.start.IsZero() {
+		w.start = time.Now()
+		w.last = w.start
+	}
+	w.progress, w.stop = progress, stop
+}
+
+// tick says why the drain is still waiting, once a minute, and says the
+// wait is over when the max has elapsed; it returns true then, and the
+// drain continues as for an idle engine.
+func (w *boundaryWait) tick(say func(string, ...any)) bool {
+	if w.start.IsZero() {
+		return false
+	}
+	if w.max > 0 && time.Since(w.start) >= w.max {
+		say("%s still busy after %s (%s); draining anyway", w.engine, w.max, w.stop)
+		return true
+	}
+	if time.Since(w.last) >= drainProgressEvery {
+		say("draining %s: %s for %s", w.engine, w.progress, time.Since(w.start).Round(time.Second))
+		w.last = time.Now()
+	}
+	return false
+}
+
+// slotSummary names how many slots a read showed busy, in the words a
+// drain line uses: "1 slot busy", "3 slots processing".
+func slotSummary(n int, state string) string {
+	if n == 1 {
+		return "1 slot " + state
+	}
+	return fmt.Sprintf("%d slots %s", n, state)
+}
+
 // slotBoundaryAt waits until the engine at base reports no processing
 // slot, so an unload never cuts an in-flight request off. A host with no
 // boundary at all (404, an unreachable host, a body that is not a slot
 // list) unloads at once and says so. A sick boundary (any other
 // status, a read timeout) waits like a busy one: Berth then has proof work
 // was running and none that it stopped. An engine that exits meanwhile
-// ends the drain.
+// ends the drain. A DrainMax ends it too: after that long the drain goes
+// on to the stop ladder, so a wedged engine that keeps reporting busy
+// holds the card no longer.
 func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(string, ...any)) bool {
 	if base == "" {
 		return true
 	}
 	every := o.pollEvery()
 	url := base + "/slots"
-	if busy, err := slotsBusy(url); err != nil {
+	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
+	n, err := slotsBusy(url)
+	if err != nil {
 		if failOpen(err) {
 			say("drain: no slot boundary at %s (%v); unloading anyway", url, err)
 			return true
 		}
 		say("drain: slot boundary unreadable (%v); waiting for it to answer", err)
-	} else if !busy {
+		wait.note("boundary unreadable", "boundary unreadable")
+	} else if n == 0 {
 		return true
 	} else {
 		say("waiting for the engine to finish its requests before unloading")
+		wait.note(slotSummary(n, "busy"), slotSummary(n, "processing"))
 	}
 	for {
 		select {
@@ -328,13 +406,18 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 			return false
 		case <-time.After(every):
 		}
-		busy, err := slotsBusy(url)
-		if err != nil {
+		n, err := slotsBusy(url)
+		switch {
+		case err != nil:
 			say("drain: lost the slot boundary (%v); waiting", err)
-			continue
-		}
-		if !busy {
+			wait.note("boundary unreadable", "boundary unreadable")
+		case n == 0:
 			say("engine idle; unloading")
+			return true
+		default:
+			wait.note(slotSummary(n, "busy"), slotSummary(n, "processing"))
+		}
+		if wait.tick(say) {
 			return true
 		}
 	}
@@ -391,38 +474,39 @@ func slotsTimeout(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded)
 }
 
-// slotsBusy reports whether any llama.cpp-style slot is processing. The
+// slotsBusy counts the llama.cpp-style slots that are processing. The
 // counting rule is engines.SlotBusy, the same one the engine reader uses.
 // Failures come back as a *slotsErr so the caller can tell "no boundary"
 // from "sick boundary" (see failOpen).
-func slotsBusy(url string) (bool, error) {
+func slotsBusy(url string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return false, &slotsErr{err: err}
+		return 0, &slotsErr{err: err}
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false, &slotsErr{timeout: slotsTimeout(err), err: err}
+		return 0, &slotsErr{timeout: slotsTimeout(err), err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false, &slotsErr{status: resp.StatusCode, err: fmt.Errorf("GET /slots: %s", resp.Status)}
+		return 0, &slotsErr{status: resp.StatusCode, err: fmt.Errorf("GET /slots: %s", resp.Status)}
 	}
 	var slots []struct {
 		State        string `json:"state"`
 		IsProcessing bool   `json:"is_processing"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&slots); err != nil {
-		return false, &slotsErr{badBody: true, err: fmt.Errorf("/slots: %w", err)}
+		return 0, &slotsErr{badBody: true, err: fmt.Errorf("/slots: %w", err)}
 	}
+	n := 0
 	for _, s := range slots {
 		if engines.SlotBusy(s.State, s.IsProcessing) {
-			return true, nil
+			n++
 		}
 	}
-	return false, nil
+	return n, nil
 }
 
 func runUnleased(o Options, reason string) int {

@@ -28,6 +28,7 @@ func runRun(c *Context) int {
 	drainSlots := fs.String("drain-slots", "", "engine base URL whose /slots must show idle before a drain stops it (an engine with no unload URL, e.g. Strata)")
 	drainComfy := fs.String("drain-comfyui", "", "ComfyUI base URL: on drain, wait until its queue is empty before stopping it (never cuts a job off)")
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
+	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine anyway; 0 = unbounded")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD when berthd is unreachable")
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: the engine entry matching --as (or --group) supplies the settings a flag does not set; a set flag wins and says so; missing = no defaults ($BERTH_CONFIG)")
@@ -47,7 +48,7 @@ func runRun(c *Context) int {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
 	}
 	if e := engineEntry(merged, *engine, *group); e != nil {
-		applyEngineEntry(c, e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy)
+		applyEngineEntry(c, e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax)
 	}
 	if _, err := broker.ParsePriority(*prio); err != nil {
 		return c.fail(Systemf("%v", err))
@@ -59,7 +60,7 @@ func runRun(c *Context) int {
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.Options{
 		Socket: *sock, Engine: *engine, Group: *group, Priority: *prio, Needs: *needs * gpu.MiB, Wait: *wait, Pinned: *pinned,
-		DrainPost: *drainPost, DrainSlots: *drainSlots, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, Grace: *grace,
+		DrainPost: *drainPost, DrainSlots: *drainSlots, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, DrainMax: *drainMax, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err,
 	})
 }
@@ -85,7 +86,7 @@ func engineEntry(cfg config.Config, as, group string) *config.Engine {
 // engine's berth.toml entry, and names every flag that overrides the entry,
 // in the file's key and value.
 func applyEngineEntry(c *Context, e *config.Engine,
-	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool) {
+	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool, drainMax *time.Duration) {
 	notice := func(flag, key, toml string) {
 		fmt.Fprintf(c.Err, "berth: --%s overrides berth.toml %s = %s for %s\n", flag, key, toml, e.Name)
 	}
@@ -123,6 +124,12 @@ func applyEngineEntry(c *Context, e *config.Engine,
 	}
 	if c.Changed("keep-comfyui-up") && !e.KeepComfyUI {
 		notice("keep-comfyui-up", "keep_comfyui_up", "false")
+	}
+	if !c.Changed("drain-max") && e.DrainMax.Duration > 0 {
+		*drainMax = e.DrainMax.Duration
+	}
+	if c.Changed("drain-max") && e.DrainMax.Duration > 0 && e.DrainMax.Duration != *drainMax {
+		notice("drain-max", "drain_max", e.DrainMax.String())
 	}
 }
 
