@@ -993,9 +993,13 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	var keptWhy string
 	for _, h := range hs {
 		switch {
-		case h.state == parking || h.state == parked:
+		case h.state == parked:
 			warm = append(warm, h)
 		case h.state != active:
+			// Draining, releasing, stuck, and parking: a parking engine is
+			// still moving its weights off the card, so the waiter waits
+			// for it to become parked (or fall back to a drain); evicting
+			// it mid-park would throw the park away.
 			pending = append(pending, h)
 		case h.pinned || h.prio > w.prio:
 			blockers = append(blockers, h)

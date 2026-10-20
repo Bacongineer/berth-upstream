@@ -323,3 +323,40 @@ func TestResumeGrantsTheParkedLease(t *testing.T) {
 		t.Fatalf("leases = %+v", st.Leases)
 	}
 }
+
+// A waiter that arrives while an engine is still parking waits for the park
+// to finish: the parking engine still holds its weights, and draining it
+// mid-park would throw the park away.
+func TestWaiterDoesNotEvictAParkingEngine(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	l := must(t, acquire(b, Request{Engine: "vllm", Needs: 8 * GiB}))
+	l.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 8 * GiB})
+	b.Tick(context.Background())
+	// A whole-card foreground waiter drains the holder, which parks.
+	w := acquire(b, Request{Engine: "whole", Priority: Foreground})
+	pending(t, w)
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park refused: %s", why)
+	}
+
+	// While it parks, the card still holds its 8 GiB: the waiter waits.
+	b.Tick(context.Background())
+	pending(t, w)
+	select {
+	case why := <-l.Drains():
+		t.Fatalf("the parking engine was drained mid-park: %q", why)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if st := b.Status(); st.Leases[0].State != "parking" {
+		t.Fatalf("state = %s, want still parking", st.Leases[0].State)
+	}
+
+	// Once parked with a small residual, the waiter is granted beside it.
+	c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 512 << 20})
+	l.Parked()
+	b.Tick(context.Background())
+	must(t, w)
+}
