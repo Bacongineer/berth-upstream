@@ -22,7 +22,9 @@ Run from the repo root (a worktree):
     # build the binary (quick start: README.md)
     go build -o ~/.local/bin/berth ./cmd/berth
 
-CI (`.github/workflows/ci.yml`) runs exactly those commands, in that order. Keep the
+CI (`.github/workflows/ci.yml`) runs exactly those commands, in that order, on Linux, and a
+`windows` job runs build, vet and `go test ./...` on windows-latest. A test that starts a Unix
+program or relies on Unix signals carries `//go:build unix`; everything else must pass on both. Keep the
 local proof command green before opening a PR; CI must end green at merge.
 
 ## Packages
@@ -36,18 +38,26 @@ local proof command green before opening a PR; CI must end green at merge.
   for every command.
 - `internal/config` — TOML config (`~/.config/berth/berth.toml`), its defaults and its
   warnings; `berth config check` and `berth config show`.
+- `internal/comfy` — the ComfyUI HTTP calls Berth makes (queue, free, system stats), once.
 - `internal/engines` — engine readers (every engine in the README's table, `custom`),
   port discovery by response fingerprint, and the 24 h request log.
 - `internal/export` — the store's rows as CSV or JSON for the `berth export` command.
+- `internal/fsx` — the one atomic file write (fsync the file and its directory).
 - `internal/gpu` — nvidia-smi polling (memory, compute apps) and each card's real
-  limits.
+  limits; on Windows, per-process VRAM from the PDH counter Task Manager reads.
 - `internal/harbor` — the `berth harbor` web UI server and its collectors; UI assets
   live in `internal/harbor/web/`.
 - `internal/history` — the node's last hour of samples in memory at 5 s resolution.
-- `internal/host` — host telemetry: CPU, RAM, swap, load.
+- `internal/host` — host telemetry: CPU, RAM, swap, load, memory pressure (Linux PSI); Windows via
+  GlobalMemoryStatusEx.
+- `internal/kvsnap` — llama.cpp slot snapshots: the slot client and the budgeted snapshot index.
 - `internal/insights` — request KPIs, token ledger, leaderboard; one implementation
   over the node's in-memory log and the harbor's SQLite rows.
-- `internal/procs` — /proc parent-walk process attribution on Linux, a stub elsewhere.
+- `internal/pagecache` — how much of a file the page cache holds (mincore), and prefetch.
+- `internal/park` — park and resume adapters (ComfyUI, vLLM, SGLang, custom hooks, the Berth park
+  protocol) and the RAM admission and eviction rules. The lease state lives in the broker.
+- `internal/procs` — process attribution: /proc parent walk and container IDs from cgroups on
+  Linux; Toolhelp snapshots and process times on Windows.
 - `internal/proto` — NDJSON message types over the Unix socket.
 - `internal/runner` — the `berth run` wrapper: own process group, drain ladder,
   fail-open start.
@@ -55,9 +65,13 @@ local proof command green before opening a PR; CI must end green at merge.
 - `internal/server` — the Unix socket server: leases, event log fan-out, stowaway
   notifications, the loopback `/metrics` listener.
 - `internal/store` — the harbor's SQLite store (modernc.org/sqlite; pure Go, no CGO).
+- `internal/storage` — model roots: filesystem, free space, the free-space floor.
+- `internal/swapcost` — measured switch times per engine and tier, and chain plans.
 - `test/ui` — dev-only Playwright click/hover check; not part of `go test ./...`,
   never in CI.
-- `contrib/` — systemd user units, the llama-swap patch, INTEGRATION.md.
+- `contrib/` — systemd user units (and `units.go`, which embeds them for `berth service install`),
+  the llama-swap patch, INTEGRATION.md, `chaos/` (the failure scenarios), `bench/` (the swap
+  benchmark), `windows/` (the Windows checklist).
 
 ## License header
 
@@ -102,6 +116,18 @@ fails without them.
 - An engine reader decides up/down only from what the engine serves unconditionally;
   optional endpoints (a `/metrics` that is off by default, a list behind a key) add
   detail and are never a liveness signal.
+
+## When you find a Berth bug
+
+If you hit an error while working with Berth (a swap or drain that never completes, a stuck lease,
+a wrong attribution, a grant onto a full card, a crash, a wrong figure in status, a test that only
+fails on one OS), do not work around it silently:
+
+- Prefer a fix: a branch, a test that fails before the fix, the fix, a PR (rules below).
+- If you cannot fix it now, open an issue: `gh issue create --repo T-Crypt/berth` with what you ran,
+  what happened, what you expected, `berth version`, and `berth events --format json` around it.
+  Use the "Drain report" form (`.github/ISSUE_TEMPLATE/drain-report.yml`) for drain and swap
+  failures. Strip API keys, tokens and private paths first.
 
 ## Git
 

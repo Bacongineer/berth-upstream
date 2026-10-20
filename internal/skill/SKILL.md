@@ -43,10 +43,26 @@ do not assume any engine is protected.
 | Free the card for the user (game, call) | `berth hold [--for 2h] [--reason game]` (ends on Ctrl-C) |
 | Call a model and let Berth start its engine | the gateway: `http://127.0.0.1:9799/v1`, bearer key from `berth key` |
 | Wrap every llama-swap model at once | `berth wire llama-swap --config CFG` (plan), `--write` (apply, keeps a backup) |
+| Run an engine that lives in Docker or Podman | `berth run --as NAME --container CNAME -- docker run --rm --name CNAME ...` |
+| Warm an engine before its first request | `GET /v1/berth/wait?model=M` on the gateway (blocks until it answers) |
+| Stop an engine Berth started | `berth stop ENGINE [--wait]` (normal drain; engines outlive a gateway restart) |
+| Bring a parked engine back | `berth resume ENGINE` (or just call its model through the gateway) |
+| Read a model's file ahead into RAM | `berth prefetch MODEL` (page cache only; nothing is reserved) |
+| Run the node and gateway at login | `berth service install [--gateway] [--harbor]` (`--dry-run` first) |
 
 `berth run` exits 75 when no berth was granted in time; the reason is on stderr. Priorities:
 `foreground` drains `interactive` and `batch`; equal priorities follow "last switch wins" with
 the juggle guard; `hold` outranks all of them.
+
+## Reading the card's state
+
+- Lease states: `waiting` (with its place in line), `active` (HOT), `draining`, `parking`, `parked` (WARM: the
+  engine moved its weights to RAM and holds only a small residual; `berth resume` or a request brings it back),
+  `releasing`, `stuck` (its memory never left: see below).
+- `berth status` shows EST. VRAM per engine: the peak its last run measured. An estimate, never a reservation.
+- `berth models` shows CACHED per model: how much of its file the kernel still holds in RAM (COOL) or not (COLD).
+- A streaming request to the gateway gets `: berth: loading ...` comment lines while its engine starts; that is
+  progress, not an error.
 
 ## Claims: work Berth does not run
 
@@ -75,11 +91,31 @@ builtin = true            # false turns the built-in pack off
 3. `berth events --format json` after the failure shows the drain and grant sequence.
 4. Fix the cause (a smaller quant, `--needs-mib`, a priority, the user's hold ending), never by
    killing the holder.
+5. A lease stuck after its engine exited: `berth reclaim` lists what the lease recorded. Only with
+   the user's OK, `berth reclaim LEASE --yes` stops exactly those processes. Anything marked "not
+   Berth's" is someone else's process: report it, never stop it.
+
+## When Berth itself misbehaves
+
+A swap that never completes, a lease stuck with nothing on the card, an engine attributed to the
+wrong lease, a grant onto a full card, a crash or a wrong number in status is a Berth bug, and the
+project wants to hear about it. Collect, then offer:
+
+1. `berth version`, `berth status --format json`, `berth events --format json` covering the failure,
+   `nvidia-smi`, the OS, and the engine and its version.
+2. Remove anything private (API keys, tokens, hostnames, home paths) before showing it to anyone.
+3. Offer the user a report at https://github.com/T-Crypt/berth/issues/new (the "Drain report" form
+   for a drain, swap or handoff failure; a plain issue otherwise). File it with
+   `gh issue create --repo T-Crypt/berth` only after the user says yes: it is posted under their
+   account.
 
 ## Reference
 
 - Config: `~/.config/berth/berth.toml` (`berth config show --format toml` prints the evaluated file)
 - Output: `--format human|json|yaml`; results on stdout, diagnostics on stderr; exit 0 done,
   1 validation or refusal, 2 Berth could not do its job, 75 (`berth run`) no berth granted.
-- Harbor web UI: `berth harbor`, read-only, loopback by default (`http://127.0.0.1:9798/`).
+- Harbor web UI: `berth harbor`, read-only, loopback by default (`http://127.0.0.1:9798/`); actions
+  are shown there as commands to copy.
+- Windows: the node runs natively (per-process VRAM from the same counter Task Manager reads);
+  `contrib/windows/check.ps1` checks a box and writes a report for the drain report form.
 - Docs: https://github.com/T-Crypt/berth (README, contrib/INTEGRATION.md)
