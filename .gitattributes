@@ -1,0 +1,5 @@
+# Text stays LF in the working tree on every OS: the embedded SKILL.md's
+# front matter must come out byte-identical to the commit, and the tests
+# read the repo's own fixtures. Binary detection keeps real binaries
+# untouched.
+* text=auto eol=lf
