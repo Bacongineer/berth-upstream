@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/T-Crypt/berth/internal/claims"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -60,6 +61,16 @@ type Engine struct {
 	DrainComfyUI string `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
+	// Park picks the RAM tier on a drain: off (the default) runs the
+	// plain drain, hook asks the engine to move its weights to system
+	// RAM instead, so the next use resumes in seconds. Engines with a
+	// built-in adapter (comfyui, vllm, sglang) need no URLs; any other
+	// kind with park = "hook" needs both.
+	Park string `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
+	// ParkURL and ResumeURL are the hook's calls; each, when set, beats
+	// the built-in adapter for its side.
+	ParkURL   string `toml:"park_url,omitempty" json:"park_url,omitempty" yaml:"park_url,omitempty"`
+	ResumeURL string `toml:"resume_url,omitempty" json:"resume_url,omitempty" yaml:"resume_url,omitempty"`
 	// GUI is the engine's web UI as a browser reaches it. With start set, the
 	// gateway's wake page (/gui/<name>) starts the engine on a visit and
 	// follows it there once it answers.
@@ -96,6 +107,7 @@ type Config struct {
 	Priority PriorityConfig `toml:"priority,omitempty" json:"priority" yaml:"priority"`
 	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
 	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
+	Park     ParkConfig     `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
 	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
 	Library  LibraryConfig  `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
 }
@@ -194,6 +206,47 @@ func (c *Config) LibraryFloor() float64 {
 		return *c.Library.FreeFloor
 	}
 	return DefaultFreeFloor
+}
+
+// ParkConfig is the node's park budget: the RAM parked engines may hold
+// and how long they may hold it. Parked RAM is a reading Berth can take
+// back at any tick, never a reservation.
+type ParkConfig struct {
+	// FloorGiB is the RAM, on top of the gateway's headroom floor, that
+	// a park must leave free; nil keeps the default, 0 turns the park
+	// margin off.
+	FloorGiB *float64 `toml:"floor_gib,omitempty" json:"floor_gib,omitempty" yaml:"floor_gib,omitempty"`
+	// MaxGiB caps the RAM all parked engines may hold together; 0 = no
+	// cap.
+	MaxGiB float64 `toml:"max_gib,omitempty" json:"max_gib,omitempty" yaml:"max_gib,omitempty"`
+	// TTL is how long a parked engine stays parked before Berth stops it.
+	TTL Duration `toml:"ttl" json:"ttl" yaml:"ttl"`
+}
+
+// DefaultParkFloorGiB is the RAM a park leaves free when the config
+// names no floor, in GiB.
+const DefaultParkFloorGiB = 4.0
+
+// DefaultParkTTL is how long a parked engine stays parked when the
+// config names no ttl.
+const DefaultParkTTL = 30 * time.Minute
+
+// ParkFloorGiB is the configured floor, or the default when the config
+// names none.
+func (c *Config) ParkFloorGiB() float64 {
+	if c.Park.FloorGiB != nil {
+		return *c.Park.FloorGiB
+	}
+	return DefaultParkFloorGiB
+}
+
+// ParkTTL is the configured ttl, or the default when the config names
+// none.
+func (c *Config) ParkTTL() time.Duration {
+	if c.Park.TTL.Duration > 0 {
+		return c.Park.TTL.Duration
+	}
+	return DefaultParkTTL
 }
 
 // PriorityConfig decides juggles: two engines at the same priority asking for
@@ -402,6 +455,25 @@ func (c *Config) Validate() error {
 		if e.KeepComfyUI && e.DrainComfyUI == "" {
 			errs = append(errs, fmt.Errorf("%s: keep_comfyui_up needs drain_comfyui, the ComfyUI base URL to unload on drain", where))
 		}
+		switch e.Park {
+		case "", "off", "hook":
+		default:
+			errs = append(errs, fmt.Errorf("%s: park %q is not off or hook", where, e.Park))
+		}
+		for _, u := range []struct {
+			key string
+			url string
+		}{{"park_url", e.ParkURL}, {"resume_url", e.ResumeURL}} {
+			if u.url == "" {
+				continue
+			}
+			if p, err := url.Parse(u.url); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: %s %q must be an absolute http(s) URL", where, u.key, u.url))
+			}
+		}
+		if e.Park == "hook" && !slices.Contains(park.BuiltInKinds(), e.Type) && (e.ParkURL == "" || e.ResumeURL == "") {
+			errs = append(errs, fmt.Errorf("%s: park = \"hook\" for a %s engine needs both park_url and resume_url", where, e.Type))
+		}
 		switch e.Priority {
 		case "", "batch", "interactive", "foreground":
 		default:
@@ -436,6 +508,15 @@ func (c *Config) Validate() error {
 		if r.Shelf != "" && !shelfValid(r.Shelf) {
 			errs = append(errs, fmt.Errorf("%s: shelf %q is not chat, image or audio", where, r.Shelf))
 		}
+	}
+	if f := c.Park.FloorGiB; f != nil && *f < 0 {
+		errs = append(errs, fmt.Errorf("park.floor_gib %g must be >= 0", *f))
+	}
+	if c.Park.MaxGiB < 0 {
+		errs = append(errs, fmt.Errorf("park.max_gib %g must be >= 0", c.Park.MaxGiB))
+	}
+	if c.Park.TTL.Duration < 0 {
+		errs = append(errs, errors.New("park.ttl must not be negative"))
 	}
 	return errors.Join(errs...)
 }

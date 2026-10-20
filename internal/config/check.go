@@ -49,6 +49,9 @@ func Resolve(c Config) Config {
 	if c.Priority.JuggleWindow.Duration == 0 {
 		c.Priority.JuggleWindow.Duration = DefaultJuggleWindow
 	}
+	if c.Park.TTL.Duration == 0 {
+		c.Park.TTL.Duration = DefaultParkTTL
+	}
 	return c
 }
 
@@ -107,6 +110,17 @@ func warnings(c *Config) []Warning {
 		if e.Type == "comfyui" && e.DrainComfyUI == "" {
 			out = append(out, Warning{Key: fmt.Sprintf("engine[%d]", i),
 				Message: "a handoff stops ComfyUI immediately; drain_comfyui waits for the job boundary"})
+		}
+	}
+	for i, e := range c.Engine {
+		for _, u := range []struct {
+			key string
+			url string
+		}{{"park_url", e.ParkURL}, {"resume_url", e.ResumeURL}} {
+			if u.url != "" && e.Park != "hook" {
+				out = append(out, Warning{Key: fmt.Sprintf("engine[%d].%s", i, u.key),
+					Message: fmt.Sprintf("%s is set but park is not hook, so Berth never calls it", u.key)})
+			}
 		}
 	}
 	for i, d := range c.Models.Dirs {

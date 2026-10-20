@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, body string) string {
@@ -362,6 +363,148 @@ path = "/data/models"
 	_, err = Load(write(t, "[[library.root]]\npath = \"/a\"\n[[library.root]]\npath = \"/a\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Errorf("duplicate path: %v", err)
+	}
+}
+
+func TestParkTableValidated(t *testing.T) {
+	c, err := Load(write(t, `[park]
+floor_gib = 8
+max_gib   = 48
+ttl       = "45m"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := c.ParkFloorGiB(); f != 8 {
+		t.Errorf("floor = %g, want 8", f)
+	}
+	if c.Park.MaxGiB != 48 {
+		t.Errorf("max = %g, want 48", c.Park.MaxGiB)
+	}
+	if d := c.ParkTTL(); d != 45*time.Minute {
+		t.Errorf("ttl = %v, want 45m", d)
+	}
+	// A resolved empty config carries the defaults.
+	c, err = Load(write(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := c.ParkFloorGiB(); f != DefaultParkFloorGiB {
+		t.Errorf("default floor = %g, want %g", f, DefaultParkFloorGiB)
+	}
+	if d := c.ParkTTL(); d != DefaultParkTTL {
+		t.Errorf("default ttl = %v, want %v", d, DefaultParkTTL)
+	}
+	if c.Park.MaxGiB != 0 {
+		t.Errorf("default max = %g, want 0 (no cap)", c.Park.MaxGiB)
+	}
+	for _, bad := range []struct {
+		body string
+		want string
+	}{
+		{`[park]
+floor_gib = -1
+`, "park.floor_gib"},
+		{`[park]
+max_gib = -2
+`, "park.max_gib"},
+		{`[park]
+ttl = "-5s"
+`, "park.ttl"},
+	} {
+		_, err := Load(write(t, bad.body))
+		if err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("error lacks %q: %v", bad.want, err)
+		}
+	}
+}
+
+func TestEngineParkKeysValidated(t *testing.T) {
+	c, err := Load(write(t, `
+[[engine]]
+name = "comfyui"
+type = "comfyui"
+url  = "http://127.0.0.1:8188"
+park = "hook"
+[[engine]]
+name       = "vllm"
+type       = "vllm"
+url        = "http://127.0.0.1:8000"
+park       = "hook"
+park_url   = "http://127.0.0.1:8000/sleep?level=1"
+resume_url = "http://127.0.0.1:8000/wake_up"
+[[engine]]
+name       = "mine"
+type       = "custom"
+url        = "http://127.0.0.1:9000"
+health     = "/health"
+park       = "hook"
+park_url   = "http://127.0.0.1:9000/offload"
+resume_url = "http://127.0.0.1:9000/reload"
+[[engine]]
+name = "idle"
+type = "llamacpp"
+url  = "http://127.0.0.1:8080"
+`))
+	if err != nil {
+		t.Fatalf("valid park keys refused: %v", err)
+	}
+	if c.Engine[0].Park != "hook" || c.Engine[1].ParkURL == "" || c.Engine[2].ResumeURL == "" || c.Engine[3].Park != "" {
+		t.Fatalf("park keys not loaded: %+v", c.Engine)
+	}
+	for _, bad := range []struct {
+		body string
+		want string
+	}{
+		{`park = "ram"
+`, `park "ram" is not off or hook`},
+		{`park = "hook"
+park_url = "http://127.0.0.1:9000/offload"
+`, "needs both park_url and resume_url"},
+		{`park = "hook"
+park_url = "ftp://x"
+resume_url = "http://127.0.0.1:9000/reload"
+`, `park_url "ftp://x" must be an absolute http(s) URL`},
+		{`park = "hook"
+park_url = "127.0.0.1:9000/offload"
+resume_url = "http://127.0.0.1:9000/reload"
+`, `park_url "127.0.0.1:9000/offload" must be an absolute http(s) URL`},
+	} {
+		_, err := Load(write(t, "[[engine]]\nname = \"mine\"\ntype = \"custom\"\nurl = \"http://127.0.0.1:9000\"\nhealth = \"/health\"\n"+bad.body))
+		if err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("error lacks %q: %v", bad.want, err)
+		}
+	}
+	// A kind with a built-in adapter needs no URLs; without them a
+	// non-hook engine simply never parks.
+	if _, err := Load(write(t, "[[engine]]\nname = \"v\"\ntype = \"vllm\"\nurl = \"http://127.0.0.1:8000\"\npark = \"hook\"\n")); err != nil {
+		t.Errorf("built-in adapter refused without URLs: %v", err)
+	}
+}
+
+func TestParkURLsSetButParkOffWarn(t *testing.T) {
+	c, warns, err := Check(write(t, `
+[[engine]]
+name = "mine"
+type = "llamacpp"
+url  = "http://127.0.0.1:8080"
+park_url   = "http://127.0.0.1:8080/offload"
+resume_url = "http://127.0.0.1:8080/reload"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Engine[0].Park != "" {
+		t.Fatalf("park = %q, want the empty default", c.Engine[0].Park)
+	}
+	got := map[string]bool{}
+	for _, w := range warns {
+		got[w.Key] = true
+	}
+	for _, key := range []string{"engine[0].park_url", "engine[0].resume_url"} {
+		if !got[key] {
+			t.Errorf("no warning for %s: %+v", key, warns)
+		}
 	}
 }
 
