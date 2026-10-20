@@ -557,7 +557,7 @@ func (r *run) reportTable() {
 	tw.Flush()
 
 	tw = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "\nENGINE\tTOTAL MEDIAN\tPEAK RAM DROP\tVRAM AFTER DRAIN\tOUTPUT IDENTICAL")
+	fmt.Fprintln(tw, "\nENGINE\tTOTAL MEDIAN\tPEAK RAM DROP\tVRAM HELD\tOUTPUT IDENTICAL")
 	for _, e := range engines {
 		ss := by[e]
 		totals := make([]time.Duration, 0, len(ss))
@@ -566,8 +566,10 @@ func (r *run) reportTable() {
 		for _, s := range ss {
 			totals = append(totals, s.Total)
 			afters = append(afters, s.VramAfter)
-			if d := s.MemBefore - s.MemAfter; d > drop {
-				drop = d
+			// Available RAM can rise across a request (a drained engine gave
+			// its RAM back); only a fall is a drop.
+			if s.MemBefore > s.MemAfter && s.MemBefore-s.MemAfter > drop {
+				drop = s.MemBefore - s.MemAfter
 			}
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
@@ -576,8 +578,10 @@ func (r *run) reportTable() {
 	tw.Flush()
 
 	fmt.Printf("\ncold is the engine's first request in this run; warm is every switch back to it.\n")
-	fmt.Printf("with park on for an engine, its warm numbers are the parked resume, and VRAM after\n")
-	fmt.Printf("drain should read near the baseline of %s.\n", human(r.baseline))
+	fmt.Printf("VRAM held is the card's use once the engine answered (the baseline is %s).\n", human(r.baseline))
+	fmt.Printf("with park on for an engine, its warm numbers are the parked resume. Switching on every\n")
+	fmt.Printf("request is the ping-pong Berth's juggle guard holds back: a switch inside the juggle\n")
+	fmt.Printf("window waits for the holder, and that wait is part of the measured time.\n")
 }
 
 func (r *run) jsonReport() map[string]any {

@@ -6,6 +6,23 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-10-20
+
+Fast swap and proof. Engines that can offload themselves park in RAM on a drain and come back
+without a reload from disk, under the same lease rules: Berth admits a park only when measured RAM
+covers it and evicts parked engines first when memory runs short. Leases free only after a card
+read that came after the release, a gateway restart keeps the engines it started, and streaming
+requests stay alive while an engine loads. `berth reclaim`, `berth stop` and `berth resume` give
+the operator a way out of every lease state. Engines in Docker or Podman belong to their lease.
+The failure scenarios in `contrib/chaos` run on any card, and Windows runs the full test suite in
+CI.
+
+Known gaps, for v0.3.x: a child that escapes its wrapper and whose parent exits within one 2 s
+tick still shows as a report-only stowaway (cgroup attribution will close it); `cuda-checkpoint`
+parking is not measured yet; the vLLM and SGLang park adapters are experimental until measured;
+KV snapshots, swap-cost estimates on the live daemon, gateway fallback routing and JIT models for
+a standalone llama-server have their building blocks merged and are wired in v0.3.x.
+
 ### Added
 
 - The Berth park protocol: three endpoints an engine can serve on its own

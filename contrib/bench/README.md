@@ -76,7 +76,7 @@ model-a     warm   4   1.10 s        1.40 s
 model-b     cold   1   107.00 s      107.00 s
 model-b     warm   4   3.80 s        4.90 s
 
-ENGINE      TOTAL MEDIAN   PEAK RAM DROP   VRAM AFTER DRAIN   OUTPUT IDENTICAL
+ENGINE      TOTAL MEDIAN   PEAK RAM DROP   VRAM HELD          OUTPUT IDENTICAL
 model-a     12.40 s        0.4 GiB         21.9 GiB           yes
 model-b     15.10 s        0.2 GiB         40.1 GiB           yes
 ```
@@ -88,12 +88,12 @@ model-b     15.10 s        0.2 GiB         40.1 GiB           yes
   and after readings of one of the engine's requests. A parked engine's
   resume can draw on RAM the kernel had handed back, so this is where a
   park that does not fit would show.
-- `VRAM AFTER DRAIN` is the median used VRAM of the card once the
-  engine holds it, next to the run's baseline, the card's used VRAM
-  before the run started. With park on for the engine, its warm
-  switches are the parked numbers: the weights sit in RAM and the card
-  gives them back, so after drain should read near the baseline.
-  Without park it reads the engine's footprint.
+- `VRAM HELD` is the median used VRAM of the card once the engine
+  answered, next to the run's baseline (the card's used VRAM before the
+  run started): the engine's footprint while it serves.
+- Switching on every request is the ping-pong Berth's juggle guard holds
+  back. A switch inside the juggle window waits for the holder, and that
+  wait is part of the measured time.
 - `OUTPUT IDENTICAL` says whether every run of that engine produced the
   same greedy answer. A parked resume that is not bit-identical to the
   fresh run is not the same model state, and this column is how you see
