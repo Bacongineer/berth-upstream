@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -264,7 +265,7 @@ func attachCompanions(ms []Model, m *Model, comps []int) {
 		if !IsCompanion(ms[i]) {
 			continue
 		}
-		if !contains(m.Companions, ms[i].Path) {
+		if !slices.Contains(m.Companions, ms[i].Path) {
 			m.Companions = append(m.Companions, ms[i].Path)
 		}
 	}
@@ -293,15 +294,6 @@ func companionOwners(ms []Model, mains []int) []int {
 		}
 	}
 	return mains
-}
-
-func contains(hay []string, needle string) bool {
-	for _, h := range hay {
-		if h == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // rootsFor resolves the directories to scan, dropping repeats, and reports the
