@@ -58,7 +58,7 @@ func TestChaosScenario2IgnoresTerm(t *testing.T) {
 	done := make(chan struct{})
 	released := make(chan struct{})
 	var logs strings.Builder
-	drain(Options{Engine: "hog", Grace: 300 * time.Millisecond}, hog, done, released, "test drain", sayTo(&logs))
+	drain(Options{Engine: "hog", Grace: 300 * time.Millisecond}, hog, newLine(nil), done, released, "test drain", sayTo(&logs))
 
 	select {
 	case err := <-died:

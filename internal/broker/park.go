@@ -48,9 +48,21 @@ func (l *Lease) ParkFailed() {
 // Waits delivers the reasons while a resumed lease waits in the queue.
 func (l *Lease) Waits() <-chan string { return l.l.waitCh }
 
-// Resumed closes when the broker grants a parked lease the card back, so
-// the runner calls the adapter's resume.
+// Resumed delivers the runner's wake signal: one token per grant.
 func (l *Lease) Resumed() <-chan struct{} { return l.l.resumeCh }
+
+// Awake records that a resumed lease's engine answers its probe again:
+// the event carries the seconds the wake took, and from this point the
+// gateway may proxy the engine.
+func (l *Lease) Awake() {
+	l.b.mu.Lock()
+	defer l.b.mu.Unlock()
+	if l.l.state != active || l.l.granted.IsZero() {
+		return
+	}
+	l.b.emit(proto.Event{Kind: proto.EvResumed, Lease: l.l.id, Engine: l.l.engine,
+		Detail: fmt.Sprintf("resumed in %.1f s", time.Since(l.l.granted).Seconds())})
+}
 
 // footprintOf is the VRAM a park would need to hold in RAM: this run's
 // measured peak, or the engine's learned footprint when this run has not

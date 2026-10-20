@@ -278,6 +278,8 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 				lease.Parked()
 			case m.Op == proto.OpParkFailed:
 				lease.ParkFailed()
+			case m.Op == proto.OpAwake:
+				lease.Awake()
 			case m.Op == proto.OpAttach && m.PID > 0:
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)

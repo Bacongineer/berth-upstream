@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/park"
 )
 
 // Over is what the caller of OptionsFor supplies itself: the values a
@@ -43,7 +44,11 @@ func OptionsFor(e *config.Engine, o Over) Options {
 	if argv == nil {
 		argv = e.Start
 	}
-	return Options{
+	probe := "/v1/models"
+	if e.Type == "comfyui" {
+		probe = "/system_stats"
+	}
+	opts := Options{
 		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
@@ -51,4 +56,17 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output,
 	}
+	// park = "hook" hands the drain the engine's own offload calls; when
+	// the entry carries no URLs either, the drain probes Berth's park
+	// protocol on the engine's URL instead.
+	if e.Park == "hook" {
+		adapter, ok := park.For(e.Type, e.ParkURL, e.ResumeURL)
+		if ok {
+			opts.Park = &adapter
+		} else {
+			opts.Hook = true
+		}
+		opts.ParkBase, opts.ParkProbe = e.URL, probe
+	}
+	return opts
 }

@@ -330,8 +330,8 @@ func TestResumeGrantsTheParkedLease(t *testing.T) {
 // channel that would double-close on the second one.
 func TestParkAndResumeCycleTwice(t *testing.T) {
 	tree := parkTree(100, 101)
-	b, c, _ := parkSetup(t, tree, 16 * GiB, 0)
-	l := warmLease(t, b, c, "vllm", 8 * GiB, 100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	l := warmLease(t, b, c, "vllm", 8*GiB, 100, 101)
 
 	for cycle := 1; cycle <= 2; cycle++ {
 		if err := b.Resume("vllm"); err != nil {

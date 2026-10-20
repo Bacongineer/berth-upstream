@@ -103,7 +103,7 @@ func TestDrainUnloadsThenKeepsUp(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "berthd.sock")
 
 	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 50 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	select {
 	case <-released:
@@ -151,7 +151,7 @@ func TestDrainKeepUpWaitsForFreedVRAM(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "berthd.sock")
 
 	go drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 200 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 200 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	select {
 	case <-released:
@@ -186,7 +186,7 @@ func TestDrainKeepUpTimeoutStops(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "berthd.sock")
 
 	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 50 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	select {
 	case <-released:
@@ -218,7 +218,7 @@ func TestDrainUnloadsThenStops(t *testing.T) {
 	var logs strings.Builder
 
 	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL,
-		Grace: 50 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	select {
 	case <-released:
@@ -257,7 +257,7 @@ func TestDrainUnloadFailureStops(t *testing.T) {
 	var logs strings.Builder
 
 	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true,
-		Grace: 50 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	select {
 	case <-released:
@@ -327,7 +327,7 @@ func TestDrainSlotBoundaryWaits(t *testing.T) {
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -370,7 +370,7 @@ func TestDrainSlotsWaitsThenStops(t *testing.T) {
 	released := make(chan struct{})
 	var logs strings.Builder
 	go drain(Options{Engine: "strata", DrainSlots: srv.URL,
-		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 
 	time.Sleep(200 * time.Millisecond)
 	select {
@@ -416,7 +416,7 @@ func TestDrainNoSlotsProceeds(t *testing.T) {
 
 	start := time.Now()
 	drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 	if el := time.Since(start); el > 5*time.Second {
 		t.Fatalf("drain took %s without a slot boundary", el)
 	}
@@ -465,7 +465,7 @@ func TestDrainSlotSickWaits(t *testing.T) {
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -521,7 +521,7 @@ func TestDrainSlotBusyMaxStops(t *testing.T) {
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "strata", DrainSlots: srv.URL, DrainMax: 300 * time.Millisecond,
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 	}()
 
 	select {
@@ -565,7 +565,7 @@ func TestDrainSlotBusyUnboundedWaits(t *testing.T) {
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "strata", DrainSlots: srv.URL,
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
 	}()
 
 	// After 500 ms the engine must still be running: with no max the
