@@ -77,6 +77,7 @@ func testRun(argv []string) {
 	fs.String("drain-post", "", "")
 	fs.String("drain-slots", "", "")
 	fs.String("drain-comfyui", "", "")
+	fs.Duration("drain-max", 0, "")
 	fs.Bool("keep-comfyui-up", false, "")
 	fs.Bool("pinned", false, "")
 	if err := fs.Parse(argv); err != nil {

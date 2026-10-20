@@ -785,17 +785,10 @@ func (g *Gateway) memAvailable() (uint64, bool) {
 // waits for the berth no longer than the request that asked for it, so a start
 // the client gave up on cannot fire hours later and take the card.
 func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration) {
-	prio := e.Priority
-	if prio == "" {
-		prio = "interactive"
-	}
-	g.log().Info("gateway starting engine", "engine", e.Name, "priority", prio)
-	s.code = runner.Run(runner.Options{
-		Socket: g.Socket, Engine: e.Name, Priority: prio, Needs: e.NeedsMiB << 20,
-		Wait: wait, DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
-		KeepComfyUI: e.KeepComfyUI,
-		Grace:       30 * time.Second, Argv: e.Start, Stderr: s.stderr, Output: s.output,
-	})
+	g.log().Info("gateway starting engine", "engine", e.Name)
+	s.code = runner.Run(runner.OptionsFor(e, runner.Over{
+		Socket: g.Socket, Group: e.Name, Wait: wait, Stderr: s.stderr, Output: s.output,
+	}))
 	g.log().Info("gateway engine exited", "engine", e.Name, "code", s.code)
 	g.mu.Lock()
 	delete(g.running, e.Name)

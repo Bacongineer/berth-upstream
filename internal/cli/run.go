@@ -10,7 +10,6 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
-	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/suite"
 )
@@ -47,22 +46,24 @@ func runRun(c *Context) int {
 	if err != nil {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
 	}
-	if e := engineEntry(merged, *engine, *group); e != nil {
-		applyEngineEntry(c, e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax)
+	e := config.Engine{Name: *engine}
+	if entry := engineEntry(merged, *engine, *group); entry != nil {
+		e = *entry
 	}
-	if _, err := broker.ParsePriority(*prio); err != nil {
+	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax)
+	e.Name = *engine
+	if _, err := broker.ParsePriority(e.Priority); err != nil {
 		return c.fail(Systemf("%v", err))
 	}
-	if err := checkRunFlags(*keepComfy, *drainComfy); err != nil {
+	if err := checkRunFlags(e.KeepComfyUI, e.DrainComfyUI); err != nil {
 		return c.fail(Systemf("%v", err))
 	}
 	// Nothing here goes to stdout: the engine owns it. berth's own notices are
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
-	return runner.Run(runner.Options{
-		Socket: *sock, Engine: *engine, Group: *group, Priority: *prio, Needs: *needs * gpu.MiB, Wait: *wait, Pinned: *pinned,
-		DrainPost: *drainPost, DrainSlots: *drainSlots, DrainComfyUI: *drainComfy, KeepComfyUI: *keepComfy, DrainMax: *drainMax, Grace: *grace,
+	return runner.Run(runner.OptionsFor(&e, runner.Over{
+		Socket: *sock, Group: *group, Pinned: *pinned, Wait: *wait, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err,
-	})
+	}))
 }
 
 // engineEntry is the [[engine]] block a run reads its defaults from: the block
@@ -82,54 +83,61 @@ func engineEntry(cfg config.Config, as, group string) *config.Engine {
 	return nil
 }
 
-// applyEngineEntry sets the run's settings the operator did not set from the
-// engine's berth.toml entry, and names every flag that overrides the entry,
-// in the file's key and value.
+// applyEngineEntry folds the run's flags into the engine's entry copy e:
+// a flag the operator set wins and says so, in the file's key and value;
+// an unset flag defers to the entry.
 func applyEngineEntry(c *Context, e *config.Engine,
 	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool, drainMax *time.Duration) {
 	notice := func(flag, key, toml string) {
 		fmt.Fprintf(c.Err, "berth: --%s overrides berth.toml %s = %s for %s\n", flag, key, toml, e.Name)
 	}
-	if !c.Changed("priority") && e.Priority != "" {
-		*prio = e.Priority
+	if c.Changed("priority") {
+		if e.Priority != "" && e.Priority != *prio {
+			notice("priority", "priority", e.Priority)
+		}
+		e.Priority = *prio
+	} else if e.Priority == "" {
+		e.Priority = *prio
 	}
-	if c.Changed("priority") && e.Priority != "" && e.Priority != *prio {
-		notice("priority", "priority", e.Priority)
-	}
-	if !c.Changed("needs-mib") && e.NeedsMiB > 0 {
-		*needs = e.NeedsMiB
-	}
-	if c.Changed("needs-mib") && e.NeedsMiB > 0 && e.NeedsMiB != *needs {
-		notice("needs-mib", "needs_mib", strconv.FormatUint(e.NeedsMiB, 10))
+	if c.Changed("needs-mib") {
+		if e.NeedsMiB > 0 && e.NeedsMiB != *needs {
+			notice("needs-mib", "needs_mib", strconv.FormatUint(e.NeedsMiB, 10))
+		}
+		e.NeedsMiB = *needs
 	}
 	drains := []struct {
 		flag, key string
 		toml      string
 		got       *string
+		set       func(string)
 	}{
-		{"drain-post", "drain_post", e.DrainPost, drainPost},
-		{"drain-slots", "drain_slots", e.DrainSlots, drainSlots},
-		{"drain-comfyui", "drain_comfyui", e.DrainComfyUI, drainComfy},
+		{"drain-post", "drain_post", e.DrainPost, drainPost, func(s string) { e.DrainPost = s }},
+		{"drain-slots", "drain_slots", e.DrainSlots, drainSlots, func(s string) { e.DrainSlots = s }},
+		{"drain-comfyui", "drain_comfyui", e.DrainComfyUI, drainComfy, func(s string) { e.DrainComfyUI = s }},
 	}
 	for _, d := range drains {
-		if !c.Changed(d.flag) && d.toml != "" {
-			*d.got = d.toml
+		if !c.Changed(d.flag) {
+			if d.toml != "" {
+				d.set(d.toml)
+			}
+			continue
 		}
-		if c.Changed(d.flag) && d.toml != "" && d.toml != *d.got {
+		if d.toml != "" && d.toml != *d.got {
 			notice(d.flag, d.key, d.toml)
 		}
+		d.set(*d.got)
 	}
-	if !c.Changed("keep-comfyui-up") && e.KeepComfyUI {
-		*keepComfy = true
+	if c.Changed("keep-comfyui-up") {
+		if !e.KeepComfyUI {
+			notice("keep-comfyui-up", "keep_comfyui_up", "false")
+		}
+		e.KeepComfyUI = *keepComfy
 	}
-	if c.Changed("keep-comfyui-up") && !e.KeepComfyUI {
-		notice("keep-comfyui-up", "keep_comfyui_up", "false")
-	}
-	if !c.Changed("drain-max") && e.DrainMax.Duration > 0 {
-		*drainMax = e.DrainMax.Duration
-	}
-	if c.Changed("drain-max") && e.DrainMax.Duration > 0 && e.DrainMax.Duration != *drainMax {
-		notice("drain-max", "drain_max", e.DrainMax.String())
+	if c.Changed("drain-max") {
+		if e.DrainMax.Duration > 0 && e.DrainMax.Duration != *drainMax {
+			notice("drain-max", "drain_max", e.DrainMax.String())
+		}
+		e.DrainMax.Duration = *drainMax
 	}
 }
 
