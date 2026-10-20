@@ -44,15 +44,13 @@ func TestChaosScenario7DaemonRestartMidLease(t *testing.T) {
 		return strings.Contains(outB.String(), "waiting: berthd restarted")
 	})
 
+	// Then b takes the card the usual way: a re-attaches and b drains it
+	// first. Order, not timing: b may be granted the moment a lets go.
 	waitFor(t, "a re-attached", func() bool { return strings.Contains(outA.String(), "re-attached") })
-	if strings.Contains(outB.String(), "granted") {
-		t.Fatalf("b was granted before the re-attach; b stderr:\n%s", outB.String())
-	}
-
-	// Then b takes the card the usual way: it drains a first.
 	waitFor(t, "b granted", func() bool { return strings.Contains(outB.String(), "granted") })
-	if !strings.Contains(outB.String(), "draining llamacpp") {
-		t.Fatalf("b's stderr shows no drain of a:\n%s", outB.String())
+	got := outB.String()
+	if d, g := strings.Index(got, "draining llamacpp"), strings.Index(got, "granted"); d < 0 || d > g {
+		t.Fatalf("b was granted without draining the re-attached a; b stderr:\n%s", got)
 	}
 	if code := <-a; code != 128+15 {
 		t.Fatalf("a exit = %d, want 143 (SIGTERM); stderr:\n%s", code, outA.String())
