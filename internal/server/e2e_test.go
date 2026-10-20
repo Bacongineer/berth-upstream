@@ -110,7 +110,7 @@ func TestDrainEndToEnd(t *testing.T) {
 	if code := <-second; code != 0 {
 		t.Fatalf("second exit = %d; stderr:\n%s", code, out2.String())
 	}
-	for _, want := range []string{"waiting: draining ninfer", "granted strata"} {
+	for _, want := range []string{"waiting: next in line: draining ninfer", "granted strata"} {
 		if !strings.Contains(out2.String(), want) {
 			t.Fatalf("second stderr lacks %q:\n%s", want, out2.String())
 		}
@@ -405,7 +405,7 @@ func TestRestartWindowHoldsNewGrants(t *testing.T) {
 	if c := <-code; c != 0 {
 		t.Fatalf("exit = %d; stderr:\n%s", c, out.String())
 	}
-	if !strings.Contains(out.String(), "waiting: berthd restarted") {
+	if !strings.Contains(out.String(), "waiting: next in line: berthd restarted") {
 		t.Fatalf("no restart wait in stderr:\n%s", out.String())
 	}
 	if el := time.Since(t0); el < 400*time.Millisecond {

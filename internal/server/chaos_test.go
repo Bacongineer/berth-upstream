@@ -43,7 +43,7 @@ func TestChaosScenario7DaemonRestartMidLease(t *testing.T) {
 	b, outB := launch(runner.Options{Socket: sock, Engine: "comfyui", Priority: "foreground",
 		Retry: 20 * time.Millisecond, Grace: 200 * time.Millisecond, Argv: []string{"true"}})
 	waitFor(t, "b held by the restart window", func() bool {
-		return strings.Contains(outB.String(), "waiting: berthd restarted")
+		return strings.Contains(outB.String(), "waiting: next in line: berthd restarted")
 	})
 
 	// Then b takes the card the usual way: a re-attaches and b drains it

@@ -837,7 +837,7 @@ func (b *Broker) schedule(now time.Time) {
 		// last one hold; granting now could put a second engine on a card
 		// that is already full. The Tick after the window lifts this.
 		if n := b.reattaching(now); n > 0 {
-			b.setWait(w, fmt.Sprintf("berthd restarted; waiting up to %s for %d running engine(s) to re-attach",
+			b.notifyWait(b.queue, fmt.Sprintf("berthd restarted; waiting up to %s for %d running engine(s) to re-attach",
 				(b.cfg.ReattachWindow-now.Sub(b.started)).Round(time.Second), n))
 			return
 		}
@@ -886,7 +886,7 @@ func (b *Broker) schedule(now time.Time) {
 			b.counters.Drains++
 			b.emit(proto.Event{Kind: proto.EvDraining, Lease: v.id, Engine: v.engine, Detail: msg})
 		}
-		b.setWait(w, reason)
+		b.notifyWait(b.queue, reason)
 		return
 	}
 }
