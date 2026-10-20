@@ -71,7 +71,7 @@ func TestChaosScenario2IgnoresTerm(t *testing.T) {
 		}
 		ws, ok := ee.Sys().(syscall.WaitStatus)
 		if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
-			t.Fatalf("the hog exited by %s, want SIGKILL", ee.ProcessState.String())
+			t.Fatalf("the hog exited on %v, want SIGKILL", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("the hog outlived its own drain; log:\n%s", &logs)
