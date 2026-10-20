@@ -75,7 +75,7 @@ var builtIn = map[string]Adapter{
 		Resume: func(context.Context, string) error { return nil },
 	},
 	// vLLM's sleep mode: level 1 offloads the weights to CPU RAM and
-	// keeps the KV cache, which is the park this package needs. GET
+	// discards the KV cache, which is the park this package needs. GET
 	// /is_sleeping confirms it took. The server must start with
 	// --enable-sleep-mode and VLLM_SERVER_DEV_MODE=1 for these
 	// endpoints to exist.
@@ -83,11 +83,12 @@ var builtIn = map[string]Adapter{
 		Park:   postPath("/sleep?level=1"),
 		Resume: postPath("/wake_up"),
 	},
-	// SGLang releases its weights and KV cache to memory and takes them
-	// back on resume; the server starts with --enable-memory-saver, and
-	// both calls assert the engine is idle, so Berth makes them at a
-	// slot boundary. A tags body would release or resume only some
-	// regions; none is sent, so the whole engine parks.
+	// SGLang's memory saver releases the weights and KV cache from VRAM
+	// and takes them back on resume. The server must start with
+	// --enable-memory-saver and --enable-weights-cpu-backup: without the
+	// backup the release drops the weights, and a resume has nothing to
+	// restore. Both calls assert the engine is idle, so Berth makes them
+	// at a slot boundary. No tags body is sent, so the whole engine parks.
 	"sglang": {
 		Park:   postPath("/release_memory_occupation"),
 		Resume: postPath("/resume_memory_occupation"),
