@@ -20,11 +20,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/comfy"
 	"github.com/T-Crypt/berth/internal/engines"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -49,19 +49,27 @@ type Options struct {
 	// has nothing running or pending before any stop step, so a job is
 	// never cut off. There is no time limit; a job ends when it ends.
 	DrainComfyUI string
-	// KeepComfyUI leaves a drained ComfyUI running: after the queue empties
-	// its models are unloaded via POST /free (VRAM frees while the server
-	// and port stay up for OpenWebUI) and the lease is handed back without
-	// stopping the process. Without it the server is stopped after the
-	// unload, which is also the fallback when the idle footprint still
-	// blocks the next engine. No-op without DrainComfyUI.
-	KeepComfyUI bool
 	// DrainMax is a ceiling on how long a drain may wait at a boundary (a
 	// processing slot, a running ComfyUI job) before it runs the normal
 	// stop ladder anyway: a wedged engine that keeps reporting busy holds
 	// the card without it. 0 = unbounded, the default, so a long
 	// generation is never cut off.
 	DrainMax time.Duration
+	// Park, when set, is the engine's park adapter: on a drain, after the
+	// boundary and before the stop ladder, the runner asks the broker to
+	// admit the lease into RAM parking and the adapter moves the weights
+	// out of VRAM. A refusal or a failed call falls back to the stop
+	// ladder. The engine entry builds it from park = "hook".
+	Park *park.Adapter
+	// ParkBase is the base URL the park adapter and the resume probe go
+	// to.
+	ParkBase string
+	// ParkProbe is the path the engine answers once its card memory is
+	// back after a resume (/v1/models for LLMs, /system_stats for Comfy).
+	ParkProbe string
+	// Hook marks park = "hook" when the entry gave no adapter: the first
+	// drain probes Berth's own park protocol once.
+	Hook bool
 	// Container is the container the engine runs in (berth run
 	// --container NAME, the name of `docker run --name`): the drain stops
 	// it through the runtime CLI instead of signalling this process
@@ -170,16 +178,36 @@ func Run(o Options) int {
 		}
 	}
 
-	// released closes when a drain hands the lease back while the engine
-	// keeps running (ComfyUI keep-up after unload); Run then returns clean
-	// although the engine never exited.
-	released := make(chan struct{})
+	// line is the lease's live conn and park state; the drain and the
+	// resume ride it across reattach loops.
+	line := newLine(conn)
 
-	var drainOnce sync.Once
+	// One drain at a time: a drain parks the engine or stops it, and the
+	// daemon's next drain waits for that answer. A token leaves the slot
+	// without a drain under way and comes back when it ends.
+	drainTicket := make(chan struct{}, 1)
+	drainTicket <- struct{}{}
+
 	go func() {
 		for {
-			err := listen(conn, func(reason string) {
-				drainOnce.Do(func() { go drain(o, cmd, done, released, reason, say) })
+			err := listen(conn, func(m proto.Msg) {
+				switch {
+				case m.Op == proto.OpDrain:
+					select {
+					case <-drainTicket:
+					default:
+						say("set aside drain %q; the previous one is under way", m.Reason)
+						return
+					}
+					go func() {
+						defer func() { drainTicket <- struct{}{} }()
+						drain(o, cmd, line, done, m.Reason, say)
+					}()
+				case m.Op == proto.OpParkOK || m.Op == proto.OpRefused:
+					line.note(m)
+				case m.Op == proto.OpGranted && m.Resume:
+					go line.resume(o, cmd, done, say)
+				}
 			})
 			select {
 			case <-done:
@@ -199,6 +227,7 @@ func Run(o Options) int {
 			// Hang up when the engine exits, as the first connection does,
 			// so the daemon frees the lease even if this process lives on.
 			go func(c net.Conn) { <-done; c.Close() }(raw)
+			line.setConn(conn)
 			if id := cid.id(); id != "" {
 				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Container: id})
 			}
@@ -206,37 +235,23 @@ func Run(o Options) int {
 		}
 	}()
 
-	err = func() error {
-		waitCh := make(chan error, 1)
-		go func() { waitCh <- cmd.Wait() }()
-		select {
-		case err := <-waitCh:
-			close(done)
-			if errors.Is(err, exec.ErrWaitDelay) {
-				err = nil // exited cleanly; a grandchild still held the output copy
-			}
-			return err
-		case <-released:
-			// Keep-up: the engine stays up for its other clients; the
-			// deferred conn close releases the lease with a clean status.
-			close(done)
-			return nil
-		}
-	}()
+	err = cmd.Wait()
+	close(done)
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil // exited cleanly; a grandchild still held the output copy
+	}
 	return exitCode(cmd, err)
 }
 
-// listen hears the daemon until the connection drops, passing each drain
-// request on, and returns why it dropped.
-func listen(conn *proto.Conn, onDrain func(string)) error {
+// listen hears the daemon until the connection drops, passing each
+// message to the runner's router, and returns why it dropped.
+func listen(conn *proto.Conn, onMsg func(proto.Msg)) error {
 	for {
 		m, err := conn.Recv()
 		if err != nil {
 			return err
 		}
-		if m.Op == proto.OpDrain {
-			onDrain(m.Reason)
-		}
+		onMsg(m)
 	}
 }
 
@@ -319,37 +334,6 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 			return false
 		case <-time.After(every):
 		}
-	}
-}
-
-// comfyIdleFootprint is what an unloaded ComfyUI server is allowed to keep
-// on the card: its own process plus driver and desktop baseline. A keep-up
-// release only happens once the free memory reaches total minus this.
-const comfyIdleFootprint = 2 << 30
-
-// comfyUnloaded polls ComfyUI's stats until the device shows all but the
-// idle footprint free. Unreadable stats fail open: older servers answer no
-// /system_stats and a failed unload already fell back to stopping.
-func comfyUnloaded(base string, within time.Duration) bool {
-	deadline := time.Now().Add(within)
-	every := 500 * time.Millisecond
-	if within/4 < every {
-		every = within / 4
-	}
-	if every < 20*time.Millisecond {
-		every = 20 * time.Millisecond
-	}
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		free, total, err := comfy.VRAM(ctx, base)
-		cancel()
-		if err != nil || free+comfyIdleFootprint >= total {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(every)
 	}
 }
 
@@ -612,38 +596,23 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 // (llama-swap unloads the model and stops us itself, past its slot
 // boundary), then a terminate to the process group, then a kill. Each step
 // gets Grace to work.
-func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struct{}, reason string, say func(string, ...any)) {
+func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reason string, say func(string, ...any)) {
 	say("draining %s: %s", o.Engine, reason)
 	if o.DrainComfyUI != "" {
 		if !jobBoundary(o, done, say) {
 			return
 		}
-		// Unload first: models leave VRAM the moment the queue is known
-		// empty. A failed unload falls through to stopping the server; a
-		// keep-up leaves it on its port for OpenWebUI instead, but only
-		// once the driver shows the memory actually left: the run record
-		// written below tells the broker the lingering server no longer
-		// holds the card.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		err := comfy.Free(ctx, o.DrainComfyUI, true)
-		cancel()
-		if err != nil {
-			say("ComfyUI unload (%v); stopping the server instead", err)
-		} else if o.KeepComfyUI {
-			if unloadWait := 2 * o.Grace; !comfyUnloaded(o.DrainComfyUI, unloadWait) {
-				say("ComfyUI memory did not free within %s; stopping the server instead", unloadWait)
+		// A park hook does its own unload (with the RAM copy kept); only
+		// an engine without one unloads-and-stops here.
+		if o.Park == nil && !o.Hook {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := comfy.Free(ctx, o.DrainComfyUI, true)
+			cancel()
+			if err != nil {
+				say("ComfyUI unload (%v); stopping the server instead", err)
 			} else {
-				say("ComfyUI models unloaded; leaving the server up")
-				// The record must outlive this run: the server stays up and
-				// the broker lists it as an unprotected run, so the released
-				// lease frees instead of turning stuck on the idle server.
-				// runs.List clears the record once the process is gone.
-				_ = record(o, cmd, runs.ReasonKeepUp)
-				close(released)
-				return
+				say("ComfyUI models unloaded; stopping the server")
 			}
-		} else {
-			say("ComfyUI models unloaded; stopping the server")
 		}
 	}
 	wait := func() bool {
@@ -658,11 +627,20 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 		if !slotBoundaryAt(o, drainPostBase(o.DrainSlots), done, say) {
 			return
 		}
-	}
-	if o.DrainPost != "" {
+	} else if o.DrainPost != "" {
 		if !slotBoundaryAt(o, drainPostBase(o.DrainPost), done, say) {
 			return
 		}
+	}
+	// The park step sits after the boundary, before anything stops the
+	// engine: on admission the weights move to RAM, the lease is held
+	// parked, and the stop ladder never runs.
+	if o.Park != nil || o.Hook {
+		if line.park(o, say) {
+			return
+		}
+	}
+	if o.DrainPost != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, o.DrainPost, strings.NewReader(""))
 		resp, err := http.DefaultClient.Do(req)

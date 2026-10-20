@@ -650,6 +650,59 @@ naming the slots and how long they have been busy, and once the ceiling
 passes it runs the normal stop ladder anyway and says so. The same ceiling
 applies to a ComfyUI queue that will not empty.
 
+#### Park in RAM (warm switch)
+
+A drain today ends with the engine's weights on disk, and the next request
+reloads them: tens of seconds every switch. Parking keeps the warm copy in
+host RAM instead:
+
+| Tier | Where the weights are | Switch back | RAM cost |
+|---|---|---|---|
+| hot | VRAM | now | none |
+| warm (parked) | host RAM, held by the engine | seconds | the footprint, committed while it lasts |
+| cool | the kernel page cache | load minus disk | nothing committed |
+| cold | disk | full cold start | none |
+
+Config, one line per engine plus the node's budget:
+
+```toml
+[[engine]]
+name       = "vllm-chat"
+type       = "vllm"
+url        = "http://127.0.0.1:8000"
+park       = "hook"
+park_url   = "http://127.0.0.1:8000/sleep?level=1"   # optional: each beats the built-in
+resume_url = "http://127.0.0.1:8000/wake_up"
+
+[park]
+floor_gib = 4.0        # RAM a park must leave the machine (default 4)
+max_gib   = 48         # cap on all parked copies together (default: no cap)
+ttl       = "30m"      # a parked copy is stopped after this long
+residual_max_gib = 2   # card memory a parked engine may keep
+```
+
+- **How it runs.** A drain first waits for the engine's boundary (idle
+  slots, or an empty ComfyUI queue), then asks berthd to admit the park:
+  admission measures the machine's available RAM, and a park that would
+  leave less than the floor is refused quietly, so the drain runs as
+  today. On admission the wrapper calls the engine's own offload hook and
+  records the park; the lease stays parked, the card's residual counts, and
+  a waiter builds beside it. The next request sends the resume, and the
+  engine serves again in seconds.
+- **Adapters.** ComfyUI needs nothing: its unload keeps the models in RAM
+  until memory pressure. vLLM needs `--enable-sleep-mode` and
+  `VLLM_SERVER_DEV_MODE=1` in the start command. SGLang needs
+  `--enable-memory-saver --enable-weights-cpu-backup`. Any other engine can
+  speak the park protocol (`contrib/PARK-PROTOCOL.md`): Berth probes
+  `GET /berth/state` once and uses it when the endpoint answers.
+- **Eviction.** A parked copy is stopped, least recently parked first,
+  when it passes its ttl, when the machine's available RAM falls under the
+  floor, or one step at a time under memory pressure. Stopping a parked
+  engine is a drain, and its run is Berth's own, so the stop is graceful.
+- **Who sits out.** llama.cpp and llama-swap have no offload call upstream
+  yet, so they run today's drain; a park hook there waits for an upstream
+  endpoint or a patched route.
+
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
   first-seen time; optional desktop notification and webhook. Report-only by design.

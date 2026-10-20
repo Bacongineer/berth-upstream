@@ -54,7 +54,7 @@ type Gateway struct {
 	Log        *slog.Logger
 	Client     *http.Client
 	// HeadroomFloor is the RAM kept for the rest of the machine on a cold
-	// start; 0 = defaultHeadroomFloor.
+	// start; 0 = DefaultHeadroomFloor.
 	HeadroomFloor uint64
 	// MemAvailable is RAM available in bytes plus whether the box reports
 	// it; nil reads the live machine. Tests inject a fake here.
@@ -63,6 +63,9 @@ type Gateway struct {
 	// processes, so the next gateway adopts the ones still running
 	// instead of starting them again. Empty disables the record.
 	StateFile string
+	// ConfigPath is the berth.toml the spawned runs read their entry's
+	// park settings from (the park hook is not a flag).
+	ConfigPath string
 	// LogMax caps an engine's log file before it starts over; 0 = 64 MiB.
 	LogMax int64
 
@@ -115,11 +118,11 @@ func cooldown(n int) time.Duration {
 	return min(d, maxStartCooldown)
 }
 
-// defaultHeadroomFloor is the RAM the gateway keeps for the rest of the
-// machine when an engine cold-starts: a start that would leave less than
-// this available is refused instead of risking system-oomd. Tunable per
-// gateway via HeadroomFloor.
-const defaultHeadroomFloor = 2 << 30
+// DefaultHeadroomFloor is the RAM kept for the rest of the machine on a
+// cold start, by the gateway's guard and by the park admission alike: a
+// start that would leave less than this available is refused instead of
+// risking system-oomd. Tunable per gateway via HeadroomFloor.
+const DefaultHeadroomFloor = 2 << 30
 
 // guardDecision is what the cold-start headroom guard decided, and why.
 // The handler only maps allow/deny to HTTP; the reason lives here.
@@ -312,8 +315,11 @@ func (g *Gateway) listed(ctx context.Context, base string) []string {
 // first (it loads the model itself, under its own leases), else a configured
 // engine that serves it and can be started.
 func (g *Gateway) resolve(ctx context.Context, model string) (target, bool) {
+	st := g.nodeStatus()
 	for _, e := range g.live() {
-		if e.Up && slices.Contains(g.listed(ctx, e.URL), model) {
+		// A parked engine answers its list with the weights in RAM; the
+		// resume, not the list, says when it may be proxied.
+		if e.Up && !parkedIn(st, e.Name) && slices.Contains(g.listed(ctx, e.URL), model) {
 			return target{url: e.URL, live: true}, true
 		}
 	}
@@ -610,10 +616,12 @@ func (g *Gateway) startFailed(w http.ResponseWriter, engine, what string, err er
 }
 
 // comfyTarget finds ComfyUI: a live one first (it takes the prompt
-// itself), else a configured one the gateway may start.
+// itself), else a configured one the gateway may start. A parked ComfyUI
+// is not the live one: the prompt must resume it first.
 func (g *Gateway) comfyTarget(ctx context.Context) (target, bool) {
+	st := g.nodeStatus()
 	for _, e := range g.live() {
-		if e.Up && e.Type == "comfyui" && g.comfyAnswers(ctx, e.URL) {
+		if e.Up && e.Type == "comfyui" && !parkedIn(st, e.Name) && g.comfyAnswers(ctx, e.URL) {
 			return target{url: e.URL, live: true}, true
 		}
 	}
@@ -696,6 +704,16 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	probe := g.answers
 	if e.Type == "comfyui" {
 		probe = g.comfyAnswers
+	}
+	// A parked engine answers while the weights sit in RAM: the resume
+	// goes before any probe, or the request is proxied to RAM.
+	if parks(e) {
+		switch err := g.resume(ctx, e); {
+		case err == nil:
+			return nil
+		case !errors.Is(err, errNotParked):
+			return err
+		}
 	}
 	if probe(ctx, e.URL) {
 		return nil // already up (started by hand or by its own manager)
@@ -783,7 +801,7 @@ func (g *Gateway) headroomFloor() uint64 {
 	if g.HeadroomFloor > 0 {
 		return g.HeadroomFloor
 	}
-	return defaultHeadroomFloor
+	return DefaultHeadroomFloor
 }
 
 func (g *Gateway) memAvailable() (uint64, bool) {

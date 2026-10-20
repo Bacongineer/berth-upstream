@@ -37,7 +37,7 @@ func TestDrainStopsTheContainer(t *testing.T) {
 			timeouts = append(timeouts, timeout)
 			return "", nil
 		}}
-	drain(o, nil, make(chan struct{}), make(chan struct{}), "test", func(string, ...any) {})
+	drain(o, nil, newLine(nil), make(chan struct{}), "test", func(string, ...any) {})
 	if len(argvs) != 1 {
 		t.Fatalf("commands = %v, want one stop", argvs)
 	}
@@ -59,7 +59,7 @@ func TestDrainStopsWithTheRuntimeThatAnswered(t *testing.T) {
 			argvs = append(argvs, argv)
 			return containerID + "\n", nil
 		}}
-	drain(o, nil, make(chan struct{}), make(chan struct{}), "test", func(string, ...any) {})
+	drain(o, nil, newLine(nil), make(chan struct{}), "test", func(string, ...any) {})
 	if len(argvs) != 1 {
 		t.Fatalf("commands = %v, want one stop", argvs)
 	}
@@ -79,7 +79,7 @@ func TestDrainBeforeResolutionFallsBack(t *testing.T) {
 			argvs = append(argvs, argv)
 			return "", nil
 		}}
-	drain(o, cmd, make(chan struct{}), make(chan struct{}), "test", func(string, ...any) {})
+	drain(o, cmd, newLine(nil), make(chan struct{}), "test", func(string, ...any) {})
 	if len(argvs) != 0 {
 		t.Fatalf("commands = %v, want none before resolution", argvs)
 	}
@@ -108,7 +108,7 @@ func TestDrainContainerStopFailureFallsBack(t *testing.T) {
 			return containerID + "\n", nil
 		}}
 	done := make(chan struct{})
-	drain(o, cmd, done, make(chan struct{}), "test", func(string, ...any) {})
+	drain(o, cmd, newLine(nil), done, "test", func(string, ...any) {})
 	if strings.Join(argvs[len(argvs)-1], " ") != "docker stop -t 0 "+containerID {
 		t.Fatalf("stop argv = %v", argvs)
 	}

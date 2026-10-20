@@ -167,6 +167,23 @@ has a matching GitHub release whose body comes from its section below.
   until the leases are freed (exit 0) or stuck (exit 2, naming them).
   Stopping the gateway no longer stops its engines: they run outside its
   cgroup, and `berth stop ENGINE` is how one of them is stopped on purpose.
+- Park in RAM, the broker side: a draining lease whose engine can offload
+  itself asks to park; admission runs over the machine's readings, the
+  parked lease keeps its residual counted on the card, and a waiter builds
+  beside a small residual or evicts a big one (past the ttl, under the RAM
+  floor, or a step at a time under memory pressure). Parked RAM is a
+  reading, never a reservation.
+- The built-in park adapters: ComfyUI (its unload keeps the models in RAM
+  until pressure), vLLM (`/sleep?level=1`, `/wake_up`; the server starts
+  with `--enable-sleep-mode` and `VLLM_SERVER_DEV_MODE=1`), and SGLang
+  (`/release_memory_occupation`, `/resume_memory_occupation`; the server
+  starts with `--enable-memory-saver --enable-weights-cpu-backup`). Berth's
+  own park protocol (the same three-call shape any engine can serve) is
+  documented in `contrib/PARK-PROTOCOL.md` and auto-detected:
+  `park = "hook"` with no hook URLs probes `GET /berth/state` once.
+- `berth resume ENGINE`, and the gateway's requests to a parked engine,
+  resume the lease at its own priority and never proxy to an engine whose
+  wake has not finished.
 
 ### Changed
 

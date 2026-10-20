@@ -260,7 +260,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		desc:     map[ident]struct{}{},
 		arrived:  now,
 		grantCh:  make(chan struct{}),
-		resumeCh: make(chan struct{}),
+		resumeCh: make(chan struct{}, 1),
 		drainCh:  make(chan string, 1),
 		waitCh:   make(chan string, 8),
 	}
@@ -858,7 +858,13 @@ func (b *Broker) schedule(now time.Time) {
 			w.beside = ""
 			if w.resumed {
 				w.resumed = false
-				close(w.resumeCh)
+				// A resume is a one-shot signal per grant, and a lease can
+				// cycle park and resume many times: never close the
+				// channel, and never double-send.
+				select {
+				case w.resumeCh <- struct{}{}:
+				default:
+				}
 			} else {
 				close(w.grantCh)
 			}

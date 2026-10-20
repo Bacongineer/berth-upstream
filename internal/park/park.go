@@ -63,6 +63,16 @@ func BuiltInKinds() []string {
 	return out
 }
 
+// Protocol probes once whether the engine speaks Berth's park protocol
+// (contrib/PARK-PROTOCOL.md) and returns its adapter when it does. Any
+// other answer, or none, means not: the engine drains as today.
+func Protocol(ctx context.Context, base string) (Adapter, bool) {
+	if ok, err := Probe(ctx, base); err != nil || !ok {
+		return Adapter{}, false
+	}
+	return ForProtocol(base), true
+}
+
 // builtIn is one entry per engine that can park itself through the API it
 // already serves.
 var builtIn = map[string]Adapter{

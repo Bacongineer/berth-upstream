@@ -41,6 +41,9 @@ func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, erro
 		return 0, fmt.Errorf("engine log: %w", err)
 	}
 	full := append([]string{exe}, runArgv(o)...)
+	if g.ConfigPath != "" {
+		full = append(full, "--config", g.ConfigPath)
+	}
 	full = append(full, "--")
 	full = append(full, o.Argv...)
 	full = scopeArgv(name, full)
@@ -117,9 +120,6 @@ func runArgv(o runner.Options) []string {
 	}
 	if o.DrainMax != 0 {
 		args = append(args, "--drain-max", o.DrainMax.String())
-	}
-	if o.KeepComfyUI {
-		args = append(args, "--keep-comfyui-up")
 	}
 	if o.Container != "" {
 		args = append(args, "--container", o.Container)

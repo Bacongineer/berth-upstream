@@ -36,6 +36,7 @@ func runDaemon(c *Context) int {
 	index := fs.Int("gpu", 0, "GPU index")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
+	headroomMib := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start, added to the park floor (the gateway's guard default)")
 	wait := fs.Duration("wait", 120*time.Second, "default time a request waits before it is refused")
 	grace := fs.Duration("release-grace", 30*time.Second, "how long a released lease's processes may linger before they count as squatters")
 	reattachWin := fs.Duration("reattach-window", 15*time.Second, "after a restart, how long new grants wait for engines that ran under the last daemon to re-attach")
@@ -112,9 +113,17 @@ func runDaemon(c *Context) int {
 		Busy:           watcher.Busy,
 		Comfy:          comfy,
 		ReattachWindow: *reattachWin,
-		Version:        c.Version,
-		Reporter:       rep,
-		Log:            log,
+		// The park budget, from [park]: the floor adds the headroom floor
+		// the gateway's guard uses, so a parked copy and a cold start
+		// share one picture of the machine's room.
+		ParkFloor:       parkFloorBytes(cfg, *headroomMib),
+		ParkMax:         parkMaxBytes(cfg),
+		ParkTTL:         cfg.ParkTTL(),
+		ParkResidualMax: cfg.ParkResidualMax(),
+		ParkPressure:    cfg.ParkPressure(),
+		Version:         c.Version,
+		Reporter:        rep,
+		Log:             log,
 	}, probe, procs.System{})
 
 	// The alert table is the node's own thresholds: the built-in danger
@@ -261,4 +270,19 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// parkFloorBytes is the RAM a park must leave the machine: the [park]
+// floor_gib plus the headroom floor, in bytes.
+func parkFloorBytes(cfg config.Config, headroomMib uint64) uint64 {
+	floor := cfg.ParkFloorGiB() + float64(headroomMib)/1024
+	return uint64(floor * float64(gpu.GiB))
+}
+
+// parkMaxBytes is the [park] max_gib cap in bytes; 0 = no cap.
+func parkMaxBytes(cfg config.Config) uint64 {
+	if cfg.Park.MaxGiB <= 0 {
+		return 0
+	}
+	return uint64(cfg.Park.MaxGiB * float64(gpu.GiB))
 }

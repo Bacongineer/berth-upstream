@@ -49,11 +49,15 @@ const (
 	// OpResume: any client puts a parked engine back on the card at its
 	// own priority; the runner hears OpGranted{Resume: true} when it is
 	// granted, or the resuming client gets OpRefused when it is not parked.
+	// OpAwake: the runner's resume finished and the engine answers its
+	// probe again; the daemon pushes lease.resumed for the harbor's warm
+	// badge and for a gateway that waits for the wake before proxying.
 	OpPark       = "park"
 	OpParkOK     = "park_ok"
 	OpParked     = "parked"
 	OpParkFailed = "park_failed"
 	OpResume     = "resume"
+	OpAwake      = "awake"
 )
 
 // Msg is every message in both directions; unused fields are omitted.
