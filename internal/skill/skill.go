@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package skill carries the agent skill that teaches a coding agent to use
 // Berth, and installs it where agents look for skills.
 package skill

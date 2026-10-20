@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package civitai reads model versions from the CivitAI site and moves
 // their files into a root, checked against the hash the site publishes,
 // with the same part-file resume as a Hub pull.

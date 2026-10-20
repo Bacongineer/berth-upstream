@@ -1,3 +1,6 @@
+# Copyright 2026 Trevin Tindall (T-Crypt)
+# SPDX-License-Identifier: Apache-2.0
+
 # Harbor UI overhaul gate (dev only, not CI). Asserts the new behavior and the
 # accessibility floor on demo fixtures and the live node, desktop and phone.
 # Run against a harbor serving the new UI: python3 test/ui/overhaul.py [base-url]

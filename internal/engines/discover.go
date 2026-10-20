@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 package engines
 
 // Discovery finds engines nobody configured: every minute it probes the

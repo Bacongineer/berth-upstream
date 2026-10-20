@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package server puts the broker on a Unix socket. One connection is one
 // lease: the handler holds the berth until the client disconnects.
 package server

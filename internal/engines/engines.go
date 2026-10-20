@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package engines reads what the inference engines on this node report about
 // themselves: loaded models, token counters, queue depth. It is read-only:
 // Berth never sends an engine a prompt. These figures are the engine's own

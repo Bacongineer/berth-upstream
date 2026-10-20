@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package hf downloads model files from the Hugging Face Hub and proves
 // they arrived whole: every LFS file's size and sha256 are checked against
 // what the Hub publishes for that exact commit, a partial download resumes

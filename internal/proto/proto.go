@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package proto is the wire format between berth run and berthd:
 // newline-delimited JSON over a Unix socket. A lease lives exactly as long
 // as the connection that acquired it, so a wrapper that dies, however it

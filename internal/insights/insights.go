@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package insights computes the request KPIs, the token ledger and the
 // leaderboard from a request log. The node runs it over its in-memory 24 h
 // log; the harbor's store runs it over the same rows persisted in SQLite,

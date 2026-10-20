@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package runner is `berth run`: acquire a berth, start the engine, hand
 // the berth back by stopping the engine when berthd asks, and exit with the
 // engine's status. If berthd is down the engine runs anyway (fail-open), so

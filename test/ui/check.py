@@ -1,3 +1,6 @@
+# Copyright 2026 Trevin Tindall (T-Crypt)
+# SPDX-License-Identifier: Apache-2.0
+
 # Harbor UI click/hover check (dev only). Needs python playwright + its chromium.
 # Run against a live harbor: python3 test/ui/check.py [base-url]; screenshots go to $OUT or /tmp/berth-ui-check/.
 import sys

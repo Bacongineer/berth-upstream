@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package runs records engines that started without a lease: berthd was
 // down (fail-open), or went away mid-run. The wrapper writes one small file
 // per run beside the socket, and berthd lists the live ones, so an

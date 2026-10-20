@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package host reads the machine's CPU, memory and load from /proc. It is
 // what a node knows about the box its GPUs sit in; off Linux it reports
 // Supported=false rather than zeros that look like an idle machine.

@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package cli is the berth command tree: one flag set, one output contract and
 // one exit-code contract for every command. A command returns a View, which is
 // the document a machine reads in a machine format and the report a person

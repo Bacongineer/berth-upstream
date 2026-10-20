@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package config reads berth.toml. The file is optional: without one, the
 // daemon runs on its flags and watches no engines. Engines use the same
 // [[engine]] shape as Speculum's config, so a Speculum user can copy theirs.

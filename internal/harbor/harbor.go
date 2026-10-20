@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package harbor is the web UI's server. At basement scale it runs on the
 // same box as the node and reads it over the node's socket; the fleet phase
 // adds remote nodes. In P2 it is read-only: no endpoint changes anything,

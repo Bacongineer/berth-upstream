@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package storage reports what a model root sits on: the filesystem, the
 // space left, and what that filesystem actually supports. A pull is refused
 // before it starts when it would leave the root under its floor, so a drive

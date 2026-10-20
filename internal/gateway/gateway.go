@@ -1,3 +1,6 @@
+// Copyright 2026 Trevin Tindall (T-Crypt)
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gateway is `berth gateway`: one local port in front of every
 // engine on the node. A request names a model; the gateway finds the engine
 // that serves it, starts that engine under a lease if it is not running
