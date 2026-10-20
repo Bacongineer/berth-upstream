@@ -767,5 +767,5 @@ keep.
 [Apache License 2.0](LICENSE). Copyright 2026 Trevin Tindall (T-Crypt), who created Berth and
 maintains it here. Forks are welcome: keep the [NOTICE](NOTICE) file and the copyright header in
 each source file, mark the files you change, and release your fork under its own name. The
-Berth name, the Pilot mascot and the artwork in `assets/` are not covered by the license. Third-party components:
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+Berth name, the Pilot mascot and the artwork in `assets/` are not covered by the license.
+Third-party components: [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
