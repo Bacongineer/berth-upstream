@@ -6,6 +6,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"time"
@@ -28,10 +29,12 @@ type engineRec struct {
 }
 
 // adopt re-marks engines a previous gateway started and that still run:
-// the record's process is the same one (PID plus start time) and the
-// engine answers. The next request is proxied, not started again.
-// Records whose process left are stale and dropped. Windows adopts
-// nothing: its process start times are not readable.
+// the record's process is the same one (PID plus start time). An engine
+// that answers already is up for the next request; one still loading is
+// adopted too, and ensure waits for it like any start in flight instead
+// of starting a second copy. Records whose process left are stale and
+// dropped. Windows adopts nothing: its process start times are not
+// readable.
 func (g *Gateway) adopt() {
 	recs := g.readRecords()
 	if len(recs) == 0 {
@@ -52,10 +55,7 @@ func (g *Gateway) adopt() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		up := g.probe(ctx, e)
 		cancel()
-		if !up {
-			continue // still loading or wedged; the next start reads it again
-		}
-		s := &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}, answered: true}
+		s := &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}, answered: up}
 		g.mu.Lock()
 		if g.running == nil {
 			g.running = map[string]*started{}
@@ -68,13 +68,18 @@ func (g *Gateway) adopt() {
 			}
 		}
 		go g.watchAdopted(rec, s)
-		g.log().Info("gateway adopted a running engine", "engine", rec.Engine, "pid", rec.PID, "lease", rec.Lease)
+		if up {
+			g.log().Info("gateway adopted a running engine", "engine", rec.Engine, "pid", rec.PID, "lease", rec.Lease)
+		} else {
+			g.log().Info("gateway adopted a loading engine", "engine", rec.Engine, "pid", rec.PID, "lease", rec.Lease)
+		}
 	}
 	g.keepRecords(live)
 }
 
 // watchAdopted drops an adopted engine when its run process leaves: the
-// lease went with it, and the engine may be started again.
+// lease went with it, and the engine may be started again. One still
+// loading gets a start failure a waiting request can carry.
 func (g *Gateway) watchAdopted(rec engineRec, s *started) {
 	for {
 		time.Sleep(2 * time.Second)
@@ -88,6 +93,10 @@ func (g *Gateway) watchAdopted(rec engineRec, s *started) {
 		}
 		g.mu.Unlock()
 		g.dropRecord(rec.Engine)
+		if !s.answered {
+			s.why = &startError{code: "start_failed",
+				msg: fmt.Sprintf("%s left while starting: %s", rec.Engine, lastLine(s.output.String()))}
+		}
 		close(s.exited)
 		return
 	}

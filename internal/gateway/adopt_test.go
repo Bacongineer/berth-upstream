@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/runner"
 )
 
@@ -119,7 +121,10 @@ func TestRestartAdoptsItsEngines(t *testing.T) {
 	g2 := mk()
 	gw2 := httptest.NewServer(g2.Handler())
 	defer gw2.Close()
-	if g2.running["keeper"] == nil || !g2.running["keeper"].answered {
+	g2.mu.Lock()
+	adopted := g2.running["keeper"]
+	g2.mu.Unlock()
+	if adopted == nil || !adopted.answered {
 		t.Fatal("the running engine was not adopted")
 	}
 	resp = call(t, "POST", gw2.URL+"/v1/chat/completions", `{"model":"keeper"}`)
@@ -134,6 +139,54 @@ func TestRestartAdoptsItsEngines(t *testing.T) {
 	after := readRecsFile(t, state)
 	if len(after) != 1 || after[0].PID != recs[0].PID || after[0].Lease != recs[0].Lease {
 		t.Fatalf("records after adoption = %+v, want only the live one", after)
+	}
+}
+
+// An adopted engine that is still loading is adopted too: the next request
+// waits for it like any start in flight, and no second copy starts.
+func TestAdoptsAStillLoadingEngine(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "no-daemon.sock")
+	addr := freeAddr(t)
+	go fakeEngine(addr, "loader", time.Second)
+
+	// A live run process the old gateway recorded; the engine behind it
+	// answers only in a second, so nothing answers yet.
+	proc := exec.Command("sleep", "30")
+	if err := proc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = proc.Process.Kill(); _ = proc.Wait() })
+
+	state := filepath.Join(t.TempDir(), "engines.json")
+	bit, err := json.Marshal([]engineRec{{Engine: "sleeper", PID: proc.Process.Pid,
+		Start: procs.System{}.StartTime(proc.Process.Pid)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, bit, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Any second start of the engine would land here.
+	marker := filepath.Join(t.TempDir(), "starts")
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, StateFile: state, Log: discard(),
+		Engines: []config.Engine{{Name: "sleeper", URL: "http://" + addr,
+			Start: []string{"sh", "-c", `echo x >> "$1"`, "sh", marker}, Serves: []string{"loader"}}}}
+	gw := httptest.NewServer(g.Handler())
+	defer gw.Close()
+
+	start := time.Now()
+	resp := call(t, "POST", gw.URL+"/v1/chat/completions", `{"model":"loader"}`)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "never collide") {
+		t.Fatalf("request = %d %s", resp.StatusCode, body)
+	}
+	if time.Since(start) < 800*time.Millisecond {
+		t.Fatalf("the request never waited for the loading engine: %s", time.Since(start))
+	}
+	if n, err := os.ReadFile(marker); err == nil && len(n) > 0 {
+		t.Fatalf("the gateway started a second copy of a loading engine: %q", n)
 	}
 }
 

@@ -698,13 +698,6 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	if probe(ctx, e.URL) {
 		return nil // already up (started by hand or by its own manager)
 	}
-	if len(e.Start) == 0 {
-		return &startError{code: "no_start", msg: fmt.Sprintf("%s is not answering at %s and has no start command in berth.toml", e.Name, e.URL)}
-	}
-	if err := g.checkHeadroom(e); err != nil {
-		g.log().Warn("gateway start refused", "engine", e.Name, "err", err)
-		return err
-	}
 	ready := g.ready()
 	g.mu.Lock()
 	if g.running == nil {
@@ -712,6 +705,15 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	}
 	s, ok := g.running[e.Name]
 	if !ok {
+		if len(e.Start) == 0 {
+			g.mu.Unlock()
+			return &startError{code: "no_start", msg: fmt.Sprintf("%s is not answering at %s and has no start command in berth.toml", e.Name, e.URL)}
+		}
+		if err := g.checkHeadroom(e); err != nil {
+			g.mu.Unlock()
+			g.log().Warn("gateway start refused", "engine", e.Name, "err", err)
+			return err
+		}
 		if f := g.failed[e.Name]; f != nil {
 			if left := time.Until(f.until); left > 0 {
 				g.mu.Unlock()
