@@ -192,7 +192,8 @@ func TestStoreAndLoadCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	// NTFS carries no Unix mode bits; the mode is checked where they exist.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("the cache holds a check answer and is mode %o, want 0600", perm)
 	}
 	got, ok := LoadCache(path)
