@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/models"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/server"
 	"github.com/T-Crypt/berth/internal/store"
@@ -52,6 +53,13 @@ type Harbor struct {
 	UpdateCheck bool
 	// UpdateCache is where that answer is kept, in the state directory.
 	UpdateCache string
+	// Dirs are the model roots /v1/models scans; a field, because the roots
+	// are the operator's config read once at startup. Empty means the
+	// machine's default roots. Shelves are the roots whose shelf berth.toml
+	// declares.
+	Dirs    []string
+	Shelves []models.RootShelf
+	library libraryCache
 }
 
 // Serve listens on addr. A loopback address keeps the harbor on this machine;
@@ -108,6 +116,7 @@ func (h *Harbor) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/counters", h.counters)
 	mux.HandleFunc("GET /v1/spans", h.spans)
 	mux.HandleFunc("GET /v1/storage", h.storage)
+	mux.HandleFunc("GET /v1/models", h.libraryHandler)
 	mux.HandleFunc("GET /v1/mode", h.mode)
 	mux.HandleFunc("GET /v1/update", h.update)
 	return h.guard(mux)

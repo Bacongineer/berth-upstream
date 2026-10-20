@@ -108,6 +108,18 @@ with sync_playwright() as p:
         pg.keyboard.press("Escape"); pg.wait_for_timeout(200)
     else:
         ok("ticket stamp names the contested bytes", False, "no contested row")
+    # the v0.3 states on the board: a parked row's ticket names the tier and
+    # offers the resume order; boarding rows carry the queue flag
+    ok("boarding rows carry the queue flag", pg.locator("#board .flag-queue").count() >= 1,
+       str(pg.locator("#board .flag-queue").count()))
+    prow = pg.locator('#board .board-row[data-key="AGF-0138"]')
+    if prow.count():
+        prow.click(); pg.wait_for_timeout(300)
+        ok("parked ticket names the tier", "WARM" in pg.inner_text("#t-tier"), pg.inner_text("#t-tier"))
+        ok("parked ticket offers the resume order", "berth resume" in pg.inner_text("#t-cmd-row"), pg.inner_text("#t-cmd-row"))
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(200)
+    else:
+        ok("parked ticket names the tier", False, "no parked board row in the fixture")
     # log chips + pause
     pg.click("#chip-leases"); pg.wait_for_timeout(200)
     ok("chip toggles", pg.get_attribute("#chip-leases", "aria-pressed") == "false")
@@ -118,6 +130,23 @@ with sync_playwright() as p:
     ok("engines tab shows", pg.locator("#panel-engines").is_visible())
     ok("priority table ranks the engines", pg.locator("#priority .ptable tbody tr").count() >= 3, str(pg.locator("#priority .ptable tbody tr").count()))
     ok("priority meta names the source", "7 day" in pg.inner_text("#priority-meta"), pg.inner_text("#priority-meta"))
+    # the library: the engines tab lists the model roots; in demo the fixture
+    # fills it, cache tiers and row commands included
+    ok("library panel visible", pg.locator("#library-root").is_visible())
+    lrows = pg.locator("#library-root tbody tr").count()
+    ok("library lists the models", lrows >= 4, str(lrows))
+    ok("library shows the cached tiers", pg.locator("#library-root tbody tr", has_text="COOL").count() >= 1,
+       str(pg.locator("#library-root tbody tr", has_text="COOL").count()))
+    lcmds = pg.locator("#library-root .lib-cmd-btn")
+    ok("library rows carry the command buttons", lcmds.count() >= 2 * lrows, str(lcmds.count()))
+    if lcmds.count() >= 1:
+        lcmds.nth(0).click(); pg.wait_for_timeout(250)
+        ok("library copy confirms with a toast", pg.locator(".toast").count() >= 1)
+        pg.screenshot(path=out + "library.png", clip={"x": 0, "y": 0, "width": 1920, "height": 1200})
+    lmeta = pg.inner_text("#library-meta")
+    ok("library meta counts the models", "model" in lmeta and "roots" in lmeta, lmeta)
+    ok("engine cards show est. VRAM", pg.locator("#engine-grid .est-vram").count() >= 1,
+       str(pg.locator("#engine-grid .est-vram").count()))
     ok("hash updated", "engines" in pg.url, pg.url)
     # leaderboard range picker: 24H is the live node's view; 7D and 30D read
     # the stored range, and the meta says so

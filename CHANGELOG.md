@@ -40,6 +40,24 @@ has a matching GitHub release whose body comes from its section below.
   page makes no request of its own beyond reading that one endpoint, and
   with `[update] check = false` the harbor never touches GitHub and shows
   nothing.
+- The harbor's LIBRARY panel: every model in the configured roots with its
+  shelf, quant, size, CACHED share (COOL or COLD), the engine serving it when
+  one reports it resident, and that engine's estimated VRAM. The data comes
+  from the new `GET /v1/models` on the harbor, which computes what `berth
+  models --format json` prints and walks the roots at most once per 30 s.
+  Each row carries the `berth prefetch NAME` and `berth models show NAME`
+  commands as copy buttons; the harbor stays read-only.
+- The harbor's lease views show the v0.3 parking states: a WARM badge on a
+  parked engine, with the RAM its weights hold (the engine's learned
+  footprint) and the age; PARKING as the transitional state on the
+  departures board and in the log. Boarding rows carry a Q flag with the
+  queue position and the node's completion estimate when the status payload
+  names them. A lease's ticket names the tier the weights live in (HOT on
+  the card or WARM in RAM), the queue rows, the container a run is in, and
+  the exact terminal order for it (`berth stop ENGINE`, `berth resume
+  ENGINE`, `berth reclaim LEASE`) beside copy buttons.
+- The harbor's engine cards show each engine's learned footprint as
+  `est. VRAM`, beside the engine's own reports.
 
 - `berth service install [--gateway] [--harbor] [--dry-run]`, `berth
   service uninstall` and `berth service status`: run the node, and the

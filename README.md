@@ -165,8 +165,9 @@ daemon restart, reported and left alone.
 
 <p align="center"><img src="assets/preview-harbor.png" alt="Berth harbor: the CARD tab with ticket counter, request KPIs, the tide of card memory by holder, and the model timeline" width="900"></p>
 
-The Engines tab (advanced mode): decode throughput, the token ledger, the per-model
-leaderboard, storage and residency.
+The Engines tab (advanced mode): the engine cards with their learned footprints as
+EST. VRAM, the library (shelf, quant, size, the cached tier, the serving engine),
+decode throughput, the token ledger, the per-model leaderboard, storage and residency.
 
 <p align="center"><img src="assets/preview-requests.png" alt="Berth harbor Engines tab, advanced mode: decode throughput per engine, the token ledger, the per-model leaderboard, storage and residency" width="900"></p>
 
@@ -479,6 +480,7 @@ startup, so a change to the roots applies on the next restart.
   does the reading in the background, at its own pace, and takes the pages back whenever the
   machine needs the RAM. This is the manual form: while an engine that is about to run is
   still waiting for the card, its model's files can be warmed so the start reads from memory.
+  The harbor's LIBRARY panel carries the same ask as a copy button on every model row.
 - **`berth models show NAME`** prints one model's header: architecture, context, tensor
   types, chat template, and what of the model sits in the page cache.
 - **`berth models export ollama NAME [--dry-run]`** writes a Modelfile and runs `ollama
@@ -741,6 +743,46 @@ residual_max_gib = 2   # card memory a parked engine may keep
   currently-breaching keys, and an overall LIVE / DEGRADED / OFFLINE state beside the
   connection pill.
 
+### The harbor's views
+Everything the node collects shows in one of three tabs, and every panel answers a
+question an operator actually asks.
+
+**The CARD tab.**
+- **The ticket counter** answers "has anything collided?" with the collisions-avoided
+  odometer, the seven collision tiles and the request KPIs, over the all-time board or
+  a stored window.
+- **The tide** answers "who holds the card, and when?" with card memory by holder and
+  the lease events overlaid, over a 1H / 6H / 24H / 7D / 30D picker.
+- **The model timeline** answers "when was each model loaded on each engine?"
+- **The departures board** answers "what is on the card right now?" with one row per
+  lease: the ticket number, the engine, the class, the hold (measured once docked,
+  asked-for while boarding, the parked engine's RAM copy while WARM), the state word,
+  and the age. A WARM flag marks a parked engine; PARKING is the transitional state
+  while the weights move to RAM. A boarding row carries a Q flag with its queue
+  position and the node's completion estimate when the node sends them. Clicking a
+  row opens the lease's ticket: the tier the weights live in (HOT on the card, WARM
+  in RAM), the queue rows, the container a run is in, and the exact terminal order
+  for the lease beside it as a copy button (`berth stop ENGINE`, `berth resume
+  ENGINE`, `berth reclaim LEASE`).
+- **The berths, the machine, stowaways and no ticket** answer "what else is on the
+  card and the host, and who holds memory without a ticket?"
+
+**The ENGINES tab.**
+- **The engine cards** answer "is this engine up and serving?" with the state the
+  engine reports, its loaded models, decode and prefill rates, and its learned
+  footprint as EST. VRAM: what its past runs measured, never "reserved".
+- **The library** answers "is this model warm?" with every model in the configured
+  roots, each row showing shelf, quant, size, the CACHED share with its tier
+  (COOL or COLD), the engine serving it when one reports it resident, that engine's
+  EST. VRAM, and copy buttons for `berth prefetch NAME` and `berth models show NAME`.
+  The listing is read-only here; the terminal does the acting.
+- **Card ranking, the KV pool, throughput, the token ledger, the leaderboard, the
+  recent requests and context residency** answer the questions behind the request
+  log, and the storage panel (advanced) says what the harbor's own store keeps.
+
+**The ABOUT tab** is this page's own documentation: the modes, the shortcut keys,
+and what every state word and figure means.
+
 ### Telemetry (built in, no other tool needed)
 - **GPU:** memory, utilisation, temperature, power against its limit, fan, SM and memory
   clocks, PCIe link, for **every card** in the machine with its real limits.
@@ -791,11 +833,14 @@ residual_max_gib = 2   # card memory a parked engine may keep
   an engine that did not answer, a lease the broker refused) and 2 (berth could not do its job:
   unknown flag, missing file, berthd unreachable). `berth run` passes the engine's own status
   through and exits 75 when no berth was granted. Every read-only command changes nothing.
-- **Harbor web UI** (`berth harbor`): a departures board of every lease, a boat ticket
+- **Harbor web UI** (`berth harbor`): a departures board of every lease (the HOT / WARM
+  tiers included: WARM marks a parked engine, with its parked RAM and age), a boat ticket
   per lease, the collisions counter, berths with measured memory, stowaways, the event
   log, and engine metrics. The tide (card memory by holder) and the model timeline share a
-  1H / 6H / 24H / 7D / 30D picker; the Engines tab adds a queue KPI (the berth's own
-  queue; each engine's own queue stays on its card), the KV pool (the live slots of each
+  1H / 6H / 24H / 7D / 30D picker; the Engines tab adds the library (every model on the
+  machine with its shelf, quant, size, cached tier, the engine serving it and that
+  engine's EST. VRAM, with the terminal commands one row of copy buttons away), a queue
+  KPI (the berth's own queue; each engine's own queue stays on its card), the KV pool (the live slots of each
   engine against their model windows, stored ranges the per-minute peak slot fill), context
   residency (the last requests' token figures against the model's window, plus the live
   KV sessions), a throughput chart, a 24H / 7D / 30D leaderboard and, in advanced mode, a
