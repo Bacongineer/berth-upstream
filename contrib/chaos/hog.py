@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # Copyright 2026 Trevin Tindall (T-Crypt)
 # SPDX-License-Identifier: Apache-2.0
-# hold.py: a VRAM hog for the contrib/chaos scenarios. Needs one NVIDIA card
+# hog.py: a VRAM hog for the contrib/chaos scenarios. Needs one NVIDIA card
 # and PyTorch. See the README beside this file for every scenario.
 
 import argparse
 import http.server
 import os
 import signal
-import sys
 import threading
 import time
 
