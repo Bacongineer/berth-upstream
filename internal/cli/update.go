@@ -36,7 +36,7 @@ func runUpdate(c *Context) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	res, err := update.Refresh(ctx, defaultStateFile("update.json"), c.Version)
+	res, err := update.Fetch(ctx, defaultStateFile("update.json"), c.Version)
 	if err != nil {
 		return c.fail(Systemf("the update check could not reach GitHub: %v", err).
 			WithHint("check your connection and run it again; nothing was changed"))

@@ -102,18 +102,25 @@ func Check(ctx context.Context, current string) (Result, error) {
 	}, nil
 }
 
-// version is one release's three numbers.
-type version struct{ major, minor, patch int }
+// version is one release's three numbers and its pre-release label, if
+// any ("rc" in 0.3.0-rc); build metadata after "+" is ignored.
+type version struct {
+	major, minor, patch int
+	pre                 string
+}
 
-// parseVersion reads v1.2.3 or 1.2.3. Anything else, a dev build, a
-// pre-release, a tag with no numbers, is not a version: rather than
-// guess, Newer stays false.
+// parseVersion reads v1.2.3, 1.2.3, 1.2.3-rc or 1.2.3+build. Anything
+// else, a dev build or a tag with no numbers, is not a version: rather
+// than guess, Newer stays false.
 func parseVersion(s string) (version, bool) {
-	parts := strings.SplitN(strings.TrimPrefix(s, "v"), ".", 3)
+	s = strings.TrimPrefix(s, "v")
+	s, _, _ = strings.Cut(s, "+")
+	core, pre, _ := strings.Cut(s, "-")
+	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
 		return version{}, false
 	}
-	var v version
+	v := version{pre: pre}
 	nums := [3]*int{&v.major, &v.minor, &v.patch}
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
@@ -125,14 +132,20 @@ func parseVersion(s string) (version, bool) {
 	return v, true
 }
 
+// after is semver precedence: the numbers first, then a release ranks
+// above any pre-release of the same numbers (0.3.0 after 0.3.0-rc).
 func (x version) after(y version) bool {
 	switch {
 	case x.major != y.major:
 		return x.major > y.major
 	case x.minor != y.minor:
 		return x.minor > y.minor
-	default:
+	case x.patch != y.patch:
 		return x.patch > y.patch
+	case x.pre == "" || y.pre == "":
+		return x.pre == "" && y.pre != ""
+	default:
+		return x.pre > y.pre
 	}
 }
 
@@ -144,6 +157,9 @@ func Newer(a, b string) bool {
 	va, ok := parseVersion(a)
 	if !ok {
 		return false
+	}
+	if va.pre != "" {
+		return false // a pre-release is never offered as an update
 	}
 	vb, ok := parseVersion(b)
 	if !ok {
@@ -201,6 +217,23 @@ func Refresh(ctx context.Context, path, current string) (Result, error) {
 	if err := StoreCache(path, fresh); err != nil {
 		return fresh, nil // the answer is good; only its keeping failed
 	}
+	return fresh, nil
+}
+
+// Fetch is the answer for a command the operator typed: it always asks
+// GitHub, keeps the answer for the harbor, and only falls back to the last
+// kept answer when the GET fails. A cached "no newer release" from before
+// a release must never answer `berth update`.
+func Fetch(ctx context.Context, path, current string) (Result, error) {
+	fresh, err := Check(ctx, current)
+	if err != nil {
+		if cached, have := LoadCache(path); have {
+			cached.Newer = Newer(cached.Latest, current)
+			return cached, nil
+		}
+		return Result{}, err
+	}
+	_ = StoreCache(path, fresh) // the answer is good; only its keeping may fail
 	return fresh, nil
 }
 

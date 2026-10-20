@@ -66,7 +66,11 @@ func TestNewer(t *testing.T) {
 		{"v0.3.1", "v0.4.0", false},
 		{"v0.3.1", "dev", false}, // a dev tree is past the release line
 		{"dev", "v0.3.1", false},
-		{"v0.3.1-rc1", "v0.3.0", false}, // not a plain release: do not guess
+		{"v0.3.1-rc1", "v0.3.0", false},                         // not a plain release: do not guess
+		{"v0.3.0", "0.3.0-rc", true},                            // a release is after its own pre-release
+		{"v0.3.0", "0.2.1-0.20261020143430-9d05fd7afcf2", true}, // a pseudo-version build sees the release
+		{"v0.3.0", "0.3.0+linux", false},                        // build metadata does not count
+		{"v0.3.0", "0.3.0", false},
 		{"not-a-version", "v0.3.0", false},
 	} {
 		if got := Newer(tc.a, tc.b); got != tc.want {
@@ -317,5 +321,27 @@ func TestReplaceBinary(t *testing.T) {
 				t.Errorf("the replaced binary lost its execute bits: %o", p)
 			}
 		}
+	}
+}
+
+// A command the operator types asks GitHub even when the kept answer is
+// fresh: a "no newer release" kept from before a release must not answer
+// berth update after it.
+func TestFetchIgnoresAFreshCache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update.json")
+	if err := StoreCache(path, Result{Latest: "v0.2.0", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var hits atomic.Int64
+	releaseServes(t, "v0.3.0", nil, &hits, "berth/0.3.0-rc")
+	got, err := Fetch(context.Background(), path, "0.3.0-rc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits.Load() != 1 || got.Latest != "v0.3.0" || !got.Newer {
+		t.Fatalf("Fetch = %+v after %d asks, want v0.3.0 newer after one ask", got, hits.Load())
+	}
+	if kept, ok := LoadCache(path); !ok || kept.Latest != "v0.3.0" {
+		t.Fatalf("kept answer = %+v, want the fresh one", kept)
 	}
 }
