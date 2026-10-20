@@ -208,8 +208,10 @@ func TestStoreAndLoadCache(t *testing.T) {
 }
 
 func TestVerify(t *testing.T) {
+	const name = "berth-linux-amd64"
 	dir := t.TempDir()
-	f := filepath.Join(dir, "berth-linux-amd64")
+	// the download lands beside the binary as binary.new
+	f := filepath.Join(dir, name+".new")
 	if err := os.WriteFile(f, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +230,19 @@ func TestVerify(t *testing.T) {
 		"file missing from sums": {"0000  other-file\n", false},
 		"empty sums":             {"", false},
 	}
-	for name, tc := range cases {
-		err := Verify([]byte(tc.sums), f)
+	for want, tc := range cases {
+		err := Verify([]byte(tc.sums), name, f)
 		if (err == nil) != tc.ok {
-			t.Errorf("%s: err = %v, want %v", name, err, tc.ok)
+			t.Errorf("%s: err = %v, want %v", want, err, tc.ok)
 		}
+	}
+}
+
+// writeAll is the test server's write: it reports, it does not panic.
+func writeAll(t *testing.T, w http.ResponseWriter, b []byte) {
+	t.Helper()
+	if _, err := w.Write(b); err != nil {
+		t.Errorf("test server: %v", err)
 	}
 }
 
@@ -243,7 +253,7 @@ func sha256Of(b []byte) string {
 
 func TestDownload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("the binary"))
+		writeAll(t, w, []byte("the binary"))
 	}))
 	defer srv.Close()
 

@@ -241,31 +241,32 @@ func Download(ctx context.Context, url, path string) error {
 }
 
 // Verify checks one file's sha256 against the sums file a release
-// publishes, a "<64 hex>  <name>" line per asset. The file's line must
-// be there and its hash must match; anything else is a refusal, not a
-// warning.
-func Verify(sums []byte, file string) error {
-	base := filepath.Base(file)
+// publishes, a "<64 hex>  <name>" line per asset. name is the line the
+// file's asset carries in the sums, file the downloaded bytes: the
+// download lands beside the binary as binary.new, which the sums do not
+// know. The line must be there and its hash must match; anything else is
+// a refusal, not a warning.
+func Verify(sums []byte, name, file string) error {
 	want := ""
 	for _, line := range strings.Split(string(sums), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		if strings.TrimPrefix(fields[1], "*") == base {
+		if strings.TrimPrefix(fields[1], "*") == name {
 			want = strings.ToLower(fields[0])
 			break
 		}
 	}
 	if want == "" {
-		return fmt.Errorf("no sha256 for %s in the sums file", base)
+		return fmt.Errorf("no sha256 for %s in the sums file", name)
 	}
 	got, err := sha256File(file)
 	if err != nil {
 		return err
 	}
 	if got != want {
-		return fmt.Errorf("sha256 of %s is %s, the release records %s", base, got, want)
+		return fmt.Errorf("sha256 of %s is %s, the release records %s", name, got, want)
 	}
 	return nil
 }
