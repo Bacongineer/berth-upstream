@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/fsx"
 )
 
 // Name sits beside pulled files: what was pulled, from which exact revision,
@@ -102,11 +104,7 @@ func WriteManifest(dir string, m Manifest) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(dir, Name+".tmp")
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, Name))
+	return fsx.WriteFile(filepath.Join(dir, Name), append(b, '\n'), 0o644)
 }
 
 // Check is one file's verdict.

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/fsx"
 )
 
 // Record is one unprotected run, identified by PID plus start time.
@@ -48,20 +50,12 @@ func path(dir string, pid int) string {
 
 // Write stores r, readable only by its owner, and returns a func that removes it.
 func Write(dir string, r Record) (func(), error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return func() {}, err
-	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return func() {}, err
 	}
 	p := path(dir, r.PID)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return func() {}, err
-	}
-	if err := os.Rename(tmp, p); err != nil {
-		os.Remove(tmp)
+	if err := fsx.WriteFile(p, b, 0o600); err != nil {
 		return func() {}, err
 	}
 	return func() { os.Remove(p) }, nil

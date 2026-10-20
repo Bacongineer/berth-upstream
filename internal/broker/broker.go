@@ -16,12 +16,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/fsx"
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -427,7 +427,7 @@ func (b *Broker) persist() {
 	}
 	data, err := json.Marshal(c)
 	if err == nil {
-		err = writeFileAtomic(b.cfg.CountersFile, data)
+		err = fsx.WriteFile(b.cfg.CountersFile, data, 0o600)
 	}
 	if err != nil {
 		if !b.saveFailed {
@@ -438,30 +438,6 @@ func (b *Broker) persist() {
 	}
 	b.saveFailed = false
 	b.saved = c
-}
-
-func writeFileAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp) // a no-op after the rename
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // Run reads the card every Poll until ctx ends.

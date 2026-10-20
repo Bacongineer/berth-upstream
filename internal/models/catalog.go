@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/fsx"
 )
 
 // CatalogDir is the directory a root keeps its catalog in, beside the
@@ -61,14 +63,7 @@ func WriteCatalog(root string, models []Model) error {
 		return err
 	}
 	p := CatalogPath(root)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return fsx.WriteFile(p, append(b, '\n'), 0o644)
 }
 
 // ReadCatalog reads root's snapshot. A root that was never scanned has no

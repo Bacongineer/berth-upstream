@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/fsx"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -201,7 +202,7 @@ func (b *Broker) persistUsage(now time.Time, force bool) {
 	b.usageDirty, b.usageSaved = false, now
 	b.mu.Unlock()
 	if err == nil {
-		err = writeFileAtomic(b.cfg.UsageFile, data)
+		err = fsx.WriteFile(b.cfg.UsageFile, data, 0o600)
 	}
 	if err != nil {
 		b.log.Warn("engine usage not saved; the default ranking will not survive a restart", "file", b.cfg.UsageFile, "err", err)
