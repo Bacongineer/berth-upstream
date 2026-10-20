@@ -8,6 +8,18 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The building blocks for KV snapshots: `internal/kvsnap` saves a
+  llama.cpp engine's busy slots to files on disk and restores them
+  before the next engine's first request, so a sequential run of
+  sub-agents does not prefill its context again after every model
+  switch. The slot client reads the engine's /slots list and drives the
+  engine's --slot-save-path actions; the index keeps the snapshot
+  directory in a ledger (a hash-named file per model and slot, never
+  across models), within a byte budget and above the library's storage
+  floor, and warms a model's snapshots into the kernel page cache, the
+  RAM tier, which is cached, never reserved. Groundwork; wired into the
+  drain and start paths in a later PR.
+
 - The page-cache warmth of a model library: `berth models` gains a CACHED
   column (the share of a model's files the kernel page cache still holds,
   summed over its parts and its companions, with the tier that share reads
