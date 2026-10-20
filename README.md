@@ -39,9 +39,9 @@ claim. When another engine holds it, Berth:
 The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
 shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 
-> **Status: alpha (v0.1).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> **Status: alpha (v0.2).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
 > Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
-> [Roadmap](#roadmap) lists what does not exist yet.
+> [Roadmap](#roadmap) lists the phases and what is still missing.
 
 ## What Berth does
 
@@ -687,16 +687,19 @@ drain_slots = "http://127.0.0.1:8080"
 | P3.5 | Node gateway: one OpenAI-compatible port; engines start on demand under a lease and drain each other | **Preview** |
 | P4 | Restart reconciliation: engines re-attach after a daemon restart, nothing left unprotected | **Done** |
 | P5 | Fleet: `berth install --harbor <addr> --join <token>` on every machine; nodes push metrics into the harbor's store (already built for one box in P2) | Planned |
+| P5.5 | Harbor router: one URL serves models from any node in the fleet | Planned |
 | P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (**done**); Windows node (**experimental**) | Partly done |
 | P7 | Offers: a waiting request can offer for an idle card on another machine; the holder decides | Planned |
 | P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Planned |
-| P9 | Organisations: single sign-on, roles, audit log, regional harbors | Planned |
+| P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
-| P11 | A staffed harbor: a local model routes leases and offers, seeing only VRAM metadata | Later |
 
-Next, in this order: a model library (`berth models`, with usage and Ollama export), Berth
-starting and swapping models itself the way llama-swap does, one gateway for every engine
-type on the machine, and engine install and update from upstream.
+Next, in this order: library v1 (shelves, roots with storage visibility, the in-root catalog,
+the CivitAI pull), journal and undo under every mutating command, engine install and update
+from upstream beyond the ComfyUI suite, Berth swapping models itself the way llama-swap does,
+the gateway's full surface (Ollama-style and voice, on top of the preview's OpenAI-compatible
+port and ComfyUI), the update watch and the migration manager, then the fleet, offers and
+multi-GPU scheduling.
 
 ## What Berth never does
 
