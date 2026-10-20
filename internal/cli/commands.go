@@ -355,10 +355,10 @@ Gated and private models read a token from $HF_TOKEN or $CIVITAI_API_KEY.`,
 		Name:    "reclaim",
 		Summary: "what a stuck lease left on the card; --yes stops it",
 		Args:    "[LEASE] [--yes] [--grace D] [--socket P] [--format F]",
-		Help: `List the card processes a stuck or releasing lease recorded, each with its
-lease, PID, start time, memory and command, plus any card process no lease
-recorded ("not Berth's", report only). No LEASE covers every stuck and
-releasing lease.
+		Help: `List the card processes a stuck lease recorded, each with its lease, PID,
+start time, memory and command, plus any card process no lease recorded
+("not Berth's", report only). No LEASE covers every stuck lease; a named
+lease may still be releasing.
 
 Without --yes nothing is signalled: rerun with --yes to stop exactly the
 recorded processes, SIGTERM first and SIGKILL to the survivors after
