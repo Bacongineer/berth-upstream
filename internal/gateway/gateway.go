@@ -54,7 +54,7 @@ type Gateway struct {
 	Log        *slog.Logger
 	Client     *http.Client
 	// HeadroomFloor is the RAM kept for the rest of the machine on a cold
-	// start; 0 = defaultHeadroomFloor.
+	// start; 0 = DefaultHeadroomFloor.
 	HeadroomFloor uint64
 	// MemAvailable is RAM available in bytes plus whether the box reports
 	// it; nil reads the live machine. Tests inject a fake here.
@@ -118,11 +118,11 @@ func cooldown(n int) time.Duration {
 	return min(d, maxStartCooldown)
 }
 
-// defaultHeadroomFloor is the RAM the gateway keeps for the rest of the
-// machine when an engine cold-starts: a start that would leave less than
-// this available is refused instead of risking system-oomd. Tunable per
-// gateway via HeadroomFloor.
-const defaultHeadroomFloor = 2 << 30
+// DefaultHeadroomFloor is the RAM kept for the rest of the machine on a
+// cold start, by the gateway's guard and by the park admission alike: a
+// start that would leave less than this available is refused instead of
+// risking system-oomd. Tunable per gateway via HeadroomFloor.
+const DefaultHeadroomFloor = 2 << 30
 
 // guardDecision is what the cold-start headroom guard decided, and why.
 // The handler only maps allow/deny to HTTP; the reason lives here.
@@ -801,7 +801,7 @@ func (g *Gateway) headroomFloor() uint64 {
 	if g.HeadroomFloor > 0 {
 		return g.HeadroomFloor
 	}
-	return defaultHeadroomFloor
+	return DefaultHeadroomFloor
 }
 
 func (g *Gateway) memAvailable() (uint64, bool) {

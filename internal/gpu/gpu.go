@@ -17,6 +17,7 @@ import (
 )
 
 const MiB = 1 << 20
+const GiB = 1 << 30
 
 // Proc is one compute process holding memory on the card.
 type Proc struct {
