@@ -205,7 +205,9 @@ func TestEngineLogSurvivesTheGateway(t *testing.T) {
 
 	g1 := &Gateway{StateFile: state, Log: discard()}
 	s := &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
-	go func() { _, _ = g1.spawnRun(e.Name, s, runner.OptionsFor(&e, runner.Over{Socket: sock, Group: e.Name, Wait: 10 * time.Second})) }()
+	go func() {
+		_, _ = g1.spawnRun(e.Name, s, runner.OptionsFor(&e, runner.Over{Socket: sock, Group: e.Name, Wait: 10 * time.Second}))
+	}()
 
 	logPath, err := g1.engineLogPath(e.Name)
 	if err != nil {

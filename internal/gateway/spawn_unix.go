@@ -31,7 +31,7 @@ func scopeArgv(name string, argv []string) []string {
 	}
 	var rnd [4]byte
 	_, _ = rand.Read(rnd[:])
-	unit := fmt.Sprintf("berth-engine-%s-%x", name, rnd)
+	unit := fmt.Sprintf("berth-engine-%s-%x", unitName(name), rnd)
 	return append([]string{"systemd-run", "--user", "--scope", "--unit", unit, "--collect", "--quiet", "--"}, argv...)
 }
 
