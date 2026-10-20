@@ -133,11 +133,16 @@ line goes away.
 
 ```sh
 go install github.com/T-Crypt/berth/cmd/berth@latest      # or a release binary, see Install
-berth daemon &                                            # the broker for this card
+berth service install --harbor                            # berthd and the harbor, as user services
 berth status                                              # the card, leases, the engines and their estimated VRAM
 berth run --as llama --priority foreground -- llama-server -m model.gguf --port 8080
-berth harbor                                              # the web UI on http://127.0.0.1:9798/
 ```
+
+On Linux the services are systemd user units; on Windows they are Task
+Scheduler logon tasks that need no admin and run in your session, where
+your GPU apps are. The harbor answers on http://127.0.0.1:9798/. `berth
+service status` shows them and `berth service uninstall` removes them; the
+manual steps in Install do the same by hand.
 
 ## Preview
 
@@ -174,8 +179,10 @@ Linux machine, following its README and contrib/INTEGRATION.md. Steps:
    and its SHA256SUMS from https://github.com/T-Crypt/berth/releases/latest, verify the
    checksum, and install it as ~/.local/bin/berth. (If Go 1.27+ is installed you may instead
    run: go install github.com/T-Crypt/berth/cmd/berth@latest.) Run `berth version`.
-3. Install contrib/berthd.service and contrib/berth-harbor.service as systemd user units and
-   start them. Confirm with `berth status`.
+3. Run `berth service install --harbor`. It writes the systemd user units
+   (the files in contrib/) with your binary's path in place of the one they
+   name, and starts them; a unit file that already differs is kept as .bak.
+   Confirm with `berth status`.
 4. Find the inference engines on this machine (llama.cpp, llama-swap, Ollama, vLLM, SGLang,
    ComfyUI, LM Studio, KoboldCpp, TabbyAPI, LocalAI and so on): what runs them (systemd unit,
    llama-swap config, script) and on which port. Show me the list before changing anything.
@@ -212,7 +219,9 @@ berth version
 
 Or build it: `go install github.com/T-Crypt/berth/cmd/berth@latest` (Go 1.27+, no C toolchain).
 
-**2. The daemon and the UI** (one per machine, systemd user units from `contrib/`):
+**2. The daemon and the UI** (one per machine). `berth service
+install --harbor` does this on both platforms; by hand, on Linux, they are
+systemd user units from `contrib/`:
 
 ```sh
 mkdir -p ~/.config/systemd/user
