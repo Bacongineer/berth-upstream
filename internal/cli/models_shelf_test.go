@@ -27,7 +27,7 @@ func TestModelsShelves(t *testing.T) {
 	}
 	if err := os.WriteFile(cfg, []byte(fmt.Sprintf(
 		"[models]\ndirs = [\"%s\", \"%s\"]\n\n[library]\nfree_floor = 0.0\n\n[[library.root]]\npath = \"%s\"\nshelf = \"image\"\n",
-		chat, img, img)), 0o644); err != nil {
+		tomlPath(chat), tomlPath(img), tomlPath(img))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

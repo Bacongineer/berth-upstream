@@ -6,6 +6,7 @@ package suite
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -47,8 +48,12 @@ func TestStateTOMLRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state file: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o644 {
-		t.Errorf("state file mode = %o, want 0644", perm)
+	if runtime.GOOS != "windows" {
+		// Windows carries no Unix mode bits; the file's existence and
+		// content are the check there.
+		if perm := fi.Mode().Perm(); perm != 0o644 {
+			t.Errorf("state file mode = %o, want 0644", perm)
+		}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

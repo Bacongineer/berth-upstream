@@ -13,6 +13,22 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
+// clockStep is the smallest age a coarse clock can measure. Windows
+// advances its interrupt time every ~15.6 ms, so two reads inside one
+// quantum differ by 0 even though the later read is still the later one
+// in program order.
+const clockStep = 16 * time.Millisecond
+
+// parkedAge is how long a lease has been parked. A status read inside
+// the park's own quantum measures 0; a zero would say the lease is not
+// parked at all, so the floor is the clock's own step.
+func parkedAge(l *lease, now time.Time) float64 {
+	if age := now.Sub(l.parkedAt); age > 0 {
+		return age.Seconds()
+	}
+	return clockStep.Seconds()
+}
+
 // Status is a copy of the broker's view: the shape /v1/status serves.
 func (b *Broker) Status() proto.Status {
 	b.mu.Lock()
@@ -63,7 +79,7 @@ func (b *Broker) Status() proto.Status {
 			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}
 		if l.state == parked {
-			pl.ParkedSince = now.Sub(l.parkedAt).Seconds()
+			pl.ParkedSince = parkedAge(l, now)
 		}
 		return pl
 	}

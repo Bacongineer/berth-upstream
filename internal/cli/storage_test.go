@@ -68,7 +68,7 @@ func TestStorageCommand(t *testing.T) {
 	// an image store, and that is what the operator meant.
 	if err := os.WriteFile(cfg, []byte(fmt.Sprintf(
 		"[models]\ndirs = [\"%s\"]\n\n[library]\nfree_floor = 0.0\n\n[[library.root]]\npath = \"%s\"\nshelf = \"image\"\nshared = \"windows\"\n",
-		root, root)), 0o644); err != nil {
+		tomlPath(root), tomlPath(root))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

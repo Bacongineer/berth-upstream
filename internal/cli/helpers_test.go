@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,12 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	var out, errOut bytes.Buffer
 	code := Run(Env{Args: args, Out: &out, Err: &errOut, Version: "test"})
 	return code, out.String(), errOut.String()
+}
+
+// tomlPath makes p a TOML basic string's body: a Windows root carries
+// backslashes, which are escape sequences in TOML.
+func tomlPath(p string) string {
+	return strings.ReplaceAll(p, `\`, `\\`)
 }
 
 func writeGGUF(t *testing.T, path, arch, name string, ctx uint32, ftype uint32, split ...uint32) string {

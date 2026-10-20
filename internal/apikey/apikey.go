@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -33,7 +34,10 @@ func DefaultPath() string {
 
 // LoadOrCreate reads the key at path, creating it (0600, in a 0700 directory
 // when the directory is new) when there is none. A key file others can read
-// is refused rather than used: it would be a secret in name only.
+// is refused rather than used: it would be a secret in name only. That check
+// reads the Unix mode bits; on Windows the file sits in the user's config
+// folder, whose ACL already keeps other users out, so the bits say nothing
+// and are not consulted.
 func LoadOrCreate(path string) (string, error) {
 	key, err := load(path)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
@@ -66,7 +70,7 @@ func load(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if st.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
 		return "", fmt.Errorf("%s is readable by others (mode %04o); chmod 600 it", path, st.Mode().Perm())
 	}
 	b, err := os.ReadFile(path)

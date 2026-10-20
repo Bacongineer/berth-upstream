@@ -4,8 +4,8 @@
 package models
 
 import (
-	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -176,11 +176,21 @@ func ApplyRootShelves(ms []Model, roots []RootShelf) {
 	}
 }
 
+// underPath reports whether p lies under root. Both sides are cleaned,
+// so a root typed with forward slashes matches on Windows too, and on
+// Windows the comparison folds case, as the filesystem does.
 func underPath(p, root string) bool {
+	if root == "" {
+		return false
+	}
+	p, root = filepath.Clean(p), filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		p, root = strings.ToLower(p), strings.ToLower(root)
+	}
 	if p == root {
 		return true
 	}
-	return strings.HasPrefix(p, root+string(os.PathSeparator))
+	return strings.HasPrefix(p, root+string(filepath.Separator))
 }
 
 // ShelfTotals is the space a shelf occupies in ms.

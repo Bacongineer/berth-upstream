@@ -75,9 +75,11 @@ func TestEngineCheckOneDown(t *testing.T) {
 	if !strings.Contains(errOut, errIndent+"e1: ") {
 		t.Errorf("stderr %q does not name the engine", errOut)
 	}
-	// The reason is reported once, in the [ERROR] block, not twice.
-	if strings.Count(out+errOut, "connection refused") != 1 {
-		t.Errorf("the reason appears %d times:\n%s\n%s", strings.Count(out+errOut, "connection refused"), out, errOut)
+	// The reason is reported once, in the [ERROR] block, not twice. The
+	// needle is the refusal word the OS's own connect error carries
+	// ("connection refused" on Unix, "actively refused" on Windows).
+	if strings.Count(out+errOut, "refused") != 1 {
+		t.Errorf("the reason appears %d times:\n%s\n%s", strings.Count(out+errOut, "refused"), out, errOut)
 	}
 }
 
