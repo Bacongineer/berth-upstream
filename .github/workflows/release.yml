@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed tag vX.Y.Z runs the same checks as CI, then publishes static Linux
-# binaries (no CGO) with SHA256SUMS on the GitHub release for that tag.
+# binaries (no CGO, Linux amd64/arm64 and Windows amd64) with SHA256SUMS on the GitHub release for that tag.
 # Release notes come from three places, first match wins:
 # notes/<tag>.md if it exists, the tag's section in CHANGELOG.md if it has
 # one, otherwise GitHub's auto-generated notes.
@@ -37,6 +37,9 @@ jobs:
               -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
               -o dist/berth-linux-$arch ./cmd/berth
           done
+          GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+            -o dist/berth-windows-amd64.exe ./cmd/berth
           cd dist && sha256sum berth-* > SHA256SUMS
       - name: Publish
         env:

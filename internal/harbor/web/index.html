@@ -8,6 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="harbor.css">
   <script type="module" src="harbor.js"></script>
+  <script type="module" src="update.js"></script>
 </head>
 <body class="mode-basic">
   <a class="skip-link" href="#main">Skip to the content</a>
@@ -33,6 +34,7 @@
       <span id="state-pill" class="conn state" role="status" title="overall state"></span>
       <span id="conn-pill" class="conn" role="status" title="connection state">CONNECTING</span>
       <span id="last-update" class="last-update" title="last successful status read"></span>
+      <span id="update-notice" class="update-notice" role="status" title="a newer berth release exists" hidden></span>
     </div>
     <button class="icon-btn menu-btn" type="button" id="menu-btn" aria-label="open the menu" aria-haspopup="dialog" aria-controls="rail-menu"></button>
   </header>

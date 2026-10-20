@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/harbor"
 	"github.com/T-Crypt/berth/internal/store"
 )
@@ -23,6 +24,7 @@ func runHarbor(c *Context) int {
 	retention := fs.Duration("retention", 720*time.Hour, "how long the store keeps samples and requests")
 	var allow hostList
 	fs.Var(&allow, "allow-host", "extra Host name a loopback harbor answers to, for a same-machine reverse proxy such as tailscale serve (repeatable or comma-separated)")
+	cfg := fs.String("config", config.DefaultPath(), "berth.toml ($BERTH_CONFIG): the [update] check switch")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
@@ -37,8 +39,19 @@ func runHarbor(c *Context) int {
 		return c.fail(Systemf("store %s: %v", *db, err))
 	}
 	defer st.Close()
-	h := &harbor.Harbor{Socket: *sock, Version: c.Version, Log: log, Store: st, AllowHosts: allow}
+	// The update check is the one thing the harbor does on its own. On by
+	// default; a config that cannot be read is treated as off: no reading
+	// the operator's intent, no contacting GitHub.
+	var updateCheck bool
+	if cfgFile, err := config.Load(*cfg); err != nil {
+		log.Warn("harbor: the config cannot be read, the update check is off", "path", *cfg, "err", err)
+	} else {
+		updateCheck = cfgFile.UpdateCheck()
+	}
+	h := &harbor.Harbor{Socket: *sock, Version: c.Version, Log: log, Store: st, AllowHosts: allow,
+		UpdateCheck: updateCheck, UpdateCache: defaultStateFile("update.json")}
 	h.RunCollector(ctx)
+	h.RunUpdate(ctx)
 	if err := h.Serve(ctx, *listen); err != nil {
 		return c.fail(Systemf("harbor: %v", err))
 	}

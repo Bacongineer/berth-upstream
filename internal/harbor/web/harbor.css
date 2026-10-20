@@ -341,6 +341,15 @@ body.mode-basic .adv-only { display: none !important; }
 .tab[aria-current="page"] .count { color: var(--amber); border-color: var(--amber-dim); }
 .header-status { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .node-version { font-family: var(--mono); font-size: var(--fs-small); color: var(--dim); }
+.update-notice { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-small); }
+.update-notice .update-link { color: var(--cyan); text-decoration: none; }
+.update-notice .update-link:hover { text-decoration: underline; }
+.update-notice .copy-btn {
+  background: none; border: 1px solid var(--cyan-dim); border-radius: 4px;
+  color: var(--cyan); font-family: var(--mono); font-size: var(--fs-small);
+  padding: 2px 8px; cursor: pointer;
+}
+.update-notice .copy-btn:hover { background: var(--cyan-wash); }
 .conn {
   display: inline-flex;
   align-items: center;
@@ -1654,7 +1663,7 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   .header-status { order: 1; flex: 1; min-width: 0; gap: var(--s1); flex-wrap: nowrap; }
   .app-header .mode { order: 2; flex: none; }
   .menu-btn { order: 3; display: inline-flex; width: var(--touch); height: var(--touch); }
-  .node-version, .last-update, #keys-btn { display: none; }
+  .node-version, .last-update, .update-notice, #keys-btn { display: none; }
   /* dot-compressed pills: the shape and the state word stay, the message and
      the relative age live in the menu sheet */
   .conn { min-width: 0; min-height: var(--touch); padding: var(--s1) var(--s2); gap: 5px; }

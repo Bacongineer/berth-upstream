@@ -527,6 +527,22 @@ last scanned the root.`,
 		Run:     runStorage,
 	},
 	{
+		Name:    "update",
+		Summary: "check for a newer berth, or replace this binary with it",
+		Args:    "[--check] [--yes] [--force]",
+		Help: `With --check, says whether a newer release exists; exit 0 either way.
+Without it, downloads the release's binary for this machine and its
+SHA256SUMS, checks the sha256, and replaces the running binary in place
+after confirmation (--yes skips the question). The new file is written
+beside the running binary, fsynced and renamed over it; on Windows the
+running .exe is moved aside to .old first, since it cannot be
+overwritten. Berth never restarts anything: the output names what to
+restart. The check is one GET to the GitHub API, cached 24 h; with
+[update] check = false Berth on its own never contacts GitHub, and this
+command is the operator asking. A dev build is refused unless --force.`,
+		Run: runUpdate,
+	},
+	{
 		Name:    "verify",
 		Summary: "re-check pulled models against their recorded hashes",
 		Args:    "[DIR...] [--dir D] [--format F]",

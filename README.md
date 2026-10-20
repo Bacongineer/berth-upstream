@@ -106,6 +106,18 @@ line goes away.
   was last used, so you can see what earns its disk space.
 - **`berth models export ollama`** turns a GGUF you already have into an Ollama model.
 
+**Keeps itself current**
+- **`berth update`** asks the release page whether a newer berth exists and,
+  when one does, downloads this machine's binary and the release's SHA256SUMS,
+  checks the hash, and replaces the running binary in place after you confirm.
+  It then names what to restart; it never restarts anything itself.
+- **Update check.** The harbor asks GitHub at most once every 24 h, one GET to
+  the API's releases/latest, cached in the state directory, and shows "Update
+  available" in its header when the answer is a newer release. `[update]
+  check = false` in `berth.toml` turns the check off, and with it off Berth
+  never contacts GitHub on its own; typing `berth update` is the operator
+  asking, and it still does.
+
 **Sees everything on the card**
 - **Finds your engines.** Berth reads llama.cpp, llama-swap, Ollama, vLLM, SGLang, ComfyUI,
   Kokoro, LM Studio, KoboldCpp, TabbyAPI, LocalAI and more on their default ports, plus any
@@ -705,8 +717,8 @@ applies to a ComfyUI queue that will not empty.
 - **CLI:** one command tree with one output contract. `berth status`, `berth events -f`,
   `berth run`, `berth hold`, `berth stop`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
   `berth wire llama-swap`, `berth engine check`, `berth config check`, `berth config show`,
-  `berth export`, `berth key`, `berth skill install`, `berth version`. Berth runs fully
-  headless.
+  `berth export`, `berth key`, `berth skill install`, `berth update`, `berth version`.
+  Berth runs fully headless.
 
   ```sh
   berth wire llama-swap --config cfg.yaml          # plan: which models lack a wrapper
@@ -736,7 +748,9 @@ applies to a ComfyUI queue that will not empty.
   KV sessions), a throughput chart, a 24H / 7D / 30D leaderboard and, in advanced mode, a
   storage panel. The top bar shows the overall state (LIVE / DEGRADED / OFFLINE) and a
   strip of the alerts currently breaching, colored from the node's own threshold state.
-  Basic and advanced modes.
+  Basic and advanced modes. While its update check is on and a newer
+  release exists, the header shows it: the release, a link to it, and a
+  button that copies `berth update`, the command that does the replacing.
   Read-only, strict content security policy. It listens on loopback by default
   (`127.0.0.1:9798`); passing a non-loopback `--listen` address (e.g. `0.0.0.0:9798`;
   a specific interface IP works too) is the explicit opt-in to expose it on your
@@ -824,6 +838,11 @@ In v0.3:
   measured switch times has measured, one start per waiter ahead plus its own; an
   unmeasured start says unmeasured, and the holder's drain is never in the figure, because
   a request runs as long as it runs.
+- **`berth update`.** Asks the release page (one GET, cached 24 h) whether a newer
+  release exists, and on your say-so downloads this machine's binary and the release's
+  SHA256SUMS, checks the hash, and replaces the running binary in place, then names what
+  to restart. The harbor's header shows a new release the same way; `[update] check = false`
+  in `berth.toml` keeps Berth from ever contacting GitHub on its own.
 - **Proof.** Tagged releases with changelogs; `contrib/chaos`, the failure scenarios anyone can
   run (an engine that ignores SIGTERM, a child that escapes, a stowaway, a daemon restart
   mid-lease); a public table of tested GPUs, drivers and engines.
@@ -842,8 +861,8 @@ never swap.
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 
-On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the update watch, the
-migration manager, and Berth swapping models itself. llama-swap already swaps models well;
+On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the migration
+manager, and Berth swapping models itself. llama-swap already swaps models well;
 Berth works beside it, and a proposal to llama-swap for generic load hooks is planned, so Berth needs no
 wrapper line.
 
