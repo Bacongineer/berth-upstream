@@ -417,6 +417,67 @@ is kept as SKILL.md.bak. Running it again after an upgrade refreshes it.`,
 		},
 	},
 	{
+		Name:    "service",
+		Summary: "run berth as a user service: install, uninstall, status",
+		Help: `Berth's services: the node (berthd) always, and the gateway and the
+harbor when you ask for them. On Linux they are systemd user units,
+rendered from the files in contrib/ with your own binary's path in place
+of the one those files name; on Windows they are Task Scheduler logon
+tasks under \Berth, one per service, no admin needed, running in your
+session where your GPU apps are.
+
+install [--gateway] [--harbor] [--dry-run] writes the units and starts
+them (systemctl --user enable --now, or a schtasks create). A unit file
+that differs is kept beside it as .bak.
+uninstall stops and removes them; a unit that was never installed is
+reported, not an error.
+status says for each of the three: installed or not, running or not.
+
+--dry-run prints what would be written and run and changes nothing.
+Exit 1 on bad flags, 2 when a system command fails, with its output.`,
+		Sub: []*Command{
+			{
+				Name:    "install",
+				Summary: "install and start the services: the node, plus the gateway and harbor when asked",
+				Args:    "[--gateway] [--harbor] [--dry-run] [--format F]",
+				Help: `Write the unit files and start the services. On Linux the files are the
+contrib/ systemd units with your binary's path substituted, written to
+~/.config/systemd/user/; a file that differs is kept as .bak, and
+systemctl --user daemon-reload and enable --now follow. On Windows a
+logon task is created per service under \Berth in Task Scheduler.
+
+--dry-run prints the files and the commands it would run, and changes
+nothing.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runServiceInstall,
+			},
+			{
+				Name:    "uninstall",
+				Summary: "stop and remove the services",
+				Args:    "[--dry-run] [--format F]",
+				Help: `Stop and remove every service the install could have written: the node,
+the gateway and the harbor. On Linux the unit files are removed and
+systemd is reloaded; on Windows the tasks are deleted. A service that
+was never installed is reported, not an error.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runServiceUninstall,
+			},
+			{
+				Name:    "status",
+				Summary: "the services: installed or not, running or not",
+				Args:    "[--format F]",
+				Help: `Report the three services, the node always and the gateway and harbor
+when installed: whether the platform says each is installed and whether
+it is running. On Linux, installed means the unit file is where the
+install writes it and running means systemctl calls it active; on
+Windows, installed means Task Scheduler knows the task and running
+means its state is Running. Read only: it changes nothing.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runServiceStatus,
+			},
+		},
+	},
+	{
 		Name:    "status",
 		Summary: "leases, waiters, squatters, the engines and the board",
 		Args:    "[--socket P] [--format F]",
