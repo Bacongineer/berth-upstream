@@ -59,6 +59,15 @@ local proof command green before opening a PR; CI must end green at merge.
   never in CI.
 - `contrib/` — systemd user units, the llama-swap patch, INTEGRATION.md.
 
+## License header
+
+Every `.go`, `.py` and `.sh` file starts with these two lines (`#` instead of `//` outside Go),
+above any `//go:build` line, followed by a blank line. `TestSourceFilesCarryTheLicenseHeader`
+fails without them.
+
+    // Copyright 2026 Trevin Tindall (T-Crypt)
+    // SPDX-License-Identifier: Apache-2.0
+
 ## What Berth never does (invariants — do not break them)
 
 - Never kill a process it did not start, or any process by default. Stowaway
