@@ -570,7 +570,7 @@ func TestEngineRemoveDropsTheEntry(t *testing.T) {
 	// --delete without --yes is refused and touches nothing
 	code, _, errOut = runCLI(t, "engine", "remove", "comfyui-2", "--config", cfg)
 	if code != ExitFail {
-		t.Fatalf("unknown name: exit = %d, want %d", code, ExitFail)
+		t.Fatalf("unknown name: exit = %d, want %d (stderr %q)", code, ExitFail, errOut)
 	}
 	writeStateFile(t, cfg, suite.State{Installs: []suite.Install{
 		suiteTestInstall("comfyui-2", tree, freePort(t)),

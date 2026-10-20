@@ -58,7 +58,23 @@ func runDaemon(c *Context) int {
 		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
 	}
 	for _, w := range warns {
-		log.Warn(w.Key+": "+w.Message)
+		log.Warn(w.Key + ": " + w.Message)
+	}
+	// A suite install reads the node's model roots through an
+	// extra_model_paths.yaml Berth writes; rewriting it at startup is what a
+	// root change in berth.toml applies on the next start.
+	if st, err := suite.Load(suite.SuitePath(*cfgPath)); err != nil {
+		log.Error("suite state", "path", suite.SuitePath(*cfgPath), "err", err)
+	} else {
+		for _, in := range st.Installs {
+			if fi, err := os.Stat(in.Path); err != nil || !fi.IsDir() {
+				log.Info("suite install has no directory, left as is", "install", in.Name, "path", in.Path)
+				continue
+			}
+			if err := suite.WriteModelPaths(in, suiteModelRoots(cfg)); err != nil {
+				log.Error("model paths", "install", in.Name, "err", err)
+			}
+		}
 	}
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
