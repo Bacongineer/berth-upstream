@@ -89,18 +89,20 @@ func TestRunFailOpenStartsWithAWarningEvenQuiet(t *testing.T) {
 func TestApplyEngineEntry(t *testing.T) {
 	e := &config.Engine{Name: "comfyui", Priority: "batch", NeedsMiB: 8192,
 		DrainPost: "http://127.0.0.1:1/free", DrainSlots: "http://127.0.0.1:2",
-		DrainComfyUI: "http://127.0.0.1:3", DrainMax: config.Duration{Duration: time.Minute}}
+		DrainComfyUI: "http://127.0.0.1:3", DrainMax: config.Duration{Duration: time.Minute},
+		MinTurn: config.Duration{Duration: 5 * time.Minute}}
 
 	var errBuf bytes.Buffer
 	c := &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	prio, keep := "interactive", false
 	needs, dp, ds, dc := uint64(0), "", "", ""
-	var dm time.Duration
+	var dm, mt time.Duration
 	cont := ""
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &cont)
+	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
 	if e.Priority != "batch" || e.NeedsMiB != 8192 || e.DrainPost != "http://127.0.0.1:1/free" ||
-		e.DrainSlots != "http://127.0.0.1:2" || e.DrainComfyUI != "http://127.0.0.1:3" || e.DrainMax.Duration != time.Minute {
-		t.Errorf("defaults from the entry = %q %d %q %q %q %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainSlots, e.DrainComfyUI, e.DrainMax)
+		e.DrainSlots != "http://127.0.0.1:2" || e.DrainComfyUI != "http://127.0.0.1:3" ||
+		e.DrainMax.Duration != time.Minute || e.MinTurn.Duration != 5*time.Minute {
+		t.Errorf("defaults from the entry = %q %d %q %q %q %s %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainSlots, e.DrainComfyUI, e.DrainMax, e.MinTurn)
 	}
 	if errBuf.String() != "" {
 		t.Errorf("no flag set, but a notice was printed: %q", errBuf.String())
@@ -108,12 +110,14 @@ func TestApplyEngineEntry(t *testing.T) {
 
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"priority": true, "needs-mib": true, "drain-post": true,
-		"drain-slots": true, "drain-comfyui": true, "drain-max": true}, Err: &errBuf}
+		"drain-slots": true, "drain-comfyui": true, "drain-max": true, "min-turn": true}, Err: &errBuf}
 	prio, needs, dp, ds, dc = "foreground", 4096, "http://127.0.0.1:9", "http://127.0.0.1:9", "http://127.0.0.1:9"
 	dm = 2 * time.Minute
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &cont)
-	if e.Priority != "foreground" || e.NeedsMiB != 4096 || e.DrainPost != "http://127.0.0.1:9" || e.DrainMax.Duration != 2*time.Minute {
-		t.Errorf("explicit flags lost to the entry: %q %d %q %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainMax)
+	mt = time.Minute
+	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	if e.Priority != "foreground" || e.NeedsMiB != 4096 || e.DrainPost != "http://127.0.0.1:9" ||
+		e.DrainMax.Duration != 2*time.Minute || e.MinTurn.Duration != time.Minute {
+		t.Errorf("explicit flags lost to the entry: %q %d %q %s %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainMax, e.MinTurn)
 	}
 	for _, want := range []string{
 		"berth: --priority overrides berth.toml priority = batch for comfyui",
@@ -122,6 +126,7 @@ func TestApplyEngineEntry(t *testing.T) {
 		"berth: --drain-slots overrides berth.toml drain_slots = http://127.0.0.1:2 for comfyui",
 		"berth: --drain-comfyui overrides berth.toml drain_comfyui = http://127.0.0.1:3 for comfyui",
 		"berth: --drain-max overrides berth.toml drain_max = 1m0s for comfyui",
+		"berth: --min-turn overrides berth.toml min_turn = 5m0s for comfyui",
 	} {
 		if !strings.Contains(errBuf.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errBuf.String())
@@ -132,7 +137,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	c = &Context{setFlags: map[string]bool{"priority": true}, Err: &errBuf}
 	prio = "batch"
 	same := &config.Engine{Name: "comfyui", Priority: "batch"}
-	applyEngineEntry(c, same, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &cont)
+	applyEngineEntry(c, same, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
 	if errBuf.String() != "" {
 		t.Errorf("a flag equal to the entry printed a notice: %q", errBuf.String())
 	}
@@ -141,7 +146,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &cont)
+	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
 	if !on.KeepComfyUI {
 		t.Error("the entry's keep_comfyui_up = true was not kept")
 	}
@@ -150,7 +155,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"keep-comfyui-up": true}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, off, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &cont)
+	applyEngineEntry(c, off, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
 	if !strings.Contains(errBuf.String(), "berth: --keep-comfyui-up overrides berth.toml keep_comfyui_up = false for comfyui") {
 		t.Errorf("stderr = %q, want the keep-comfyui-up notice", errBuf.String())
 	}
@@ -207,6 +212,32 @@ func TestRunDrainMaxOverrideNoticeIsPrinted(t *testing.T) {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
 	if !strings.Contains(errOut, "berth: --drain-max overrides berth.toml drain_max = 10m0s for strata") {
+		t.Errorf("stderr = %q, want the override notice", errOut)
+	}
+}
+
+// A run with --min-turn set names the engine's min_turn as the flag
+// overrides it, like the other drain flags.
+func TestRunMinTurnOverrideNoticeIsPrinted(t *testing.T) {
+	isolate(t)
+	home := t.TempDir()
+	toml := filepath.Join(home, "berth.toml")
+	file := "" +
+		"[[engine]]\n" +
+		"name = \"comfyui\"\n" +
+		"type = \"comfyui\"\n" +
+		"url = \"http://127.0.0.1:8188\"\n" +
+		"min_turn = \"10m\"\n"
+	if err := os.WriteFile(toml, []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(home, "nope.sock")
+	code, _, errOut := runCLI(t, "run", "--as", "comfyui", "--min-turn", "5m",
+		"--socket", missing, "--config", toml, "--", "true")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "berth: --min-turn overrides berth.toml min_turn = 10m0s for comfyui") {
 		t.Errorf("stderr = %q, want the override notice", errOut)
 	}
 }

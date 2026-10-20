@@ -32,12 +32,18 @@ import (
 )
 
 type Options struct {
-	Socket    string
-	Engine    string
-	Group     string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
-	Priority  string
-	Needs     uint64
-	Pinned    bool // never drained: an app that must not be stopped (Blender, a capture)
+	Socket   string
+	Engine   string
+	Group    string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
+	Priority string
+	Needs    uint64
+	Pinned   bool // never drained: an app that must not be stopped (Blender, a capture)
+	// MinTurn is a minimum turn: while the lease is younger than it after
+	// the grant, no request of equal or lower priority drains it, and
+	// neither does a higher one; only a hold (a game, a call, berth hold)
+	// takes the card out. When the turn ends the normal rules apply; a
+	// re-attach starts a fresh turn. 0 = off.
+	MinTurn   time.Duration
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
@@ -124,7 +130,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -273,7 +279,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, PID: pid, PIDStart: start, Container: cid.id()})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()

@@ -65,6 +65,11 @@ type Engine struct {
 	// wait at a boundary (a processing slot, a running ComfyUI job) before
 	// it stops the engine anyway. 0 = unbounded, the default.
 	DrainMax Duration `toml:"drain_max,omitzero" json:"drain_max,omitempty" yaml:"drain_max,omitempty"`
+	// MinTurn is berth run --min-turn: a minimum turn. For this long after
+	// the grant the lease keeps the card; no request drains it in that
+	// time, whatever its priority, only a hold takes the card out. When
+	// the turn ends the normal rules apply. 0 = off, the default.
+	MinTurn Duration `toml:"min_turn,omitzero" json:"min_turn,omitempty" yaml:"min_turn,omitempty"`
 	// Container is the engine's container, as berth run --container: the
 	// name of `docker run --name` (or of an existing container for
 	// `docker start -a`). The drain stops it through the runtime CLI
@@ -511,6 +516,9 @@ func (c *Config) Validate() error {
 		}
 		if e.DrainMax.Duration < 0 {
 			errs = append(errs, fmt.Errorf("%s: drain_max %s must be >= 0", where, e.DrainMax))
+		}
+		if e.MinTurn.Duration < 0 {
+			errs = append(errs, fmt.Errorf("%s: min_turn %s must be >= 0", where, e.MinTurn))
 		}
 		if e.GUI != "" {
 			if u, err := url.Parse(e.GUI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
