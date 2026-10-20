@@ -1741,9 +1741,17 @@ function updateBerth(card, g, s) {
   // occupants
   card.occ.replaceChildren();
   if (g.scheduled) {
+    const fp = {};
+    for (const f of (s && s.footprints) || []) if (f.engine) fp[f.engine] = f.estimated_vram_bytes || 0;
     for (const l of s.leases || []) {
-      const cls = "occ" + (l.state === "stuck" ? " stuck" : "");
-      card.occ.append(el("div", cls, el("span", "who", (l.state === "stuck" ? "AGROUND " : "DOCKED ") + l.engine + " " + (l.id || "")), el("span", null, l.used > 0 ? fmtGiB(l.used) + " GiB" : "draining")));
+      const tier = l.state === "stuck" ? "AGROUND" : l.state === "parking" ? "PARKING" : l.state === "parked" ? "WARM" : "DOCKED";
+      let ram = "";
+      if (l.state === "parked") {
+        if (fp[l.engine] > 0) ram = " " + fmtGiB(fp[l.engine]) + " GiB in RAM (est.)";
+        if (l.parked_since != null) ram += ", parked " + fmtAge(l.parked_since);
+      }
+      const cls = "occ" + (l.state === "stuck" ? " stuck" : l.state === "parked" ? " warm" : "");
+      card.occ.append(el("div", cls, el("span", "who", tier + " " + l.engine + " " + (l.id || "")), el("span", null, l.state === "parked" ? ram.trim() : l.used > 0 ? fmtGiB(l.used) + " GiB" : "draining")));
     }
     for (const q of s.squatters || []) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
     if (card.occ.childElementCount === 0) card.occ.append(el("div", "occ", el("span", "who", "all berths free")));
@@ -2281,9 +2289,11 @@ function renderHeavy(s) {
   paintMachineCharts();
 }
 function boardEntries(s) {
+  const fp = {};
+  for (const f of (s && s.footprints) || []) if (f.engine) fp[f.engine] = f.estimated_vram_bytes || 0;
   const out = [];
-  for (const l of s.leases || []) out.push({ key: l.id || l.engine + "#" + out.length, lease: l, isWaiting: false });
-  for (const l of s.waiting || []) out.push({ key: l.id || "wait-" + l.engine, lease: l, isWaiting: true });
+  for (const l of s.leases || []) out.push({ key: l.id || l.engine + "#" + out.length, lease: l, isWaiting: false, fp: fp[l.engine] || 0 });
+  for (const l of s.waiting || []) out.push({ key: l.id || "wait-" + l.engine, lease: l, isWaiting: true, fp: fp[l.engine] || 0 });
   return out;
 }
 // History-driven panels refresh together: tide, throughput, KPI sparklines,

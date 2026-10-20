@@ -732,9 +732,15 @@
    "estimated_vram_bytes": 1073741824,
    "runs": 3,
    "at": "2026-10-09T17:22:10-06:00"
+  },
+  {
+   "engine": "agent-fast",
+   "estimated_vram_bytes": 7301444403,
+   "runs": 30,
+   "at": "2026-10-09T18:40:00-06:00"
   }
  ],
- "parked_bytes": 17179869184,
+ "parked_bytes": 7301444403,
  "models": {
   "status": "ok",
   "roots": [

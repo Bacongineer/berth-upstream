@@ -306,12 +306,14 @@
         <h2 class="section-title">THE STATUS WORDS</h2>
         <dl class="about-dl">
           <dt>BOARDING</dt><dd>the request is waiting in the queue for a free berth</dd>
-          <dt>DOCKED</dt><dd>the lease is active and the engine is using the card</dd>
+          <dt>DOCKED</dt><dd>the lease is active and the engine is using the card, running from its HOT weights in VRAM</dd>
           <dt>CASTING OFF</dt><dd>the holder has been asked to drain and is finishing up</dd>
+          <dt>PARKING</dt><dd>a draining engine is moving its weights to RAM instead of dropping them; a transitional state, resolved once the driver shows the residual gone</dd>
+          <dt>WARM</dt><dd>the engine is parked: its weights hold in RAM, only a small residual keeps it on the card, and a resume puts it back at its own priority with no reload</dd>
           <dt>ADRIFT</dt><dd>the lease is being released and the memory is on its way out</dd>
           <dt>AGROUND</dt><dd>the release stalled; the memory is not coming back on its own</dd>
         </dl>
-        <p>Every state shows as a shape and its word together, the same on every panel: a dot is working now, a ring is waiting or passive, a half-filled circle is in transition, a triangle needs attention, a square is not running or not live. A magenta CONTESTED flag on a docked row means the driver saw other VRAM holders on the card at grant time, so the measured hold and the free space disagree. The row title and the ticket stamp carry how much they held. CARD RANKING on the engines tab shows how the node orders engines when two at one priority ask for the card inside the juggle window: the config order, or card hours over the last seven days.</p>
+        <p>Every state shows as a shape and its word together, the same on every panel: a dot is working now, a ring is waiting or passive, a half-filled circle is in transition, a triangle needs attention, a square is not running or not live. A magenta CONTESTED flag on a docked row means the driver saw other VRAM holders on the card at grant time, so the measured hold and the free space disagree. A green WARM flag marks a parked engine, and its hover text carries the estimated RAM it holds and how long it has been parked; a boarding row carries a Q flag with its place in the queue, and the node's completion estimate when it sent one. The row title, the berth panel and the ticket stamp carry how much each holds, and the ticket names the tier the weights live in, HOT on the card or WARM in RAM, beside the exact terminal order for it as a copy button. CARD RANKING on the engines tab shows how the node orders engines when two at one priority ask for the card inside the juggle window: the config order, or card hours over the last seven days.</p>
 
         <h2 class="section-title">THE REQUEST KPIs</h2>
         <dl class="about-dl">
@@ -385,10 +387,14 @@ berth config check</pre>
           <div class="trow"><span class="tlabel">BERTH</span><span class="tvalue" id="t-berth"></span></div>
           <div class="trow"><span class="tlabel">REQUESTED</span><span class="tvalue" id="t-requested"></span></div>
           <div class="trow"><span class="tlabel">MEASURED HOLD</span><span class="tvalue" id="t-hold"></span></div>
+          <div class="trow" id="t-tier-row" hidden><span class="tlabel">TIER</span><span class="tvalue" id="t-tier"></span></div>
+          <div class="trow" id="t-pos-row" hidden><span class="tlabel">QUEUE / EST.</span><span class="tvalue" id="t-pos"></span></div>
+          <div class="trow" id="t-container-row" hidden><span class="tlabel">CONTAINER</span><span class="tvalue" id="t-container"></span></div>
           <div class="trow"><span class="tlabel">PID / PID START</span><span class="tvalue" id="t-pid"></span></div>
           <div class="trow"><span class="tlabel">GPU PIDS</span><span class="tvalue" id="t-gpupids"></span></div>
           <div class="trow"><span class="tlabel">ISSUED</span><span class="tvalue" id="t-issued"></span></div>
         </div>
+        <div class="trow" id="t-cmd-row" hidden><span class="tlabel">FROM THE TERMINAL</span><span class="tvalue" id="t-cmds"></span></div>
         <div class="stamps">
           <div class="stamp" id="t-stamp"></div>
           <div class="stamp stamp-second" id="t-stamp2" hidden></div>

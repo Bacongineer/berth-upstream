@@ -413,13 +413,13 @@ body.mode-basic .adv-only { display: none !important; }
 .si.si-dot, .si.si-docked, .si.si-live, .si.si-up { border-radius: 50%; }
 /* ring: waiting or passive. The shapes are masks and clip paths, never a
    background of their own, so the surface's colour rule still fills them. */
-.si.si-ring, .si.si-boarding, .si.si-adrift, .si.si-stale, .si.si-latched, .si.si-connecting {
+.si.si-ring, .si.si-boarding, .si.si-adrift, .si.si-stale, .si.si-latched, .si.si-connecting, .si.si-warm {
   border-radius: 50%;
   -webkit-mask: radial-gradient(circle, transparent 0 40%, #000 45%);
   mask: radial-gradient(circle, transparent 0 40%, #000 45%);
 }
 /* half: in transition */
-.si.si-half, .si.si-casting-off {
+.si.si-half, .si.si-casting-off, .si.si-parking {
   border-radius: 50%;
   -webkit-mask: conic-gradient(#000 0 50%, transparent 50% 100%);
   mask: conic-gradient(#000 0 50%, transparent 50% 100%);
@@ -436,6 +436,7 @@ body.mode-basic .adv-only { display: none !important; }
 .si-boarding, .si-casting-off, .si-stale, .si-latched, .si-degraded, .si-warn { color: var(--amber); }
 .si-aground, .si-down, .si-demo, .si-crit { color: var(--magenta); }
 .si-adrift, .si-offline { color: var(--dim-2); }
+.si-warm { color: var(--green); }
 .si-connecting, .si-stored { color: var(--dim); }
 /* the states that are happening now breathe; reduced motion stops them */
 .si-live, .si-connecting, .si-casting-off { animation: pulse-dot 2.4s ease-in-out infinite; }
@@ -778,6 +779,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .tile.space::after { display: none; }
 .tile.tone-cyan { color: var(--cyan); border-color: var(--cyan-dim); }
 .tile.tone-amber { color: var(--amber); border-color: var(--amber-dim); }
+.tile.tone-green { color: var(--green); }
 .tile.tone-magenta { color: var(--magenta); border-color: var(--magenta-dim); }
 .tile.tone-dim { color: var(--dim); }
 @keyframes flap { 0% { transform: rotateX(-88deg); } 100% { transform: rotateX(0deg); } }
@@ -791,6 +793,8 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
   color: var(--magenta); border: 1px solid var(--magenta-dim); border-radius: 2px; padding: 1px 4px;
   background: var(--panel);
 }
+.flag-warm { color: var(--green); border-color: var(--live-edge); }
+.flag-queue { color: var(--amber); border-color: var(--amber-dim); }
 .board-empty { padding: 24px 8px; text-align: center; color: var(--dim); font-family: var(--mono); font-size: var(--fs-body); letter-spacing: 1px; }
 .board-foot { display: flex; align-items: center; gap: var(--s3); padding-top: var(--s2); font-family: var(--mono); font-size: var(--fs-small); color: var(--dim-2); }
 
@@ -972,6 +976,7 @@ body.ready #panel-engines > :nth-child(n+2) { animation-delay: 60ms; }
 .occ { display: flex; justify-content: space-between; gap: var(--s2); font-family: var(--mono); font-size: var(--fs-small); color: var(--dim); }
 .occ .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .occ.stuck .who { color: var(--magenta); }
+.occ.warm .who { color: var(--green); }
 .occ.squatter .who { color: var(--magenta); }
 
 /* ---------- the machine ---------- */
@@ -1481,6 +1486,18 @@ dialog#ticket::backdrop { background: var(--scrim); backdrop-filter: blur(3px); 
   cursor: pointer;
 }
 .ticket-act:hover { background: var(--cream-wash); }
+/* the terminal row: one out-of-band button per order the lease's state
+   can take; each copies `berth stop|resume|reclaim ...` for the operator to
+   run. Nothing here sends anything to the node. */
+.tcmd {
+  appearance: none; background: transparent;
+  border: 1px solid var(--paper-ink); border-radius: 4px;
+  color: var(--paper-ink); font-family: var(--mono); font-size: var(--fs-micro);
+  min-height: 28px; padding: 3px 8px; margin-right: 6px;
+  cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline;
+}
+.tcmd:hover { background: var(--cream-wash); }
+.tcmd-word { letter-spacing: 0; opacity: 0.85; }
 .ticket-body { display: flex; flex-direction: column; gap: 6px; font-family: var(--mono); }
 .trow { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; align-items: baseline; }
 .tlabel { font-size: var(--fs-micro); letter-spacing: var(--track); color: var(--paper-dim); }
