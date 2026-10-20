@@ -4,9 +4,10 @@
 package runner
 
 // The container steps: resolve the name with the runtime CLI, stop the
-// container on a drain with the runtime that answered, and fall back to the
-// process group when the stop fails. The CLI is faked and the argv is the
-// assertion; no test touches a real docker.
+// container on a drain by its full ID with the runtime that answered, and
+// fall back to the process group when the stop fails or before any
+// resolution. The CLI is faked and the argv is the assertion; no test
+// touches a real docker.
 
 import (
 	"errors"
@@ -22,22 +23,51 @@ import (
 
 const containerID = "9b5f6c4d3e2a1b0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f"
 
+// cliSpy records every runtime CLI command and the timeout it was given,
+// and answers by the subcommand.
+type cliSpy struct {
+	argvs    [][]string
+	timeouts []time.Duration
+	// inspectErr answers docker's inspect with an error, so the podman
+	// fallback resolves.
+	inspectErr bool
+}
+
+func (s *cliSpy) run(argv []string, timeout time.Duration) (string, error) {
+	s.argvs = append(s.argvs, argv)
+	s.timeouts = append(s.timeouts, timeout)
+	switch {
+	case argv[1] == "inspect" && s.inspectErr && argv[0] == "docker":
+		return "", errors.New("no such container")
+	case argv[1] == "inspect":
+		return containerID + "\n", nil
+	case argv[1] == "stop":
+		return "", nil
+	}
+	return "", errors.New("unexpected command " + strings.Join(argv, " "))
+}
+
 // A container engine's drain stops the container with the runtime that
-// resolved it, and stops nothing else.
+// resolved it, by its full ID.
 func TestDrainStopsTheContainer(t *testing.T) {
 	var argvs [][]string
+	var timeouts []time.Duration
 	o := Options{Engine: "vllm", Container: "vllm", Grace: time.Second,
 		container: &containerRef{rt: "docker", cid: containerID},
-		CLI: func(argv []string) (string, error) {
+		CLI: func(argv []string, timeout time.Duration) (string, error) {
 			argvs = append(argvs, argv)
+			timeouts = append(timeouts, timeout)
 			return "", nil
 		}}
 	drain(o, nil, make(chan struct{}), make(chan struct{}), "test", func(string, ...any) {})
 	if len(argvs) != 1 {
 		t.Fatalf("commands = %v, want one stop", argvs)
 	}
-	if strings.Join(argvs[0], " ") != "docker stop -t 1 vllm" {
+	if strings.Join(argvs[0], " ") != "docker stop -t 1 "+containerID {
 		t.Fatalf("stop argv = %v", argvs[0])
+	}
+	if got := timeouts[0]; got != 16*time.Second {
+		t.Fatalf("stop timeout = %s, want the grace plus 15 s", got)
 	}
 }
 
@@ -47,7 +77,7 @@ func TestDrainStopsWithTheRuntimeThatAnswered(t *testing.T) {
 	var argvs [][]string
 	o := Options{Engine: "vllm", Container: "vllm", Grace: time.Second,
 		container: &containerRef{rt: "podman", cid: containerID},
-		CLI: func(argv []string) (string, error) {
+		CLI: func(argv []string, timeout time.Duration) (string, error) {
 			argvs = append(argvs, argv)
 			return containerID + "\n", nil
 		}}
@@ -55,8 +85,33 @@ func TestDrainStopsWithTheRuntimeThatAnswered(t *testing.T) {
 	if len(argvs) != 1 {
 		t.Fatalf("commands = %v, want one stop", argvs)
 	}
-	if strings.Join(argvs[0], " ") != "podman stop -t 1 vllm" {
+	if strings.Join(argvs[0], " ") != "podman stop -t 1 "+containerID {
 		t.Fatalf("stop argv = %v", argvs[0])
+	}
+}
+
+// Before the name resolved there is no ID to stop: no runtime command runs,
+// and the drain falls back to today's group signals. The bare name is never
+// the target.
+func TestDrainBeforeResolutionFallsBack(t *testing.T) {
+	cmd, waited := startSleep(t)
+	var argvs [][]string
+	o := Options{Engine: "sleep", Container: "vllm", Grace: 100 * time.Millisecond,
+		CLI: func(argv []string, timeout time.Duration) (string, error) {
+			argvs = append(argvs, argv)
+			return "", nil
+		}}
+	drain(o, cmd, make(chan struct{}), make(chan struct{}), "test", func(string, ...any) {})
+	if len(argvs) != 0 {
+		t.Fatalf("commands = %v, want none before resolution", argvs)
+	}
+	select {
+	case err := <-waited:
+		if !strings.Contains(err.Error(), "terminated") {
+			t.Fatalf("engine exit = %v, want the group terminate", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the engine survived the fallback")
 	}
 }
 
@@ -67,7 +122,7 @@ func TestDrainContainerStopFailureFallsBack(t *testing.T) {
 	var argvs [][]string
 	o := Options{Engine: "sleep", Container: "vllm", Grace: 100 * time.Millisecond,
 		container: &containerRef{rt: "docker", cid: containerID},
-		CLI: func(argv []string) (string, error) {
+		CLI: func(argv []string, timeout time.Duration) (string, error) {
 			argvs = append(argvs, argv)
 			if argv[1] == "stop" {
 				return "cannot stop", errors.New("docker stop failed")
@@ -76,7 +131,7 @@ func TestDrainContainerStopFailureFallsBack(t *testing.T) {
 		}}
 	done := make(chan struct{})
 	drain(o, cmd, done, make(chan struct{}), "test", func(string, ...any) {})
-	if strings.Join(argvs[len(argvs)-1], " ") != "docker stop -t 0 vllm" {
+	if strings.Join(argvs[len(argvs)-1], " ") != "docker stop -t 0 "+containerID {
 		t.Fatalf("stop argv = %v", argvs)
 	}
 	select {
@@ -90,7 +145,7 @@ func TestDrainContainerStopFailureFallsBack(t *testing.T) {
 }
 
 // resolveContainer retries until the runtime knows the name, then attaches
-// the full ID to the lease.
+// the full ID to the lease; the inspect runs under its own deadline.
 func TestResolveContainerRetriesThenAttaches(t *testing.T) {
 	client, serverRaw := net.Pipe()
 	defer client.Close()
@@ -109,8 +164,10 @@ func TestResolveContainerRetriesThenAttaches(t *testing.T) {
 	}()
 
 	n := 0
-	o := Options{Container: "vllm", Retry: time.Millisecond, CLI: func(argv []string) (string, error) {
+	var seen time.Duration
+	o := Options{Container: "vllm", Retry: time.Millisecond, CLI: func(argv []string, timeout time.Duration) (string, error) {
 		n++
+		seen = timeout
 		if n < 3 {
 			return "", errors.New("no such container")
 		}
@@ -122,6 +179,9 @@ func TestResolveContainerRetriesThenAttaches(t *testing.T) {
 
 	if id := cid.id(); id != containerID {
 		t.Fatalf("resolved = %q", id)
+	}
+	if seen != 10*time.Second {
+		t.Fatalf("inspect timeout = %s, want 10 s", seen)
 	}
 	m := <-msgs
 	if m.Op != proto.OpAttach || m.PID != 1234 || m.Container != containerID {

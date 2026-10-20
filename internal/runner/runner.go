@@ -71,9 +71,10 @@ type Options struct {
 	// it; nothing else is ever stopped.
 	Container string
 	// CLI is the runtime CLI exec: every docker or podman inspect and stop
-	// runs through it and it returns the command's combined output; nil =
-	// the real CLI, tests fake it and assert the argv.
-	CLI func(argv []string) (string, error)
+	// runs through it, under the timeout the caller names, and it returns
+	// the command's combined output; nil = the real CLI, tests fake it and
+	// assert the argv.
+	CLI func(argv []string, timeout time.Duration) (string, error)
 	// container carries the resolved container (the runtime that answered
 	// and the full ID) from the resolver goroutine to the drain; Run sets
 	// it, tests that fake the resolution set it directly.
@@ -680,21 +681,25 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 		// The engine lives in a container of ours: stop it through the
 		// runtime CLI (its own SIGTERM, then SIGKILL inside the image)
 		// instead of signalling the CLI wrapper's process group. The
-		// runtime is whatever resolved the name, and a failed stop falls
-		// back to the group, as the ladder has always run.
-		runtime := ""
+		// target is the full ID the resolver answered, never the bare
+		// name; before the name resolved there is no ID to stop, so the
+		// group signals run as they always have.
+		runtime, id := "", ""
 		if o.container != nil {
-			runtime = o.container.runtime()
+			runtime, id = o.container.runtime(), o.container.id()
 		}
-		if runtime == "" {
-			if rs := runtimes(); len(rs) > 0 {
-				runtime = rs[0]
+		if id != "" {
+			if runtime == "" {
+				if rs := runtimes(); len(rs) > 0 {
+					runtime = rs[0]
+				}
 			}
-		}
-		if _, err := o.CLI(stopArgv(runtime, o.Container, o.Grace)); err != nil {
-			say("container stop failed (%v); falling back to the process group", err)
-		} else {
-			return
+			argv := stopArgv(runtime, id, o.Grace)
+			if _, err := o.CLI(argv, o.Grace+15*time.Second); err != nil {
+				say("container stop failed (%v); falling back to the process group", err)
+			} else {
+				return
+			}
 		}
 	}
 	terminate(cmd)

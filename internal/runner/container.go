@@ -11,6 +11,7 @@ package runner
 // stopped.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -67,7 +68,7 @@ func runtimes() []string {
 func inspect(o Options, name string) (runtime, id string, err error) {
 	var last error
 	for _, rt := range runtimes() {
-		out, err := o.CLI([]string{rt, "inspect", "-f", "{{.Id}}", name})
+		out, err := o.CLI([]string{rt, "inspect", "-f", "{{.Id}}", name}, 10*time.Second)
 		if err != nil {
 			last = fmt.Errorf("%s inspect: %w", rt, err)
 			continue
@@ -118,14 +119,21 @@ func resolveContainer(o Options, conn *proto.Conn, cmd *exec.Cmd, done <-chan st
 	}
 }
 
-// stopArgv is the `docker stop -t <grace seconds> NAME` (or podman's) that
-// hands a container engine's drain to the runtime CLI.
-func stopArgv(runtime, name string, grace time.Duration) []string {
-	return []string{runtime, "stop", "-t", strconv.FormatInt(int64(grace/time.Second), 10), name}
+// stopArgv is the `docker stop -t <grace seconds> ID` (or podman's) that
+// hands a container engine's drain to the runtime CLI. It stops the full ID
+// the resolver answered, never the bare name: a name could have been taken
+// over by a container Berth never started.
+func stopArgv(runtime, id string, grace time.Duration) []string {
+	return []string{runtime, "stop", "-t", strconv.FormatInt(int64(grace/time.Second), 10), id}
 }
 
-// execCLI runs one docker or podman command and gives back its output.
-func execCLI(argv []string) (string, error) {
-	out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+// execCLI runs one docker or podman command under a deadline and gives back
+// its output. A hung runtime daemon leaks nothing: every call ends by the
+// timeout (inspect 10 s; stop the drain's grace plus 15 s, set by the
+// caller).
+func execCLI(argv []string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
 	return string(out), err
 }
