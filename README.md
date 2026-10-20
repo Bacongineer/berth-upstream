@@ -346,6 +346,11 @@ startup, so a change to the roots applies on the next restart.
   holder's processes gone, since an exited process can still hold memory.
 - **Stuck releases are caught.** A released lease whose memory never frees turns
   *aground* and keeps blocking, with a reason naming the process and how much it holds.
+- **A way out for a stuck release.** `berth reclaim [lease]` lists what the stuck lease
+  recorded, PID, start time, memory and command, and anything on the card no lease
+  recorded ("not Berth's", report only). With `--yes` it stops exactly the recorded
+  ones, SIGTERM first and SIGKILL to the survivors after `--grace`, re-checking each
+  PID and start time immediately before every signal.
 - **Process identity is PID plus start time**, so a reused PID never inherits a lease.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine

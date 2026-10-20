@@ -324,6 +324,22 @@ Gated and private models read a token from $HF_TOKEN or $CIVITAI_API_KEY.`,
 		Run:     runPull,
 	},
 	{
+		Name:    "reclaim",
+		Summary: "what a stuck lease left on the card; --yes stops it",
+		Args:    "[LEASE] [--yes] [--grace D] [--socket P] [--format F]",
+		Help: `List the card processes a stuck or releasing lease recorded, each with its
+lease, PID, start time, memory and command, plus any card process no lease
+recorded ("not Berth's", report only). No LEASE covers every stuck and
+releasing lease.
+
+Without --yes nothing is signalled: rerun with --yes to stop exactly the
+recorded processes, SIGTERM first and SIGKILL to the survivors after
+--grace. berthd re-checks each PID and start time immediately before every
+signal and skips a mismatch, so a reused PID is never signalled.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runReclaim,
+	},
+	{
 		Name:    "run",
 		Summary: "start CMD once it holds a berth, stop it when asked",
 		Args:    "--as NAME [flags] -- CMD [ARGS...]",
