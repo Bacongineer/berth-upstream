@@ -13,7 +13,9 @@ package engines
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/proto"
@@ -215,10 +217,15 @@ func (w *Watcher) unsloth(ctx context.Context, base, keyEnv string, out *proto.E
 	if keyEnv == "" {
 		keyEnv = "UNSLOTH_STUDIO_AUTH_TOKEN"
 	}
-	if err := w.openAIModels(ctx, base, keyEnv, out); err != nil && (strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "403")) {
+	if err := w.openAIModels(ctx, base, keyEnv, out); isAuthStatus(err) {
 		out.Error = "API key needed for the model list (" + keyEnv + ")"
 	}
 	return nil
+}
+
+func isAuthStatus(err error) bool {
+	var status *httpStatusError
+	return errors.As(err, &status) && (status.code == http.StatusUnauthorized || status.code == http.StatusForbidden)
 }
 
 // freetoken reads FreeToken's JSON /v1/stats (it serves no Prometheus).
