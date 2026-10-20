@@ -443,10 +443,13 @@ startup, so a change to the roots applies on the next restart.
   (`priority = "foreground"` next to a foreground llama-swap) and each side drains the other on
   demand. A lower priority waits behind the holder instead.
 - **Clear failures.** Unknown model: 404. A start the broker refuses or an engine that exits
-  before it answers: 503 with the reason, the engine's last log line, a `Retry-After` and an
+  before it answers: 503 with the reason, the engine's own failure line, a `Retry-After` and an
   error `code` a client can branch on: `outranked` (lost a juggle), `drained_while_starting`,
-  `no_berth`, `not_ready`, `start_failed` or `no_start`. A model listed under
-  `serves` by two engines fails `berth config check`.
+  `no_berth`, `not_ready`, `start_failed`, `engine_oom` (the engine could not get the GPU
+  memory it asked for) or `no_start`. An engine that crashes on start isn't started again on
+  every retry: for 15 s, doubling to 5 min, the gateway answers at once with the same cause,
+  and `Retry-After` says when the next start is allowed. A start that answers clears it. A
+  model listed under `serves` by two engines fails `berth config check`.
 - **API key.** Bearer token on every route; `berth key` prints it (created on first use, mode
   600). Loopback only; browser origins and non-loopback Host names are refused.
 
