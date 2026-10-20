@@ -470,21 +470,80 @@ func TestQueuedStartDoesNotOutliveTheRequest(t *testing.T) {
 	}
 }
 
-// A start that ended before its engine answered says why, as a code.
+// A start that ended before its engine answered says why, as a code, and a
+// crash quotes the engine's own cause line, not berth run's last line.
 func TestClassify(t *testing.T) {
 	for _, c := range []struct {
 		exit   int
 		stderr string
+		output string
 		code   string
+		says   string
 	}{
-		{75, "berth: waiting: juggle: llama-swap keeps the card over strata (order: llama-swap > strata)\nberth: refused: gave up", "outranked"},
-		{143, "berth: granted strata-1\nberth: draining strata: NInfer (foreground) needs the card", "drained_while_starting"},
-		{runner.ExitRefused, "berth: refused: gave up after 10m0s", "no_berth"},
-		{1, "Traceback: boom", "start_failed"},
+		{75, "berth: waiting: juggle: llama-swap keeps the card over strata (order: llama-swap > strata)\nberth: refused: gave up", "", "outranked", "juggle"},
+		{143, "berth: granted strata-1\nberth: draining strata: NInfer (foreground) needs the card", "", "drained_while_starting", "NInfer"},
+		{runner.ExitRefused, "berth: refused: gave up after 10m0s", "", "no_berth", "gave up"},
+		{1, "berth: granted strata-1", "loading\nTraceback (most recent call last):\n  boom\nValueError: bad pack\n", "start_failed", "ValueError: bad pack"},
+		{1, "berth: granted strata-1", "", "start_failed", "granted strata-1"},
+		// 2026-10-19: Strata's run config lost its 700 MiB VRAM reserve; the
+		// expert cache took the card and cuBLAS could not make its handle.
+		{1, "berth: granted strata-17", "EngineDied: the engine exited before it was ready\n  strata serve: prefill gemm: cublasCreate: cuBLAS status 1\n", "engine_oom", "cuBLAS status 1"},
+		{1, "berth: granted llamacpp-2", "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 9000 MiB on device 0: cudaMalloc failed: out of memory\nmain: exiting due to model loading error\n", "engine_oom", "model loading error"},
+		{1, "berth: granted comfyui-3", "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB\n", "engine_oom", "OutOfMemoryError"},
 	} {
-		if got := classify("strata", c.exit, c.stderr); got.code != c.code {
-			t.Errorf("classify(%d, %q) = %s, want %s", c.exit, c.stderr, got.code, c.code)
+		got := classify("strata", c.exit, c.stderr, c.output)
+		if got.code != c.code || !strings.Contains(got.msg, c.says) {
+			t.Errorf("classify(%d, %q, %q) = %s %q, want %s naming %q", c.exit, c.stderr, c.output, got.code, got.msg, c.code, c.says)
 		}
+	}
+}
+
+// An engine that dies before it answers: the 503 names the engine's own
+// cause, and the retries a client fires straight after it do not cold-start
+// the same crash again; they get the cause at once, with a Retry-After.
+func TestCrashedStartSaysWhyAndCoolsDown(t *testing.T) {
+	sock, _ := daemon(t)
+	marker := filepath.Join(t.TempDir(), "starts")
+	crash := `echo start >> "$1"; echo "loading the model"; echo "prefill gemm: cublasCreate: cuBLAS status 1" >&2; exit 1`
+	g := &Gateway{Socket: sock, Ready: 5 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{{Name: "crashy", URL: "http://" + freeAddr(t), Start: []string{"sh", "-c", crash, "sh", marker}, Serves: []string{"m"}}}}
+	gw := httptest.NewServer(g.Handler())
+	defer gw.Close()
+
+	for i, wantRetry := range []string{"30", "15", "15"} {
+		resp := call(t, "POST", gw.URL+"/v1/chat/completions", `{"model":"m"}`)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), `"engine_oom"`) ||
+			!strings.Contains(string(body), "cuBLAS status 1") || strings.Contains(string(body), "granted") {
+			t.Fatalf("try %d: %d %s, want a 503 engine_oom quoting the engine", i, resp.StatusCode, body)
+		}
+		if got := resp.Header.Get("Retry-After"); got != wantRetry {
+			t.Fatalf("try %d: Retry-After %q, want %q (the cooldown left): %s", i, got, wantRetry, body)
+		}
+	}
+	starts, _ := os.ReadFile(marker)
+	if n := strings.Count(string(starts), "start"); n != 1 {
+		t.Fatalf("the engine started %d times, want 1: the retries must not re-run the crash", n)
+	}
+}
+
+func TestCooldownDoublesToItsCap(t *testing.T) {
+	for n, want := range map[int]time.Duration{1: 15 * time.Second, 2: 30 * time.Second, 3: time.Minute, 6: 5 * time.Minute, 40: 5 * time.Minute} {
+		if got := cooldown(n); got != want {
+			t.Errorf("cooldown(%d) = %s, want %s", n, got, want)
+		}
+	}
+}
+
+func TestTailBufKeepsTheEnd(t *testing.T) {
+	var b tailBuf
+	for i := 0; i < 5000; i++ {
+		fmt.Fprintf(&b, "token batch %d\n", i)
+	}
+	fmt.Fprint(&b, "the real cause\n")
+	if s := b.String(); len(s) > tailMax || !strings.HasSuffix(s, "the real cause\n") {
+		t.Fatalf("tail is %d bytes ending %q", len(s), s[max(0, len(s)-40):])
 	}
 }
 

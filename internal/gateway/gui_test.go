@@ -188,7 +188,7 @@ func TestCardView(t *testing.T) {
 		{"draining", &proto.Status{Leases: []proto.Lease{{Engine: "strata", State: "draining"}}}, starting, "waiting", "Waiting for strata release: finishing its current request"},
 		{"releasing", &proto.Status{Leases: []proto.Lease{{Engine: "NInfer-27B", Group: "llama-swap", State: "releasing"}}}, starting, "waiting", "Waiting for llama-swap (NInfer-27B) release: freeing its memory"},
 		{"granted", &proto.Status{Leases: []proto.Lease{{Engine: "comfyui", State: "active"}}}, starting, "starting", "loading comfyui"},
-		{"failed", &proto.Status{}, &wake{err: &startError{"no_berth", "comfyui got no berth"}}, "failed", "did not start"},
+		{"failed", &proto.Status{}, &wake{err: &startError{code: "no_berth", msg: "comfyui got no berth"}}, "failed", "did not start"},
 	} {
 		got := cardView("comfyui", c.node, c.wk)
 		if got.State != c.state || !strings.Contains(got.Message, c.want) {

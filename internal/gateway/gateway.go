@@ -23,8 +23,10 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,14 +59,43 @@ type Gateway struct {
 
 	mu      sync.Mutex
 	running map[string]*started // engines this gateway started, by name
+	failed  map[string]*failure // engines whose last start died before answering
 	lists   map[string]cached   // engine URL -> its /v1/models, briefly cached
 	wakes   map[string]*wake    // the wake page's last start, by engine name
 }
 
 type started struct {
-	exited chan struct{}
-	code   int
-	stderr *lockedBuf
+	exited   chan struct{}
+	code     int
+	stderr   *lockedBuf // berth run's own lines: granted, waiting, draining
+	output   *tailBuf   // the tail of the engine's own stdout and stderr
+	answered bool       // the engine answered at least once (under g.mu)
+	why      *startError
+}
+
+// failure is an engine whose start died before it answered. A start that
+// fails the same way every time (a bad config, a card too full for it) is
+// not run again on every client retry: for a while the gateway answers with
+// the cause at once instead of paying another cold start to learn it again.
+type failure struct {
+	err   *startError
+	n     int       // failed starts in a row
+	until time.Time // no new start before this
+}
+
+// startCooldown is the pause after the first failed start; each failure in
+// a row doubles it, up to maxStartCooldown. A start that answers clears it.
+const (
+	startCooldown    = 15 * time.Second
+	maxStartCooldown = 5 * time.Minute
+)
+
+func cooldown(n int) time.Duration {
+	d := startCooldown
+	for i := 1; i < n && d < maxStartCooldown; i++ {
+		d *= 2
+	}
+	return min(d, maxStartCooldown)
 }
 
 // defaultHeadroomFloor is the RAM the gateway keeps for the rest of the
@@ -320,10 +351,11 @@ func apiError(w http.ResponseWriter, code int, msg string) {
 }
 
 // apiErrorCode is an OpenAI-shaped error with a reason code a client can
-// branch on; a 503 also says when to try again.
+// branch on; a 503 also says when to try again (30 s unless the caller
+// already set a time it knows).
 func apiErrorCode(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	if status == http.StatusServiceUnavailable {
+	if status == http.StatusServiceUnavailable && w.Header().Get("Retry-After") == "" {
 		w.Header().Set("Retry-After", "30")
 	}
 	w.WriteHeader(status)
@@ -336,25 +368,67 @@ func apiErrorCode(w http.ResponseWriter, status int, code, msg string) {
 
 // startError is why an engine could not be brought up for a request.
 type startError struct {
-	code string // no_start, outranked, drained_while_starting, no_berth, start_failed, not_ready, no_headroom
-	msg  string
+	code  string // no_start, outranked, drained_while_starting, no_berth, start_failed, engine_oom, not_ready, no_headroom
+	msg   string
+	retry time.Duration // when set, the client is told to try again after this (Retry-After)
 }
 
 func (e *startError) Error() string { return e.msg }
 
-// classify reads why a start ended before its engine answered from what the
-// in-process berth run printed.
-func classify(name string, exit int, stderr string) *startError {
+// classify reads why a start ended before its engine answered: the lease
+// outcomes from what the in-process berth run printed (stderr), a crash from
+// the engine's own output, where the cause is.
+func classify(name string, exit int, stderr, output string) *startError {
 	last := lastLine(stderr)
 	switch {
 	case strings.Contains(stderr, "juggle:"):
-		return &startError{"outranked", fmt.Sprintf("%s lost a juggle for the card: %s", name, last)}
+		return &startError{code: "outranked", msg: fmt.Sprintf("%s lost a juggle for the card: %s", name, last)}
 	case strings.Contains(stderr, "berth: draining"):
-		return &startError{"drained_while_starting", fmt.Sprintf("%s was drained before it answered: %s", name, last)}
+		return &startError{code: "drained_while_starting", msg: fmt.Sprintf("%s was drained before it answered: %s", name, last)}
 	case exit == runner.ExitRefused:
-		return &startError{"no_berth", fmt.Sprintf("%s got no berth: %s", name, last)}
+		return &startError{code: "no_berth", msg: fmt.Sprintf("%s got no berth: %s", name, last)}
 	}
-	return &startError{"start_failed", fmt.Sprintf("%s did not start (exit %d): %s", name, exit, last)}
+	cause := causeLine(output)
+	if cause == "" {
+		cause = last
+	}
+	if oomLine.MatchString(output) {
+		return &startError{code: "engine_oom", msg: fmt.Sprintf("%s ran out of GPU memory while starting (exit %d): %s", name, exit, cause)}
+	}
+	return &startError{code: "start_failed", msg: fmt.Sprintf("%s did not start (exit %d): %s", name, exit, cause)}
+}
+
+// errLine marks a line of engine output that reads as a failure; oomLine one
+// that names a GPU allocation failure, in the words the common engines use
+// (CUDA and PyTorch, cuBLAS handle creation, llama.cpp, Vulkan, ROCm).
+var (
+	errLine = regexp.MustCompile(`(?i)error|fail|fatal|panic|exception|traceback|abort|denied|cannot|unable|no such|not found|out of memory|status [1-9]`)
+	oomLine = regexp.MustCompile(`(?i)out of memory|CUDA_ERROR_OUT_OF_MEMORY|cudaErrorMemoryAllocation|OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED|cublasCreate\S*:? cuBLAS status [13]\b|failed to allocate .*buffer|ErrorOutOfDeviceMemory|hipErrorOutOfMemory`)
+)
+
+// causeLine is the last line of the engine's output that reads as a
+// failure, else its last line; empty when it printed nothing. Long lines
+// are cut so an error body stays readable.
+func causeLine(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	pick := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l == "" {
+			continue
+		}
+		if pick == "" {
+			pick = l
+		}
+		if errLine.MatchString(l) {
+			pick = l
+			break
+		}
+	}
+	if len(pick) > 300 {
+		pick = pick[:300] + "..."
+	}
+	return pick
 }
 
 // forward reads the model from the body, makes sure its engine is up (under
@@ -405,6 +479,9 @@ func (g *Gateway) startFailed(w http.ResponseWriter, engine, what string, err er
 		code = se.code
 	}
 	g.log().Warn("gateway start failed", "engine", engine, "request", what, "code", code, "err", err)
+	if se != nil && se.retry > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int((se.retry+time.Second-1)/time.Second)))
+	}
 	apiErrorCode(w, http.StatusServiceUnavailable, code, err.Error())
 }
 
@@ -500,7 +577,7 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 		return nil // already up (started by hand or by its own manager)
 	}
 	if len(e.Start) == 0 {
-		return &startError{"no_start", fmt.Sprintf("%s is not answering at %s and has no start command in berth.toml", e.Name, e.URL)}
+		return &startError{code: "no_start", msg: fmt.Sprintf("%s is not answering at %s and has no start command in berth.toml", e.Name, e.URL)}
 	}
 	if err := g.checkHeadroom(e); err != nil {
 		g.log().Warn("gateway start refused", "engine", e.Name, "err", err)
@@ -513,7 +590,15 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	}
 	s, ok := g.running[e.Name]
 	if !ok {
-		s = &started{exited: make(chan struct{}), stderr: &lockedBuf{}}
+		if f := g.failed[e.Name]; f != nil {
+			if left := time.Until(f.until); left > 0 {
+				g.mu.Unlock()
+				return &startError{code: f.err.code, retry: left,
+					msg: fmt.Sprintf("%s; %d start(s) in a row failed, the next is allowed in %s",
+						f.err.msg, f.n, left.Round(time.Second))}
+			}
+		}
+		s = &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
 		g.running[e.Name] = s
 		go g.run(e, s, ready)
 	}
@@ -522,17 +607,21 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	deadline := time.Now().Add(ready)
 	for {
 		if probe(ctx, e.URL) {
+			g.mu.Lock()
+			s.answered = true
+			delete(g.failed, e.Name)
+			g.mu.Unlock()
 			return nil
 		}
 		select {
 		case <-s.exited:
-			return classify(e.Name, s.code, s.stderr.String())
+			return s.why
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(250 * time.Millisecond):
 		}
 		if time.Now().After(deadline) {
-			return &startError{"not_ready", fmt.Sprintf("%s did not answer within %s", e.Name, ready)}
+			return &startError{code: "not_ready", msg: fmt.Sprintf("%s did not answer within %s", e.Name, ready)}
 		}
 	}
 }
@@ -596,11 +685,30 @@ func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration) {
 		Socket: g.Socket, Engine: e.Name, Priority: prio, Needs: e.NeedsMiB << 20,
 		Wait: wait, DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
 		KeepComfyUI: e.KeepComfyUI,
-		Grace:       30 * time.Second, Argv: e.Start, Stderr: s.stderr,
+		Grace:       30 * time.Second, Argv: e.Start, Stderr: s.stderr, Output: s.output,
 	})
 	g.log().Info("gateway engine exited", "engine", e.Name, "code", s.code)
 	g.mu.Lock()
 	delete(g.running, e.Name)
+	if !s.answered {
+		s.why = classify(e.Name, s.code, s.stderr.String(), s.output.String())
+		// Only a crash cools down: a lost juggle, a drain or a refused
+		// lease is the broker's answer, and the next try may well win.
+		if s.why.code == "start_failed" || s.why.code == "engine_oom" {
+			if g.failed == nil {
+				g.failed = map[string]*failure{}
+			}
+			f := g.failed[e.Name]
+			if f == nil {
+				f = &failure{}
+				g.failed[e.Name] = f
+			}
+			f.n++
+			f.err, f.until = s.why, time.Now().Add(cooldown(f.n))
+			g.log().Warn("gateway start cooling down", "engine", e.Name, "failed_in_a_row", f.n,
+				"next_start_in", cooldown(f.n), "cause", s.why.msg)
+		}
+	}
 	g.mu.Unlock()
 	close(s.exited)
 }
@@ -634,6 +742,31 @@ func (l *lockedBuf) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+// tailBuf keeps the last tailMax bytes written to it. An engine can print
+// for days (Strata logs every token batch); only the end says why it died.
+type tailBuf struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+const tailMax = 16 << 10
+
+func (t *tailBuf) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.b = append(t.b, p...)
+	if over := len(t.b) - tailMax; over > 0 {
+		t.b = append(t.b[:0], t.b[over:]...)
+	}
+	return len(p), nil
+}
+
+func (t *tailBuf) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.b)
 }
 
 func lastLine(s string) string {
