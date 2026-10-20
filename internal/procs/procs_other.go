@@ -11,3 +11,7 @@ type System struct{}
 
 func (System) Parent(int) int       { return 0 }
 func (System) StartTime(int) uint64 { return 0 }
+
+// List has no process table on this platform, so no descendants are
+// recorded.
+func List() []Proc { return nil }

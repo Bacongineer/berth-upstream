@@ -85,3 +85,7 @@ func Walk(fn func(*windows.ProcessEntry32)) error {
 	}
 	return err
 }
+
+// List has no process table yet, so no descendants are recorded. A walk
+// over snapshotParents' data can follow when Windows needs it.
+func List() []Proc { return nil }

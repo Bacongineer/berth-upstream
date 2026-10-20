@@ -45,3 +45,12 @@ type Fake struct {
 
 func (f Fake) Parent(pid int) int       { return f.Parents[pid] }
 func (f Fake) StartTime(pid int) uint64 { return f.Starts[pid] }
+
+// Proc is one process as List reports it: identity is PID plus start time,
+// and the parent PID is what attributes descendants to a lease.
+type Proc struct {
+	PID    int
+	Parent int
+	Start  uint64
+	Name   string
+}

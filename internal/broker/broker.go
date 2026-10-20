@@ -116,9 +116,14 @@ type Config struct {
 	// engines that lost the previous daemon mid-run are still alive and
 	// due to re-attach.
 	ReattachWindow time.Duration
-	Version        string
-	Reporter       Reporter
-	Log            *slog.Logger
+	// ProcTable lists every process on the machine (procs.List on Linux):
+	// pid, parent, start time, name. Each tick the broker records every
+	// descendant of an attached lease under that lease, so a child that
+	// escapes before any GPU poll is still the lease's. nil = no table.
+	ProcTable func() []procs.Proc
+	Version   string
+	Reporter  Reporter
+	Log       *slog.Logger
 }
 
 type Request struct {
@@ -154,8 +159,9 @@ type lease struct {
 	pid       int
 	pidStart  uint64
 	gpu       map[ident]gpu.Proc
-	contested uint64 // squatter bytes on the card when granted
-	peak      uint64 // most memory its processes were measured holding
+	desc      map[ident]struct{} // descendants recorded while the lease ran
+	contested uint64             // squatter bytes on the card when granted
+	peak      uint64             // most memory its processes were measured holding
 	arrived   time.Time
 	granted   time.Time
 	released  time.Time
@@ -185,6 +191,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		needs:   r.Needs,
 		pinned:  r.Pinned,
 		gpu:     map[ident]gpu.Proc{},
+		desc:    map[ident]struct{}{},
 		arrived: now,
 		grantCh: make(chan struct{}),
 		drainCh: make(chan string, 1),
@@ -347,6 +354,9 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	if cfg.ReattachWindow <= 0 {
 		cfg.ReattachWindow = 15 * time.Second
 	}
+	if cfg.ProcTable == nil {
+		cfg.ProcTable = procs.List
+	}
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
@@ -437,6 +447,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	}
 	b.probeErr = nil
 	b.snap = snap
+	b.recordDescendants()
 
 	present := map[ident]bool{}
 	claimed := map[ident]claimedProc{}
@@ -566,6 +577,11 @@ func (b *Broker) reportGone(s *squatter) {
 func (b *Broker) owner(id ident) *lease {
 	for _, l := range b.leases {
 		if _, ok := l.gpu[id]; ok {
+			return l
+		}
+	}
+	for _, l := range b.leases {
+		if _, ok := l.desc[id]; ok {
 			return l
 		}
 	}
