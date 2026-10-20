@@ -33,7 +33,7 @@
     showCard(s.card);
     const idle = s.state === "offline" || s.state === "failed";
     start.hidden = !idle;
-    start.textContent = s.state === "failed" ? "Try again" : "Start " + name;
+    start.textContent = s.state === "failed" ? "Try again" : "Launch " + name;
     meta.hidden = idle;
     if (!idle && !since) since = Date.now();
     if (idle) since = 0;

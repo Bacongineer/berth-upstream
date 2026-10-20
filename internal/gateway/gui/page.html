@@ -14,19 +14,33 @@
   <p id="status" class="status" role="status" aria-live="polite">Checking the card ...</p>
   <ul id="card" class="card-list" aria-label="On the card"></ul>
   <p id="detail" class="detail"></p>
-  <button id="start" type="button" hidden>Start {{.Engine}}</button>
+  <button id="start" type="button" hidden>Launch {{.Engine}}</button>
   <p id="meta" class="meta" hidden><span id="elapsed">0 s</span> · the page opens {{.Engine}} once it answers</p>
   <script src="/_wake/wake.js"></script>
 {{- else}}
   <h1>berth</h1>
-  <p class="status">Open an engine's web UI. A stopped engine starts under a lease first.</p>
-  <ul class="engines">
+  <p class="status">One place for every engine's web UI. A stopped engine starts under a lease first.</p>
+  <p id="gw" class="gw" role="status" hidden>The gateway is not answering; retrying ...</p>
+  <ul class="rows">
   {{- range .Engines}}
-    <li><a href="/gui/{{.}}">{{.}}</a></li>
+    <li class="row" data-name="{{.Name}}"{{if .GUI}} data-gui="{{.GUI}}"{{end}}{{if .API}} data-api="{{.API}}"{{end}}{{if .Launch}} data-launch{{end}}>
+      <div class="row-main">
+        {{- if and .GUI .Launch}}<a class="name" href="/gui/{{.Name}}">{{.Name}}</a>{{else}}<span class="name">{{.Name}}</span>{{end}}
+        {{- if not .GUI}}<span class="chip noui">No UI</span>{{end}}
+        <span class="chip state"></span>
+      </div>
+      <p class="row-status status"></p>
+      <p class="row-detail detail"></p>
+      {{- if .Launch}}
+      <div class="tide" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <button class="row-btn" type="button" disabled>Launch {{.Name}}</button>
+      {{- end}}
+    </li>
   {{- else}}
-    <li class="detail">No engine in berth.toml has both start and gui.</li>
+    <li class="detail">No engine in berth.toml.</li>
   {{- end}}
   </ul>
+  <script src="/_wake/index.js"></script>
 {{- end}}
 </main>
 </body>

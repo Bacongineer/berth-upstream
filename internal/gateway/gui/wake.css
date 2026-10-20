@@ -60,16 +60,30 @@ h1 { margin: .75rem 0 .25rem; color: var(--ink-strong); font-size: 1.4rem; font-
 .chip.active { background: var(--cyan); }
 .chip.draining, .chip.releasing { background: #e8b56f; }
 .chip.stuck, .chip.pinned { background: var(--magenta); }
-@media (prefers-reduced-motion: reduce) { .tide span { animation: none !important; height: 28px; } }
+@media (prefers-reduced-motion: reduce) { .tide span, .chip.waiting, .chip.starting { animation: none !important; height: 28px; } }
 button {
   margin-top: 1rem; padding: .45rem 1.1rem;
   color: var(--ink-strong); background: var(--cyan-deep);
   border: 1px solid var(--edge); border-radius: 8px; font: inherit; cursor: pointer;
 }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-.engines { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .5rem; }
-.engines a {
-  display: block; padding: .6rem; border: 1px solid var(--hair); border-radius: 8px;
-  color: var(--cyan); text-decoration: none;
-}
-.engines a:hover { border-color: var(--edge); background: #16212f; }
+/* The gui plane's index: one row per engine, its state chip and its button. */
+.rows { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .5rem; text-align: left; }
+.row { padding: .6rem .7rem .5rem; border: 1px solid var(--hair); border-radius: 8px; }
+.row-main { display: flex; align-items: center; gap: .5rem; }
+.row-main .name { color: var(--ink-strong); font-weight: 500; font-size: 14px; }
+.row-main a { color: var(--cyan); text-decoration: none; }
+.row-main a:hover { text-decoration: underline; }
+.chip.noui { background: transparent; color: var(--dim); border: 1px solid var(--hair); }
+.chip.up { background: var(--green); }
+.chip.offline { background: var(--dim); }
+.chip.waiting, .chip.starting { background: var(--cyan); animation: pulse 1.2s ease-in-out infinite; }
+.chip.failed { background: var(--magenta); }
+@keyframes pulse { 50% { opacity: .55; } }
+.row-status { margin: .3rem 0 0; font-size: 13px; }
+.row .tide { justify-content: flex-start; height: 16px; margin: .5rem 0 0; }
+.row .tide span { animation-name: swell-small; height: 5px; }
+@keyframes swell-small { 0%, 100% { height: 5px; opacity: .55; } 50% { height: 16px; opacity: 1; } }
+.row.busy .tide span { animation-play-state: running; }
+.row .row-btn { margin-top: .5rem; }
+.gw { margin: .25rem 0 0; color: var(--magenta); }

@@ -14,18 +14,20 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-// The wake page. A browser cannot use the gateway API (it needs the key and
-// refuses any Origin), so a second loopback listener serves one page per
-// engine with a gui URL in berth.toml: GET /gui/<name> sends the browser to
-// the engine's web UI when it answers, or shows a page that names who holds
-// the card and offers a Start button: a start runs under a lease, like any
-// gateway start, and the page follows the engine there once it answers. A bookmark or a home-page tile can point here instead of at an
+// The gui plane. A browser cannot use the gateway API (it needs the key and
+// refuses any Origin), so a second loopback listener serves the plane: GET
+// /gui/ lists every configured engine with its live state, one button per
+// engine. GET /gui/<name> for an engine with a gui URL in berth.toml sends
+// the browser to the engine's web UI when it answers, or shows a page that
+// names who holds the card and offers a Launch button: a start runs under a
+// lease, like any gateway start, and the page follows the engine there once
+// it answers. A bookmark or a home-page tile can point there instead of at an
 // engine that may be stopped.
 //
-// It holds no key: it can only start an engine that has a start command and
-// a gui URL, which is what the operator asked for by writing both. A start is
-// a POST that must come from the page itself (same origin), so another site
-// cannot make a visitor's browser drain the card.
+// It holds no key: it can only start an engine that has a start command, which
+// is what the operator asked for by writing it. A start is a POST that must
+// come from the page itself (same origin), so another site cannot make a
+// visitor's browser drain the card.
 
 //go:embed gui
 var guiFS embed.FS
@@ -38,12 +40,21 @@ type wake struct {
 	err      error
 }
 
-// GUIHandler serves the wake pages and their assets.
+// GUIHandler serves the gui plane: the index, the per-engine wake pages and
+// their assets.
 func (g *Gateway) GUIHandler() http.Handler {
 	assets, _ := fs.Sub(guiFS, "gui")
 	mux := http.NewServeMux()
 	mux.Handle("GET /_wake/", http.StripPrefix("/_wake/", http.FileServerFS(assets)))
 	mux.HandleFunc("GET /gui/{$}", g.guiIndex)
+	// The static route beats GET /gui/{name} in Go's ServeMux, so an engine
+	// named "state" loses that one URL to the plane's state endpoint.
+	mux.HandleFunc("GET /gui/state", func(w http.ResponseWriter, r *http.Request) {
+		rows := g.guiStateAll(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(rows)
+	})
 	mux.HandleFunc("GET /gui/{name}", g.guiShow)
 	mux.HandleFunc("GET /gui/{name}/state", g.guiState)
 	mux.HandleFunc("POST /gui/{name}/wake", g.guiWake)
@@ -106,21 +117,78 @@ func (g *Gateway) probe(ctx context.Context, e *config.Engine) bool {
 	return g.answers(ctx, e.URL)
 }
 
+// guiRow is one engine's row on the GUI plane: what it is (web UI or API
+// only) and what it is doing on the card right now.
+type guiRow struct {
+	Name    string    `json:"name"`
+	GUI     string    `json:"gui,omitempty"` // the engine's web UI; empty = No UI
+	API     string    `json:"api,omitempty"` // the engine's own address, shown when there is no web UI
+	Launch  bool      `json:"launch"`        // true when the engine has a start command
+	State   string    `json:"state"`         // up, offline, waiting, starting, failed
+	Message string    `json:"message,omitempty"`
+	Detail  string    `json:"detail,omitempty"` // the start's last log line, or its error
+	Code    string    `json:"code,omitempty"`
+	Card    []guiHold `json:"card,omitempty"`
+}
+
+// guiRowFor is the static part of an engine's row: what it is. The state
+// fields are filled in once, per request.
+func guiRowFor(e *config.Engine) guiRow {
+	row := guiRow{Name: e.Name, GUI: e.GUI, Launch: len(e.Start) > 0}
+	if e.GUI == "" {
+		row.API = e.URL
+	}
+	return row
+}
+
 type guiView struct {
 	Title   string
 	Engine  string // empty on the index
-	Engines []string
+	Engines []guiRow
 }
 
 func (g *Gateway) guiIndex(w http.ResponseWriter, _ *http.Request) {
-	v := guiView{Title: "berth"}
-	for _, e := range g.Engines {
-		if e.GUI != "" && len(e.Start) > 0 {
-			v.Engines = append(v.Engines, e.Name)
-		}
+	v := guiView{Title: "berth", Engines: make([]guiRow, 0, len(g.Engines))}
+	for i := range g.Engines {
+		v.Engines = append(v.Engines, guiRowFor(&g.Engines[i]))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = guiPage.Execute(w, v)
+}
+
+// guiStateAll is the plane's state: one row per engine in config order.
+// Up rows come from the probe; everything else reuses cardView, exactly like
+// the per-engine state handler.
+func (g *Gateway) guiStateAll(ctx context.Context) []guiRow {
+	node := g.nodeStatus()
+	rows := make([]guiRow, 0, len(g.Engines))
+	for i := range g.Engines {
+		e := &g.Engines[i]
+		row := guiRowFor(e)
+		if g.probe(ctx, e) {
+			row.State = "up"
+			row.Message = e.Name + " is ready"
+		} else {
+			g.mu.Lock()
+			wk := g.wakes[e.Name]
+			var last string
+			if s, ok := g.running[e.Name]; ok {
+				last = lastLine(s.stderr.String())
+			}
+			g.mu.Unlock()
+			st := cardView(e.Name, node, wk)
+			if st.State != "failed" {
+				st.Detail = last
+			}
+			row.State = st.State
+			row.Message = st.Message
+			row.Detail = st.Detail
+			row.Code = st.Code
+			row.Card = st.Card
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // guiShow sends the browser on when the engine answers; otherwise it shows
@@ -285,7 +353,7 @@ func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Unlock()
 	if !already {
-		g.log().Info("wake page starting engine", "engine", e.Name)
+		g.log().Info("gui plane starting engine", "engine", e.Name)
 		go func() {
 			// The start outlives the page's request: a closed tab still
 			// leaves the engine coming up, bounded by the gateway's ready.
@@ -293,7 +361,7 @@ func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			err := g.ensure(ctx, e)
 			if err != nil {
-				g.log().Warn("wake page start failed", "engine", e.Name, "err", err)
+				g.log().Warn("gui plane start failed", "engine", e.Name, "err", err)
 			}
 			g.mu.Lock()
 			g.wakes[e.Name] = &wake{err: err}
