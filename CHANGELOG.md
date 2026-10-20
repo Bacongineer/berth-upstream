@@ -6,6 +6,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- `min_turn` on an `[[engine]]` entry and `berth run --min-turn`: a minimum turn. For that
+  long after the grant the engine keeps the card: a request of equal, lower or higher
+  priority cannot drain it, only a hold can. A blocked waiter is told how much of the turn is
+  left, and `berth status` shows it in the TURN column. When the turn ends the normal rules
+  apply; a re-attach after a daemon restart starts a fresh turn.
+
 ## [v0.3.1] - 2026-10-20
 
 ### Fixed
