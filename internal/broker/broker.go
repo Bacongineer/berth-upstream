@@ -102,6 +102,9 @@ type Config struct {
 	JuggleWindow time.Duration
 	// UsageFile keeps the card-hours per engine across restarts; "" = memory only.
 	UsageFile string
+	// FootprintFile keeps the VRAM footprints measured per engine across
+	// restarts; "" = memory only.
+	FootprintFile string
 	// Busy reports whether a lease's engine is serving now (a request in
 	// flight, queued work, a model loading). Only a busy holder can be in a
 	// juggle; an idle one hands the card over at once. nil, or known=false,
@@ -245,6 +248,14 @@ type Broker struct {
 	usageAt    time.Time // last tick credited to usage
 	usageSaved time.Time
 	usageDirty bool
+	// footprints is the VRAM each engine's leases held at their peak, per
+	// engine key (group, else name): an estimate of what a run needs, shown
+	// as EST. VRAM, never a reservation. The save state keeps the file's
+	// writes out of the tick's lock, like saved does for the board.
+	footprints     footprints
+	footprintDirty bool
+	footSaveMu     sync.Mutex
+	footSaveFailed bool
 }
 
 type claimedProc struct {
@@ -385,6 +396,14 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 			log.Warn("engine usage not restored; the default ranking starts empty", "file", cfg.UsageFile, "err", err)
 		}
 	}
+	foots := footprints{}
+	if cfg.FootprintFile != "" {
+		if f, err := loadFootprints(cfg.FootprintFile); err == nil {
+			foots = f
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			log.Warn("engine footprints not restored; the estimates start empty", "file", cfg.FootprintFile, "err", err)
+		}
+	}
 	return &Broker{
 		cfg: cfg, probe: probe, tree: tree, log: log, runs: rs,
 		leases:     map[string]*lease{},
@@ -395,6 +414,7 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 		saved:      counters,
 		verdicts:   map[string]verdict{},
 		usage:      use,
+		footprints: foots,
 		started:    time.Now(),
 	}
 }
@@ -404,6 +424,7 @@ func (b *Broker) Run(ctx context.Context) {
 	t := time.NewTicker(b.cfg.Poll)
 	defer t.Stop()
 	defer b.persist() // counts made after the last tick
+	defer b.persistFootprints()
 	defer func() { b.persistUsage(time.Now(), true) }()
 	for {
 		b.Tick(ctx)
@@ -418,6 +439,7 @@ func (b *Broker) Run(ctx context.Context) {
 // Tick reads the card once, attributes every process, and reschedules.
 func (b *Broker) Tick(ctx context.Context) {
 	defer b.persist() // after the unlock below; also saves counts made between ticks
+	defer b.persistFootprints()
 	defer func() { b.persistUsage(time.Now(), false) }()
 	readAt := time.Now()
 	snap, err := b.probe.Read(ctx)
@@ -523,6 +545,7 @@ func (b *Broker) Tick(ctx context.Context) {
 			// process that appeared after it.
 			b.log.Info("lease freed", "lease", key, "engine", l.engine)
 			b.counters.VRAMHandedOff += l.peak
+			b.foldFootprint(l, now)
 			b.emit(proto.Event{Kind: proto.EvFreed, Lease: key, Engine: l.engine, Bytes: l.peak})
 			delete(b.leases, key)
 		} else if l.state == releasing && now.Sub(l.released) > b.cfg.ReleaseGrace {

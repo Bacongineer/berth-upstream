@@ -45,6 +45,7 @@ func runDaemon(c *Context) int {
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines to read, /metrics listener ($BERTH_CONFIG); missing = none")
 	countersFile := fs.String("counters", defaultStateFile("counters.json"), "keeps the collisions board across restarts; \"\" = start at zero every time")
 	usageFile := fs.String("usage", defaultStateFile("usage.json"), "card-hours per engine, the default juggle ranking; \"\" = memory only")
+	footprintFile := fs.String("footprint", defaultStateFile("footprint.json"), "VRAM measured per engine across restarts, the estimate behind EST. VRAM; \"\" = memory only")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
@@ -105,6 +106,7 @@ func runDaemon(c *Context) int {
 		RunsDir:        runs.Dir(*sock),
 		CountersFile:   *countersFile,
 		UsageFile:      *usageFile,
+		FootprintFile:  *footprintFile,
 		Order:          cfg.Priority.Order,
 		JuggleWindow:   cfg.Priority.JuggleWindow.Duration,
 		Busy:           watcher.Busy,
