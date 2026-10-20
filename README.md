@@ -755,7 +755,7 @@ and the table credits you here.
 | Platform | Status |
 |---|---|
 | Linux + NVIDIA | Supported |
-| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work; no installer yet, and the driver reports no per-process memory under WDDM, so use whole-card leases |
+| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. Still no installer and no locked-down control pipe |
 | AMD on Linux | Not supported yet; next after v0.3 (a vendor-neutral probe, then amdgpu) |
 | Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
@@ -814,7 +814,7 @@ never swap; a place in the queue and an estimate in every wait reason.
 
 | Release | What it brings |
 |---|---|
-| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (installer, per-process memory, a locked-down control pipe) |
+| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (installer, a locked-down control pipe) |
 | v0.5 | Multi-GPU scheduling, including one lease across two cards for engines that split a model |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
