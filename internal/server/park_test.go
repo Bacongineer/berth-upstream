@@ -182,6 +182,27 @@ func TestParkAndResumeOverTheSocket(t *testing.T) {
 		}
 	}
 
+	// One grant sends one message: an idle lease loop must not resend the
+	// grant the way a closed signal channel would.
+	spam := make(chan proto.Msg, 4)
+	go func() {
+		for {
+			m, err := conn.Recv()
+			if err != nil || m.Op == proto.OpGranted {
+				close(spam)
+				return
+			}
+			spam <- m
+		}
+	}()
+	select {
+	case m, ok := <-spam:
+		if ok {
+			t.Fatalf("the resume grant was sent again: %+v", m)
+		}
+	case <-time.After(400 * time.Millisecond):
+	}
+
 	// An engine that is not parked is refused, so the caller starts it
 	// the normal way.
 	if r := dial(t, sock, proto.Msg{Op: proto.OpResume, Engine: "ghost"}); r.Op != proto.OpRefused ||

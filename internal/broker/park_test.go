@@ -9,6 +9,7 @@ package broker
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,6 +322,51 @@ func TestResumeGrantsTheParkedLease(t *testing.T) {
 	}
 	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].State != "active" {
 		t.Fatalf("leases = %+v", st.Leases)
+	}
+}
+
+// Park and resume cycle as often as switches need: the resume signal is one
+// token per grant, sent again on the next cycle, and never a closed
+// channel that would double-close on the second one.
+func TestParkAndResumeCycleTwice(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16 * GiB, 0)
+	l := warmLease(t, b, c, "vllm", 8 * GiB, 100, 101)
+
+	for cycle := 1; cycle <= 2; cycle++ {
+		if err := b.Resume("vllm"); err != nil {
+			t.Fatalf("cycle %d: resume: %v", cycle, err)
+		}
+		select {
+		case <-l.Resumed():
+		case <-time.After(time.Second):
+			t.Fatalf("cycle %d: the resumed lease was never granted", cycle)
+		}
+
+		// One grant, one token: a second receive must not answer.
+		select {
+		case <-l.Resumed():
+			t.Fatalf("cycle %d: the grant token was received twice", cycle)
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		// Back on the card at full footprint, the next whole-card waiter
+		// evicts the lease, and it parks again.
+		c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 8 * GiB})
+		b.Tick(context.Background())
+		w := acquire(b, Request{Engine: "switch" + strconv.Itoa(cycle), Priority: Foreground, Needs: 20 * GiB})
+		pending(t, w)
+		drained(t, l)
+		if ok, why := l.Park(); !ok {
+			t.Fatalf("cycle %d: park refused: %s", cycle, why)
+		}
+		c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 512 << 20})
+		l.Parked()
+		b.Tick(context.Background())
+
+		// The waiter holds the card beside the parked residual; it leaves
+		// so the next cycle's grant can land.
+		must(t, w).Release()
 	}
 }
 
