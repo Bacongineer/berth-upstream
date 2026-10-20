@@ -63,6 +63,16 @@ type Model struct {
 	// Usage is what the harbor's request log says about this model, set by
 	// MatchUsage when a listing asked for it.
 	Usage *ModelUsage `json:"usage,omitempty" yaml:"usage,omitempty"`
+
+	// CachedBytes is how many of the model's files' bytes the kernel page
+	// cache holds now, measured by Cache when a listing asked for it. The
+	// kernel keeps those pages for the machine as a whole and gives them
+	// back when it needs the RAM, so the share says a reload is likely to
+	// read from memory, not that the RAM is held.
+	CachedBytes uint64 `json:"cached_bytes,omitempty" yaml:"cached_bytes,omitempty"`
+	// CachedSize is the size of the files Cache measured for CachedBytes,
+	// the share's denominator beside its numerator.
+	CachedSize uint64 `json:"cached_size,omitempty" yaml:"cached_size,omitempty"`
 }
 
 // root is one place to look and what to call what is found there.

@@ -41,6 +41,9 @@ type modelsDoc struct {
 	Unmatched []servedDoc    `json:"served but not on disk,omitempty" yaml:"served but not on disk,omitempty"`
 	Models    []models.Model `json:"models" yaml:"models"`
 	Errors    []modelErrDoc  `json:"errors,omitempty" yaml:"errors,omitempty"`
+	// CacheChecked says whether the CACHED column was measured. Without it a
+	// dash in the column is a skipped check, not a cold model.
+	CacheChecked bool `json:"cache_checked" yaml:"cache_checked"`
 }
 
 // servedDoc is one model name the harbor served that no file on disk answers to
@@ -92,10 +95,10 @@ func (v modelsListView) Human(c *Context, ok bool) error {
 	}
 	c.Printf("%s %d %s%s\n", c.Style.OK(markOK), d.Count, what, since)
 
-	head := []string{"MODEL", "SHELF", "QUANT", "SIZE", "PARAMS", "CTX", "ARCH", "+COMP", "USED"}
+	head := []string{"MODEL", "SHELF", "QUANT", "SIZE", "CACHED", "PARAMS", "CTX", "ARCH", "+COMP", "USED"}
 	rows := make([][]string, 0, len(d.Models))
 	for _, m := range d.Models {
-		rows = append(rows, modelRow(m, d.Since != ""))
+		rows = append(rows, modelRow(m, d.Since != "", d.CacheChecked))
 	}
 	if d.Since != "" {
 		head = append(head, "REQ", "TOKENS")
@@ -140,7 +143,7 @@ func (v modelsListView) Human(c *Context, ok bool) error {
 
 // modelRow is one listing row. tabwriter pads it, so a 70-character filename
 // pushes the row wider than the header rather than staggering the columns.
-func modelRow(m models.Model, usage bool) []string {
+func modelRow(m models.Model, usage, cache bool) []string {
 	quant := dash(m.Quant)
 	if m.Parts > 1 {
 		quant = fmt.Sprintf("%s/%d", quant, m.Parts)
@@ -153,6 +156,7 @@ func modelRow(m models.Model, usage bool) []string {
 		dashShelf(m.Shelf),
 		quant,
 		size(m.Bytes),
+		cachedCell(m, cache),
 		params(m.Params),
 		count(m.Context),
 		dash(m.Arch),
@@ -163,6 +167,21 @@ func modelRow(m models.Model, usage bool) []string {
 		row = append(row, count(uint64(requests(m.Usage))), tokens(m.Usage))
 	}
 	return row
+}
+
+// cachedCell is a model's CACHED column: its resident share with the tier it
+// reads as, or a dash when the check was skipped or measured nothing. The
+// share is of the bytes in the page cache, which the kernel takes back at
+// will, so it says nothing about RAM held.
+func cachedCell(m models.Model, checked bool) string {
+	if !checked {
+		return "-"
+	}
+	share := m.CachedShare()
+	if share < 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d%% %s", share, m.Warmth())
 }
 
 // A model with no harbor row has never been seen serving anything.
@@ -330,6 +349,7 @@ func runModels(c *Context) int {
 	fs.StringVar(&usageWin, "usage", "", "add REQ and TOKENS columns over a window: 30d, 24h, 90m "+
 		"(the USED column always shows the last time the harbor saw a model serve anything)")
 	fs.BoolVar(&noUsage, "no-usage", false, "never open the harbor database")
+	noCache := fs.Bool("no-cache-check", false, "skip the page-cache check behind the CACHED column")
 	shelf := fs.String("shelf", "", "show only models on this shelf: chat, image or audio")
 	if code, done := c.Parse(fs); done {
 		return code
@@ -427,6 +447,13 @@ func runModels(c *Context) int {
 		listed = filtered
 	}
 	doc.Count = len(listed)
+	// The CACHED column measures the models the list shows, at most four at
+	// a time, reading the kernel's page table: no file byte is touched and
+	// no page is pulled in.
+	if !*noCache {
+		models.Cache(listed)
+	}
+	doc.CacheChecked = !*noCache
 	doc.Models = listed
 	for _, m := range ms {
 		doc.Bytes += m.Bytes
@@ -503,7 +530,7 @@ func (v modelShowView) Human(c *Context, ok bool) error {
 		c.Printf("%s %s\n", c.Style.Err(markError), c.Style.Bold(m.Name))
 	}
 	// One model has no table to align, so its row prints as one field per word.
-	c.Sub("%s", strings.Join(modelRow(m, false), "  "))
+	c.Sub("%s", strings.Join(modelRow(m, false, true), "  "))
 	c.Sub("title: %s", dash(m.Title))
 	if m.Shelf != "" {
 		c.Sub("shelf: %s", m.Shelf)
@@ -523,6 +550,10 @@ func (v modelShowView) Human(c *Context, ok bool) error {
 	}
 	if m.Err != "" {
 		c.Sub("%s", c.Style.Err(m.Err))
+	}
+	if m.CachedSize > 0 {
+		c.Sub("cached: %s of %s in the page cache (%d%%, %s)",
+			size(m.CachedBytes), size(m.CachedSize), m.CachedShare(), m.Warmth())
 	}
 	if d.Heads > 0 {
 		c.Sub("kv heads: %d", d.Heads)
@@ -604,6 +635,7 @@ func runModelsShow(c *Context) int {
 		// question `models show` answers is when this file last worked.
 		ms := []models.Model{m}
 		attachUsage(c, ms, swapIDs(cfg), time.Time{}, &modelsDoc{})
+		models.Cache(ms)
 		m, doc.Model = ms[0], ms[0]
 	}
 	if err != nil {

@@ -156,7 +156,7 @@ func TestModelsHumanTableAligns(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("exit = %d (stderr %q)", code, errOut)
 	}
-	for _, col := range []string{"MODEL", "QUANT", "SIZE", "PARAMS", "CTX", "ARCH", "+COMP", "USED"} {
+	for _, col := range []string{"MODEL", "QUANT", "SIZE", "CACHED", "PARAMS", "CTX", "ARCH", "+COMP", "USED"} {
 		if !strings.Contains(out, col) {
 			t.Errorf("stdout %q lacks the %s column", out, col)
 		}
