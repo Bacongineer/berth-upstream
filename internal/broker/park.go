@@ -31,6 +31,7 @@ func (l *Lease) Park() (bool, string) { return l.b.Park(l.l.id) }
 func (l *Lease) Parked() {
 	l.b.mu.Lock()
 	l.l.parkedCall = l.b.now()
+	l.l.parkedRead = l.b.reads.Load()
 	l.b.mu.Unlock()
 }
 
@@ -113,13 +114,14 @@ func (b *Broker) Park(id string) (bool, string) {
 // after the park call shows the residual, and gives up on the park after
 // the grace: the runner is told to stop the engine the usual way. Called
 // with b.mu held, from Tick.
-func (b *Broker) parkingTick(key string, l *lease, now, readAt time.Time) {
-	if l.parkedCall.IsZero() || readAt.Before(l.parkedCall) {
+func (b *Broker) parkingTick(key string, l *lease, now time.Time, read uint64) {
+	if l.parkedCall.IsZero() || read <= l.parkedRead {
 		return
 	}
 	if l.used() <= b.cfg.ParkResidualMax {
 		l.state = parked
 		l.parkedAt = now
+		l.parkedN = b.order()
 		foot := b.footprintOf(l)
 		b.log.Info("parked", "lease", key, "engine", l.engine, "footprint", sizeHuman(foot), "residual", sizeHuman(l.used()))
 		b.emit(proto.Event{Kind: proto.EvParked, Lease: key, Engine: l.engine, Bytes: foot,
@@ -196,6 +198,7 @@ func (b *Broker) Resume(engine string) error {
 		l.state = waiting
 		l.resumed = true
 		l.arrived = b.now()
+		l.arrivedN = b.order()
 		// The waits from before the park are stale; the runner hears
 		// only what happens from here.
 		for {
@@ -226,7 +229,7 @@ func besideLine(parked []*lease, residual uint64) string {
 // sortParked orders parked leases least recently parked first.
 func sortParked(ls []*lease) []*lease {
 	out := append([]*lease(nil), ls...)
-	sort.Slice(out, func(i, j int) bool { return out[i].parkedAt.Before(out[j].parkedAt) })
+	sort.Slice(out, func(i, j int) bool { return out[i].parkedN < out[j].parkedN })
 	return out
 }
 

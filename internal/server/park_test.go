@@ -60,6 +60,9 @@ func parkDaemon(t *testing.T, card gpu.Probe) (string, *broker.Broker) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	// One read before anyone asks: a sized acquire on a card the broker has
+	// not read yet sees a zero total and waits.
+	b.Tick(ctx)
 	go b.Run(ctx)
 	go server.Serve(ctx, ln, b, server.Extras{}, log)
 	return sock, b

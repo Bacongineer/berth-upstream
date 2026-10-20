@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
@@ -204,6 +205,17 @@ type lease struct {
 	arrived       time.Time
 	granted       time.Time
 	released      time.Time
+	// releasedRead and parkedRead are the card reads started when the lease
+	// was released or its park call was done: only a tick whose read is
+	// later frees it or marks it parked. Clock-free, so a coarse clock
+	// (Windows, ~15 ms) cannot put a read before the release in its quantum.
+	releasedRead uint64
+	parkedRead   uint64
+	// arrivedN, grantedN and parkedN order the lease among the others by
+	// the broker's own count, not the clock: on a coarse clock (Windows)
+	// two leases granted in one quantum would otherwise tie, and which one
+	// is older, and so drained first, would be arbitrary.
+	arrivedN, grantedN, parkedN uint64
 	// parkedAt is when the lease became parked; parkedCall is when the
 	// runner said its park call was done (the parked transition waits for
 	// a later card read). resumed marks a waiting lease that came from
@@ -269,6 +281,8 @@ type Broker struct {
 	// nowFn is the broker's clock. Tests pin it to replay a coarse clock
 	// quantum; with it nil the broker reads the wall clock.
 	nowFn func() time.Time
+	// reads counts the card reads started, bumped before each probe read.
+	reads atomic.Uint64
 
 	mu        sync.Mutex
 	snap      gpu.Snapshot
@@ -285,6 +299,7 @@ type Broker struct {
 	comfyPoked map[string]time.Time
 	runs       []runs.Record
 	nextID     int
+	ord        uint64 // the last order number stamped on a lease event
 	started    time.Time
 
 	events   []proto.Event // ring, oldest first
@@ -409,6 +424,12 @@ func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.E
 			close(ch)
 		}
 	}
+}
+
+// order is the next number in the broker's own sequence. b.mu must be held.
+func (b *Broker) order() uint64 {
+	b.ord++
+	return b.ord
 }
 
 // now is the broker's clock. It reads the pinned b.nowFn in tests, and the
@@ -541,7 +562,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	defer b.persist() // after the unlock below; also saves counts made between ticks
 	defer b.persistFootprints()
 	defer func() { b.persistUsage(b.now(), false) }()
-	readAt := b.now()
+	read := b.reads.Add(1)
 	snap, err := b.probe.Read(ctx)
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
@@ -653,18 +674,16 @@ func (b *Broker) Tick(ctx context.Context) {
 			}
 		}
 		if l.state == parking {
-			b.parkingTick(key, l, now, readAt)
+			b.parkingTick(key, l, now, read)
 			continue
 		}
 		if l.state != releasing && l.state != stuck {
 			continue
 		}
-		if len(l.gpu) == 0 && !readAt.Before(l.released) {
-			// Only a tick whose card read happened at or after the
-			// release frees the lease: an earlier read knows nothing
-			// about a process that appeared after it. On a coarse clock
-			// (Windows, ~15 ms) the tick can start in the release's own
-			// quantum, and its read is still after the release.
+		if len(l.gpu) == 0 && read > l.releasedRead {
+			// Only a tick whose card read started after the release frees
+			// the lease: an earlier read knows nothing about a process that
+			// appeared after it. Read order, not the clock, decides.
 			b.log.Info("lease freed", "lease", key, "engine", l.engine)
 			b.counters.VRAMHandedOff += l.peak
 			b.foldFootprint(l, now)
@@ -810,7 +829,7 @@ func (b *Broker) schedule(now time.Time) {
 		if b.queue[i].prio != b.queue[j].prio {
 			return b.queue[i].prio > b.queue[j].prio
 		}
-		return b.queue[i].arrived.Before(b.queue[j].arrived)
+		return b.queue[i].arrivedN < b.queue[j].arrivedN
 	})
 	for len(b.queue) > 0 {
 		w := b.queue[0]
@@ -827,6 +846,7 @@ func (b *Broker) schedule(now time.Time) {
 			b.queue = b.queue[1:]
 			w.state = active
 			w.granted = now
+			w.grantedN = b.order()
 			w.contested = b.squatBytes()
 			b.leases[w.id] = w
 			beside := w.beside
@@ -907,7 +927,7 @@ func (b *Broker) holders() []*lease {
 		if hs[i].prio != hs[j].prio {
 			return hs[i].prio < hs[j].prio
 		}
-		return hs[i].granted.Before(hs[j].granted)
+		return hs[i].grantedN < hs[j].grantedN
 	})
 	return hs
 }
@@ -1156,6 +1176,7 @@ func (l *Lease) Attach(pid int) {
 func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	x.state = releasing
 	x.released = now
+	x.releasedRead = b.reads.Load()
 	nothing := x.pid == 0 && len(x.gpu) == 0 && x.container == "" && len(x.desc) == 0
 	if !announce {
 		if nothing {
@@ -1204,12 +1225,14 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	b.nextID++
 	now := b.now()
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	l.arrivedN = b.order()
 	if r.Container != "" {
 		l.container = strings.ToLower(r.Container)
 	}
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
 	l.granted = now
+	l.grantedN = b.order()
 	close(l.grantCh)
 	b.leases[l.id] = l
 	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)
@@ -1236,6 +1259,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 	}
 	b.nextID++
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
+	l.arrivedN = b.order()
 	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)

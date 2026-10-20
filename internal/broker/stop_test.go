@@ -8,6 +8,7 @@ package broker
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 
@@ -58,9 +59,15 @@ func TestStopAsksTheEnginesLeases(t *testing.T) {
 		t.Fatalf("drain reason = %q", why)
 	}
 
+	// By ID, not position: on a coarse clock (Windows) the three leases share
+	// one age, and the status order between them is not fixed.
 	st := b.Status()
-	if len(st.Leases) != 3 || st.Leases[0].State != "draining" || st.Leases[1].State != "draining" || st.Leases[2].State != "active" {
-		t.Fatalf("states = %+v", st.Leases)
+	states := map[string]string{}
+	for _, l := range st.Leases {
+		states[l.ID] = l.State
+	}
+	if want := map[string]string{"a-1": "draining", "b-2": "draining", "c-3": "active"}; !maps.Equal(states, want) {
+		t.Fatalf("states = %v, want %v", states, want)
 	}
 	if st.Counters.Drains != 2 {
 		t.Fatalf("drains = %d, want 2", st.Counters.Drains)
