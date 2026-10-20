@@ -548,6 +548,14 @@ When the gateway comes back it reads that file and adopts every engine whose pro
 one, answering or still loading: the next request is proxied, not started again. Records for processes
 that left are dropped. Restarting during a 40-110 s cold start costs nothing but the restart itself.
 
+**Stopping the gateway keeps its engines too.** Each engine runs outside the gateway's cgroup (above),
+so stopping the gateway service does not stop the engines: they stay on the card under their own leases
+and keep answering. `berth stop ENGINE` is how one is stopped on purpose: the daemon asks the engine's
+leases to give the card back through the normal stop ladder, as when another engine asks for it, and a
+lease frees only after a card read shows the engine's memory gone. `berth stop ENGINE --wait` follows
+the daemon's event log until the leases are freed (exit 0) or stuck (exit 2, pointing at `berth reclaim`
+for the stuck ones).
+
 **Long waits and idle clients.** Cold starts take 41-110 s (table above), longer than many OpenAI
 clients wait before giving up. Streaming requests get the answer early: the gateway sends its SSE
 headers (`Content-Type: text/event-stream`, `Cache-Control: no-cache`) right away and writes an SSE
@@ -679,7 +687,7 @@ applies to a ComfyUI queue that will not empty.
 
 ### Interfaces
 - **CLI:** one command tree with one output contract. `berth status`, `berth events -f`,
-  `berth run`, `berth hold`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
+  `berth run`, `berth hold`, `berth stop`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
   `berth wire llama-swap`, `berth engine check`, `berth config check`, `berth config show`,
   `berth export`, `berth key`, `berth skill install`, `berth version`. Berth runs fully
   headless.
