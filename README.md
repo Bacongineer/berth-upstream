@@ -597,6 +597,13 @@ url         = "http://127.0.0.1:8080"
 drain_slots = "http://127.0.0.1:8080"
 ```
 
+The wait is unbounded by default, so a long generation is never cut off.
+`drain_max` (or `berth run --drain-max DURATION`, which wins) sets a ceiling
+on it: while the boundary is busy the wrapper prints a line each minute
+naming the slots and how long they have been busy, and once the ceiling
+passes it runs the normal stop ladder anyway and says so. The same ceiling
+applies to a ComfyUI queue that will not empty.
+
 ### Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
   first-seen time; optional desktop notification and webhook. Report-only by design.
