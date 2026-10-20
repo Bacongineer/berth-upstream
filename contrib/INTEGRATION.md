@@ -111,6 +111,39 @@ Both preallocate most of the card. To share it, cap them (`--gpu-memory-utilizat
 `--mem-fraction-static 0.5`) and pass a matching `--needs-mib`. Reading: `type = "vllm"` /
 `"sglang"`; counters need `/metrics` (vLLM serves it by default, SGLang with `--enable-metrics`).
 
+## Engines in Docker or Podman
+
+A containerized engine is parented by containerd-shim, not by the `docker run` you
+started, so the process tree cannot reach it and Berth cannot attribute its VRAM on
+its own. `--container` closes that: the wrapper resolves the name you gave to the
+full container ID (docker first, then podman), attaches it to the lease, and every
+GPU process inside that container belongs to the lease from then on. On a drain the
+wrapper runs `docker stop -t 30 vllm` (the image's own SIGTERM, then SIGKILL) instead
+of signalling the wrapper's process group; if the stop fails it falls back to the
+signals. Linux only in this release; on Windows the flag is accepted and ignored.
+
+The container is Berth's because this command started it, and only that container is
+ever stopped. A container Berth did not start stays a stowaway: reported with its
+container ID, never signalled.
+
+```sh
+# start and lease it (the wrapper keeps running, attached to the container's output)
+berth run --as vllm --container vllm --drain-slots http://127.0.0.1:8000 \
+    -- docker run --rm --name vllm --gpus all -p 8000:8000 \
+       vllm/vllm-openai:latest --model Qwen/Qwen3-8B
+
+# an existing container: --name is already stable, -a keeps the output attached
+berth run --as vllm --container vllm --drain-slots http://127.0.0.1:8000 \
+    -- docker start -a vllm
+```
+
+`--rm` with `--name` is what makes the name stable and reusable: the container is
+gone when it stops, so the next `docker run --name vllm` takes the name again. The
+same settings work as `container = "NAME"` on the engine's `[[engine]]` block in
+berth.toml (a `--container` flag wins). Podman engines read the same:
+`podman run --name vllm ...`; Berth resolves and stops with podman when docker is
+not installed.
+
 ## Everything else
 
 TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken, [Strata](https://github.com/T-Crypt/strata)
