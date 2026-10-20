@@ -59,7 +59,8 @@ func runGateway(c *Context) int {
 	if err != nil {
 		return c.fail(Systemf("api key: %v", err))
 	}
-	g := &gateway.Gateway{Socket: *sock, Engines: cfg.Engine, Ready: *ready, Key: key, Log: log, HeadroomFloor: *headroomMiB << 20, AllowHosts: allow}
+	g := &gateway.Gateway{Socket: *sock, Engines: cfg.Engine, Ready: *ready, Key: key, Log: log, HeadroomFloor: *headroomMiB << 20,
+		AllowHosts: allow, StateFile: defaultStateFile("gateway-engines.json")}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	srv := &http.Server{Addr: *listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}

@@ -6,6 +6,7 @@ package gateway
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,13 +30,30 @@ import (
 )
 
 // TestMain doubles as a fake OpenAI-compatible engine: with
-// BERTH_GW_ENGINE=addr,model the test binary serves that model on addr and
-// streams a three-chunk reply, then exits after a few seconds. With
-// BERTH_GW_COMFY=addr it serves a ComfyUI stand-in instead.
+// BERTH_GW_ENGINE=addr,model[,load] the test binary serves that model on
+// addr and streams a three-chunk reply, answering only after load (a
+// duration, 300ms by default), then exits after a few seconds. With
+// BERTH_GW_LOG_EVERY set the engine prints a line to its stderr at that
+// cadence, the way a busy engine does. With BERTH_GW_COMFY=addr it
+// serves a ComfyUI stand-in instead. With "run" as its first argument it
+// is a `berth run` stand-in for the gateway's spawned engine processes.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		testRun(os.Args[2:])
+		return
+	}
 	if spec := os.Getenv("BERTH_GW_ENGINE"); spec != "" {
-		addr, model, _ := strings.Cut(spec, ",")
-		fakeEngine(addr, model)
+		addr, rest, _ := strings.Cut(spec, ",")
+		model, load, _ := strings.Cut(rest, ",")
+		d := 300 * time.Millisecond
+		if load != "" {
+			var err error
+			if d, err = time.ParseDuration(load); err != nil {
+				fmt.Fprintf(os.Stderr, "bad load %q: %v\n", load, err)
+				os.Exit(2)
+			}
+		}
+		fakeEngine(addr, model, d)
 		return
 	}
 	if addr := os.Getenv("BERTH_GW_COMFY"); addr != "" {
@@ -45,7 +63,34 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func fakeEngine(addr, model string) {
+// testRun is the `berth run` a spawned gateway engine process stands in
+// for: the same flags the gateway passes, then the engine's command after
+// "--". It takes a real lease from the test daemon.
+func testRun(argv []string) {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	socket := fs.String("socket", "", "")
+	as := fs.String("as", "", "")
+	group := fs.String("group", "", "")
+	prio := fs.String("priority", "", "")
+	needs := fs.Uint64("needs-mib", 0, "")
+	wait := fs.Duration("wait", 0, "")
+	grace := fs.Duration("grace", 0, "")
+	fs.String("drain-post", "", "")
+	fs.String("drain-slots", "", "")
+	fs.String("drain-comfyui", "", "")
+	fs.Duration("drain-max", 0, "")
+	fs.Bool("keep-comfyui-up", false, "")
+	fs.Bool("pinned", false, "")
+	if err := fs.Parse(argv); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(runner.Run(runner.Options{
+		Socket: *socket, Engine: *as, Group: *group, Priority: *prio, Needs: *needs << 20,
+		Wait: *wait, Grace: *grace, Argv: fs.Args(), Stderr: os.Stderr,
+	}))
+}
+
+func fakeEngine(addr, model string, load time.Duration) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"object":"list","data":[{"id":%q}]}`, model)
@@ -59,7 +104,20 @@ func fakeEngine(addr, model string) {
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	})
-	time.Sleep(300 * time.Millisecond) // a real engine takes a moment to load
+	if every := os.Getenv("BERTH_GW_LOG_EVERY"); every != "" {
+		d, err := time.ParseDuration(every)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bad BERTH_GW_LOG_EVERY %q: %v\n", every, err)
+			os.Exit(2)
+		}
+		go func() {
+			for i := 0; ; i++ {
+				fmt.Fprintf(os.Stderr, "engine line %d\n", i)
+				time.Sleep(d)
+			}
+		}()
+	}
+	time.Sleep(load) // a real engine takes a moment to load
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() { time.Sleep(8 * time.Second); _ = srv.Close() }()
 	_ = srv.ListenAndServe()
@@ -227,7 +285,7 @@ func TestUnknownModel(t *testing.T) {
 // manager) goes straight to it: no lease, no start.
 func TestRunningEngineIsProxiedWithoutStarting(t *testing.T) {
 	addr := freeAddr(t)
-	go fakeEngine(addr, "llama3")
+	go fakeEngine(addr, "llama3", 300*time.Millisecond)
 	sock, b := daemon(t)
 	g := &Gateway{Socket: sock, Ready: 5 * time.Second, Key: testKey,
 		Engines: []config.Engine{{Name: "ollama", Type: "ollama", URL: "http://" + addr, Serves: []string{"llama3"}}}}

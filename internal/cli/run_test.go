@@ -89,7 +89,7 @@ func TestRunFailOpenStartsWithAWarningEvenQuiet(t *testing.T) {
 func TestApplyEngineEntry(t *testing.T) {
 	e := &config.Engine{Name: "comfyui", Priority: "batch", NeedsMiB: 8192,
 		DrainPost: "http://127.0.0.1:1/free", DrainSlots: "http://127.0.0.1:2",
-		DrainComfyUI: "http://127.0.0.1:3"}
+		DrainComfyUI: "http://127.0.0.1:3", DrainMax: config.Duration{Duration: time.Minute}}
 
 	var errBuf bytes.Buffer
 	c := &Context{setFlags: map[string]bool{}, Err: &errBuf}
@@ -97,9 +97,9 @@ func TestApplyEngineEntry(t *testing.T) {
 	needs, dp, ds, dc := uint64(0), "", "", ""
 	var dm time.Duration
 	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
-	if prio != "batch" || needs != 8192 || dp != "http://127.0.0.1:1/free" ||
-		ds != "http://127.0.0.1:2" || dc != "http://127.0.0.1:3" {
-		t.Errorf("defaults from the entry = %q %d %q %q %q", prio, needs, dp, ds, dc)
+	if e.Priority != "batch" || e.NeedsMiB != 8192 || e.DrainPost != "http://127.0.0.1:1/free" ||
+		e.DrainSlots != "http://127.0.0.1:2" || e.DrainComfyUI != "http://127.0.0.1:3" || e.DrainMax.Duration != time.Minute {
+		t.Errorf("defaults from the entry = %q %d %q %q %q %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainSlots, e.DrainComfyUI, e.DrainMax)
 	}
 	if errBuf.String() != "" {
 		t.Errorf("no flag set, but a notice was printed: %q", errBuf.String())
@@ -107,11 +107,12 @@ func TestApplyEngineEntry(t *testing.T) {
 
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"priority": true, "needs-mib": true, "drain-post": true,
-		"drain-slots": true, "drain-comfyui": true}, Err: &errBuf}
+		"drain-slots": true, "drain-comfyui": true, "drain-max": true}, Err: &errBuf}
 	prio, needs, dp, ds, dc = "foreground", 4096, "http://127.0.0.1:9", "http://127.0.0.1:9", "http://127.0.0.1:9"
+	dm = 2 * time.Minute
 	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
-	if prio != "foreground" || needs != 4096 || dp != "http://127.0.0.1:9" {
-		t.Errorf("explicit flags lost to the entry: %q %d %q", prio, needs, dp)
+	if e.Priority != "foreground" || e.NeedsMiB != 4096 || e.DrainPost != "http://127.0.0.1:9" || e.DrainMax.Duration != 2*time.Minute {
+		t.Errorf("explicit flags lost to the entry: %q %d %q %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainMax)
 	}
 	for _, want := range []string{
 		"berth: --priority overrides berth.toml priority = batch for comfyui",
@@ -119,6 +120,7 @@ func TestApplyEngineEntry(t *testing.T) {
 		"berth: --drain-post overrides berth.toml drain_post = http://127.0.0.1:1/free for comfyui",
 		"berth: --drain-slots overrides berth.toml drain_slots = http://127.0.0.1:2 for comfyui",
 		"berth: --drain-comfyui overrides berth.toml drain_comfyui = http://127.0.0.1:3 for comfyui",
+		"berth: --drain-max overrides berth.toml drain_max = 1m0s for comfyui",
 	} {
 		if !strings.Contains(errBuf.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errBuf.String())
@@ -128,7 +130,8 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"priority": true}, Err: &errBuf}
 	prio = "batch"
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
+	same := &config.Engine{Name: "comfyui", Priority: "batch"}
+	applyEngineEntry(c, same, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
 	if errBuf.String() != "" {
 		t.Errorf("a flag equal to the entry printed a notice: %q", errBuf.String())
 	}
@@ -138,8 +141,8 @@ func TestApplyEngineEntry(t *testing.T) {
 	c = &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	keep = false
 	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep, &dm)
-	if !keep {
-		t.Error("the entry's keep_comfyui_up = true was not applied")
+	if !on.KeepComfyUI {
+		t.Error("the entry's keep_comfyui_up = true was not kept")
 	}
 
 	off := &config.Engine{Name: "comfyui"}

@@ -69,8 +69,8 @@ line goes away.
   and the other waits, so the card stays put.
 - **ComfyUI at a job boundary.** Berth waits for the running image job to finish before the handoff.
 - **Survives restarts.** Upgrade or restart the daemon and your running engines stay up and
-  re-attach. Engines the gateway started are the exception for now: restarting the gateway
-  stops them (fix planned for v0.3).
+  re-attach. The gateway's engines survive it too: it starts each one as its own `berth run`
+  process (in its own systemd scope on Linux) and adopts them again on its next start.
 
 **Games and other apps**
 - **Games take the card while you play.** Launch a Steam, Lutris or gamescope game on Linux,
@@ -504,9 +504,9 @@ For each request the gateway:
 1. reads the model name from the body;
 2. hands the request straight to an engine that is up and lists that model (llama-swap and Ollama load
    their own models under their own leases);
-3. otherwise starts the engine that `serves` it through the same path as `berth run`: it takes a lease,
-   Berth drains the holder (llama-swap through its unload URL once its slots are idle, then SIGTERM, then SIGKILL), and the
-   gateway waits until the new engine answers `/v1/models`;
+3. otherwise starts the engine that `serves` it: as its own `berth run` process, under the same lease
+   path (Berth drains the holder: llama-swap through its unload URL once its slots are idle, then
+   SIGTERM, then SIGKILL), and the gateway waits until the new engine answers `/v1/models`;
 4. proxies the request and streams tokens as the engine sends them.
 
 Requests that arrive during a start wait on that one start. A model no engine serves gets a 404, and a
@@ -526,12 +526,27 @@ llama-swap) and Strata (262K context):
 
 At no point did the two engines hold the card at the same time.
 
-**Long waits and idle clients.** Cold starts take 41-110 s (table above), and `forward` writes zero
-bytes while `ensure` drains the holder and starts the engine: both proxies stream once the engine sends
-bytes (`FlushInterval = -1`) but send no keep-alive during the wait, and flushing a 200 early is unsafe
-for non-streamed bodies. If a client with an idle-connection timeout (OpenWebUI's is ~40 s) drops the
-wait first, raise its read timeout and prefer streamed requests. A stream-aware early flush needs its
-own ticket. The gateway serves `/v1/chat/completions`,
+**A gateway restart keeps its engines.** Each engine runs as its own `berth run` process, in a systemd
+user scope on Linux (`systemd-run --user --scope`, when the user manager is reachable) so it is outside
+the gateway service's cgroup, else in a new session. The gateway writes each started run, with its PID,
+start time and lease, to a small file under the state directory (`~/.local/state/berth/gateway-engines.json`),
+and the run's own output goes to `~/.local/state/berth/engines/<name>.log` (mode 600), never to a pipe the
+gateway holds, so a gateway that stops cannot break an engine's writes. While the gateway runs it copies
+the log to its own journal as well.
+When the gateway comes back it reads that file and adopts every engine whose process is still the same
+one, answering or still loading: the next request is proxied, not started again. Records for processes
+that left are dropped. Restarting during a 40-110 s cold start costs nothing but the restart itself.
+
+**Long waits and idle clients.** Cold starts take 41-110 s (table above), longer than many OpenAI
+clients wait before giving up. Streaming requests get the answer early: the gateway sends its SSE
+headers (`Content-Type: text/event-stream`, `Cache-Control: no-cache`) right away and writes an SSE
+comment every 10 s while the start runs, `: berth: loading strata, 34 s`, so proxies and clients keep
+the connection and a reader sees the wait moving. Once the engine answers, its body streams on; a
+start that fails sends one OpenAI-shaped error event with the same reason code the 503 path carries,
+then `data: [DONE]`. Non-streaming requests are unchanged; if a client drops a long non-streamed
+wait, raise its read timeout or make the request streamed. `GET /v1/berth/wait?model=NAME` blocks
+until the engine answers (a failed start is the same 503), so a harness can pre-warm before its
+first real request. The gateway serves `/v1/chat/completions`,
 `/v1/completions`, `/v1/embeddings` and a merged `/v1/models`, plus the ComfyUI surface: `POST /prompt`
 queues a workflow (starting ComfyUI under a lease when it is down, holding the request until its `/queue`
 answers), while `/ws`, `/queue`, `/history/`, `/view` and `/upload/` proxy to a running ComfyUI. Every route
