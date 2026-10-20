@@ -23,30 +23,6 @@ import (
 
 const containerID = "9b5f6c4d3e2a1b0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f"
 
-// cliSpy records every runtime CLI command and the timeout it was given,
-// and answers by the subcommand.
-type cliSpy struct {
-	argvs    [][]string
-	timeouts []time.Duration
-	// inspectErr answers docker's inspect with an error, so the podman
-	// fallback resolves.
-	inspectErr bool
-}
-
-func (s *cliSpy) run(argv []string, timeout time.Duration) (string, error) {
-	s.argvs = append(s.argvs, argv)
-	s.timeouts = append(s.timeouts, timeout)
-	switch {
-	case argv[1] == "inspect" && s.inspectErr && argv[0] == "docker":
-		return "", errors.New("no such container")
-	case argv[1] == "inspect":
-		return containerID + "\n", nil
-	case argv[1] == "stop":
-		return "", nil
-	}
-	return "", errors.New("unexpected command " + strings.Join(argv, " "))
-}
-
 // A container engine's drain stops the container with the runtime that
 // resolved it, by its full ID.
 func TestDrainStopsTheContainer(t *testing.T) {
