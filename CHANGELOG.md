@@ -23,6 +23,14 @@ has a matching GitHub release whose body comes from its section below.
 - `contrib/bench/swap`: times model switches through the gateway (cold and
   warm, per engine), with VRAM after drain, RAM, identical-output and leak
   checks. [#47](https://github.com/T-Crypt/berth/pull/47)
+- The engines' VRAM footprints: a freed lease folds its measured peak into
+  its engine's record (the most memory seen, the last run's peak, the run
+  count), kept in `~/.local/state/berth/footprint.json` across restarts.
+  `berth status` shows the last run's peak as EST. VRAM beside the
+  engine's own figures, and the JSON names it `estimated_vram_bytes`; it
+  is an estimate, never a reservation. A run that holds far more than the
+  learned figure (1.5x, after three runs) logs an `engine.footprint`
+  event.
 - `drain_max` (berth.toml) and `berth run --drain-max DURATION`: a ceiling
   on how long a drain waits at a boundary (a busy slot, a running ComfyUI
   job) before it runs the normal stop ladder; 0 = unbounded, the default.
