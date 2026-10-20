@@ -10,8 +10,10 @@ package broker
 // whose cgroups carry that ID belongs to the lease.
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // containerOf is a process's container id (lowercase), "" for a host process.
@@ -66,13 +68,16 @@ func (l *Lease) AttachContainer(id string) {
 
 // containerNameCLI resolves a container id to its runtime name with the
 // runtime CLI: docker, then podman. "" when neither answers. Best effort:
-// the report shows the short ID either way.
+// the report shows the short ID either way. Each ask runs under a 5 s
+// deadline, so a hung runtime daemon leaks no goroutine.
 func containerNameCLI(id string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for _, rt := range []string{"docker", "podman"} {
 		if _, err := exec.LookPath(rt); err != nil {
 			continue
 		}
-		out, err := exec.Command(rt, "inspect", "--format", "{{.Name}}", id).Output()
+		out, err := exec.CommandContext(ctx, rt, "inspect", "--format", "{{.Name}}", id).Output()
 		if err != nil {
 			continue
 		}
