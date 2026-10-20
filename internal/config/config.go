@@ -61,6 +61,10 @@ type Engine struct {
 	DrainComfyUI string `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
+	// DrainMax is berth run --drain-max: a ceiling on how long a drain may
+	// wait at a boundary (a processing slot, a running ComfyUI job) before
+	// it stops the engine anyway. 0 = unbounded, the default.
+	DrainMax Duration `toml:"drain_max,omitzero" json:"drain_max,omitempty" yaml:"drain_max,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a
@@ -444,6 +448,9 @@ func (c *Config) Validate() error {
 			if u, err := url.Parse(e.DrainSlots); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 				errs = append(errs, fmt.Errorf("%s: drain_slots %q must be the engine's http(s)://host:port", where, e.DrainSlots))
 			}
+		}
+		if e.DrainMax.Duration < 0 {
+			errs = append(errs, fmt.Errorf("%s: drain_max %s must be >= 0", where, e.DrainMax))
 		}
 		if e.GUI != "" {
 			if u, err := url.Parse(e.GUI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

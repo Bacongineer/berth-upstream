@@ -8,6 +8,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `drain_max` (berth.toml) and `berth run --drain-max DURATION`: a ceiling
+  on how long a drain waits at a boundary (a busy slot, a running ComfyUI
+  job) before it runs the normal stop ladder; 0 = unbounded, the default.
+  While a boundary is busy the wrapper prints a line each minute naming
+  the slots and the wait age, and the ceiling says so when it ends the
+  wait.
+
 ### Changed
 
 ### Fixed
