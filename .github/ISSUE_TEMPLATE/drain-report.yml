@@ -22,6 +22,7 @@ body:
         - "6 (busy forever)"
         - "7 (daemon restart mid-lease)"
         - "8 (containerized engine)"
+        - "9 (parked engine beside a grant)"
         - "not listed"
     validations:
       required: true

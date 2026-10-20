@@ -445,12 +445,21 @@ resume_url = "http://127.0.0.1:9000/reload"
 name = "idle"
 type = "llamacpp"
 url  = "http://127.0.0.1:8080"
+[[engine]]
+name = "proto"
+type = "custom"
+url  = "http://127.0.0.1:9100"
+health = "/health"
+park   = "hook"
 `))
 	if err != nil {
 		t.Fatalf("valid park keys refused: %v", err)
 	}
 	if c.Engine[0].Park != "hook" || c.Engine[1].ParkURL == "" || c.Engine[2].ResumeURL == "" || c.Engine[3].Park != "" {
 		t.Fatalf("park keys not loaded: %+v", c.Engine)
+	}
+	if c.Engine[4].Park != "hook" || c.Engine[4].ParkURL != "" || c.Engine[4].ResumeURL != "" {
+		t.Fatalf("a hook with no URLs is valid: %+v", c.Engine[4])
 	}
 	for _, bad := range []struct {
 		body string
@@ -504,6 +513,67 @@ resume_url = "http://127.0.0.1:8080/reload"
 	for _, key := range []string{"engine[0].park_url", "engine[0].resume_url"} {
 		if !got[key] {
 			t.Errorf("no warning for %s: %+v", key, warns)
+		}
+	}
+}
+
+func TestHookWithoutURLsTriesTheProtocol(t *testing.T) {
+	// A kind outside the built-in table with park = "hook" and no URLs is
+	// valid: the engine may speak the Berth park protocol, and the
+	// warning says what Berth will try.
+	const want = "proto: park = hook with no park_url/resume_url; Berth uses the Berth park protocol if the engine answers GET /berth/state, otherwise this engine drains as today"
+	_, warns, err := Check(write(t, `
+[[engine]]
+name = "proto"
+type = "custom"
+url  = "http://127.0.0.1:9100"
+health = "/health"
+park   = "hook"
+`))
+	if err != nil {
+		t.Fatalf("a hook with no URLs is valid: %v", err)
+	}
+	if len(warns) != 1 {
+		t.Fatalf("one warning, got %+v", warns)
+	}
+	if warns[0].Key != "engine[0].park" || warns[0].Message != want {
+		t.Errorf("warning = %+v, want key engine[0].park and %q", warns[0], want)
+	}
+
+	// A kind in the table falls back to its adapter: no protocol warning.
+	_, warns, err = Check(write(t, `
+[[engine]]
+name = "vllm"
+type = "vllm"
+url  = "http://127.0.0.1:8000"
+park = "hook"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "park protocol") {
+			t.Errorf("a table kind gets no protocol warning: %+v", w)
+		}
+	}
+
+	// A hook with both URLs is plain hook wiring: no protocol warning.
+	_, warns, err = Check(write(t, `
+[[engine]]
+name = "mine"
+type = "custom"
+url  = "http://127.0.0.1:9000"
+health = "/health"
+park       = "hook"
+park_url   = "http://127.0.0.1:9000/offload"
+resume_url = "http://127.0.0.1:9000/reload"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "park protocol") {
+			t.Errorf("a hook with both URLs gets no protocol warning: %+v", w)
 		}
 	}
 }
