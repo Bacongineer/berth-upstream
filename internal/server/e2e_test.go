@@ -1,6 +1,8 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix
+
 package server_test
 
 import (
@@ -74,17 +76,6 @@ func launch(o runner.Options) (chan int, *syncBuf) {
 	ch := make(chan int, 1)
 	go func() { ch <- runner.Run(o) }()
 	return ch, out
-}
-
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 // A second engine drains the first through the real socket and wrapper:

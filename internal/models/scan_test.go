@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -147,6 +148,9 @@ func TestScanDir(t *testing.T) {
 }
 
 func TestScanHFCache(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Symlink needs an admin token or Developer Mode, which the CI runner does not run with")
+	}
 	hub := t.TempDir()
 	repo := filepath.Join(hub, "models--org--repo")
 	blob := filepath.Join(repo, "blobs", "sha256-"+strings.Repeat("a", 64))

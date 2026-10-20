@@ -1,11 +1,11 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix
+
 package cli
 
 import (
-	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -20,79 +20,9 @@ import (
 // writeGGUF is the smallest file the reader accepts: a header, three metadata
 // pairs and one tensor. The models package owns the format's own tests; here a
 // model just has to exist with a name, an arch and a window.
-func writeGGUF(t *testing.T, path, arch, name string, ctx uint32, ftype uint32, split ...uint32) string {
-	t.Helper()
-
-	var b bytes.Buffer
-	h := func(v any) {
-		if err := binary.Write(&b, binary.LittleEndian, v); err != nil {
-			t.Fatal(err)
-		}
-	}
-	str := func(s string) {
-		h(uint64(len(s)))
-		b.WriteString(s)
-	}
-	b.WriteString("GGUF")
-	h(uint32(3)) // version
-	h(uint64(1)) // one tensor
-	pairs := [][2]string{{"general.architecture", arch}, {"general.name", name}}
-	n := len(pairs) + 1 + boolInt(ctx > 0) + boolInt(len(split) > 0 && split[0] > 0)
-	h(uint64(n))
-	for _, kv := range pairs {
-		str(kv[0])
-		h(uint32(8)) // string
-		str(kv[1])
-	}
-	str("general.file_type")
-	h(uint32(4)) // uint32
-	h(ftype)
-	if len(split) > 0 && split[0] > 0 {
-		str("split.count")
-		h(uint32(4))
-		h(split[0])
-	}
-	if ctx > 0 {
-		str(arch + ".context_length")
-		h(uint32(4))
-		h(ctx)
-	}
-	// One tensor: name, rank 2, its two dimensions, its type and an offset.
-	str("blk.0.weight")
-	h(uint32(2))
-	h(uint64(8))
-	h(uint64(8))
-	h(uint32(1)) // F16
-	h(uint64(0))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 // library is a directory as this machine's really stores models: two quants of
 // one model, its vision projector, a draft, an embedder and a split model.
-func library(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	writeGGUF(t, filepath.Join(dir, "Qwen3-8B-Q4_K_M.gguf"), "qwen2", "Qwen3 8B", 32768, 15)
-	writeGGUF(t, filepath.Join(dir, "Qwen3-8B-Q8_0.gguf"), "qwen2", "Qwen3 8B", 32768, 7)
-	writeGGUF(t, filepath.Join(dir, "Qwen3-8B-mmproj-f16.gguf"), "clip", "Qwen3 8B vision", 0, 1)
-	writeGGUF(t, filepath.Join(dir, "embed", "nomic-embed.gguf"), "bert", "Nomic Embed", 2048, 15)
-	writeGGUF(t, filepath.Join(dir, "deep", "part-00001-of-00002.gguf"), "llama", "Deep Split", 4096, 15, 2)
-	writeGGUF(t, filepath.Join(dir, "deep", "part-00002-of-00002.gguf"), "llama", "Deep Split", 4096, 15, 2)
-	return dir
-}
 
 func TestModelsListingGroupsCompanions(t *testing.T) {
 	isolate(t)
