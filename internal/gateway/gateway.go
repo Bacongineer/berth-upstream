@@ -164,6 +164,7 @@ func (g *Gateway) log() *slog.Logger {
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", g.models)
+	mux.HandleFunc("GET /v1/berth/wait", g.wait)
 	for _, p := range []string{"/v1/chat/completions", "/v1/completions", "/v1/embeddings"} {
 		mux.HandleFunc("POST "+p, g.forward)
 	}
@@ -362,11 +363,18 @@ func apiErrorCode(w http.ResponseWriter, status int, code, msg string) {
 		w.Header().Set("Retry-After", "30")
 	}
 	w.WriteHeader(status)
-	e := map[string]string{"message": msg, "type": "berth"}
+	_ = json.NewEncoder(w).Encode(berthError(code, msg))
+}
+
+// berthError is the OpenAI-shaped error body, with the reason code when
+// there is one. The JSON path encodes it; the streaming path sends it as
+// one SSE event.
+func berthError(code, msg string) map[string]any {
+	e := map[string]any{"message": msg, "type": "berth"}
 	if code != "" {
 		e["code"] = code
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": e})
+	return map[string]any{"error": e}
 }
 
 // startError is why an engine could not be brought up for a request.
@@ -435,7 +443,9 @@ func causeLine(output string) string {
 }
 
 // forward reads the model from the body, makes sure its engine is up (under
-// a lease), then proxies the request unchanged.
+// a lease), then proxies the request unchanged. A streaming request whose
+// engine is down gets the SSE preamble first, so the wait for the cold
+// start carries keep-alive comments and holds clients with idle timeouts.
 func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	if err != nil {
@@ -443,7 +453,8 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Model string `json:"model"`
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
 	}
 	if json.Unmarshal(body, &req) != nil || req.Model == "" {
 		apiError(w, http.StatusBadRequest, "the request needs a model")
@@ -454,8 +465,16 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusNotFound, fmt.Sprintf("no engine on this node serves %q (GET /v1/models lists what does)", req.Model))
 		return
 	}
+	preamble := false
 	if !t.live {
-		if err := g.ensure(r.Context(), t.engine); err != nil {
+		if req.Stream {
+			preamble = true
+			ssePreamble(w)
+			if err := g.keepAlive(w, r, t.engine); err != nil {
+				g.sseFailure(w, t.engine.Name, req.Model, err)
+				return
+			}
+		} else if err := g.ensure(r.Context(), t.engine); err != nil {
 			g.startFailed(w, t.engine.Name, req.Model, err)
 			return
 		}
@@ -470,7 +489,94 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	r.Host = u.Host
+	if preamble {
+		p.ServeHTTP(bodyOnly{w}, r) // the SSE preamble owns the headers
+		return
+	}
 	p.ServeHTTP(w, r)
+}
+
+// keepAliveEvery is how often a streaming request that waits for its
+// engine gets an SSE comment. A var so tests need not wait 10 s.
+var keepAliveEvery = 10 * time.Second
+
+// ssePreamble sends a streaming response's headers before the engine is
+// up, so the keep-alive comments can start while it loads.
+func ssePreamble(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	_ = http.NewResponseController(w).Flush()
+}
+
+// keepAlive runs ensure for a streaming request, writing an SSE comment
+// every keepAliveEvery with the seconds gone, so proxies and clients hold
+// the connection and a reader sees the wait moving.
+func (g *Gateway) keepAlive(w http.ResponseWriter, r *http.Request, e *config.Engine) error {
+	type outcome struct{ err error }
+	ch := make(chan outcome, 1)
+	go func() { ch <- outcome{g.ensure(r.Context(), e)} }()
+	start := time.Now()
+	tick := time.NewTicker(keepAliveEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case o := <-ch:
+			return o.err
+		case <-r.Context().Done():
+			return r.Context().Err()
+		case <-tick.C:
+			fmt.Fprintf(w, ": berth: loading %s, %d s\n\n", e.Name, int64(time.Since(start).Seconds()))
+			_ = http.NewResponseController(w).Flush()
+		}
+	}
+}
+
+// sseFailure answers a streaming request whose engine would not come up:
+// the same OpenAI-shaped error the 503 path carries, as one SSE event.
+func (g *Gateway) sseFailure(w http.ResponseWriter, engine, what string, err error) {
+	code := ""
+	var se *startError
+	if errors.As(err, &se) {
+		code = se.code
+	}
+	g.log().Warn("gateway start failed", "engine", engine, "request", what, "code", code, "err", err)
+	b, _ := json.Marshal(berthError(code, err.Error()))
+	fmt.Fprintf(w, "data: %s\ndata: [DONE]\n\n", b)
+	_ = http.NewResponseController(w).Flush()
+}
+
+// bodyOnly is a ResponseWriter whose headers are already on the wire: the
+// SSE preamble went out while the engine loaded. The engine's body streams
+// through and header changes are dropped.
+type bodyOnly struct{ http.ResponseWriter }
+
+func (bodyOnly) WriteHeader(int)               {}
+func (b bodyOnly) Flush()                      { _ = http.NewResponseController(b.ResponseWriter).Flush() }
+func (b bodyOnly) Unwrap() http.ResponseWriter { return b.ResponseWriter }
+
+// wait blocks until the engine for the model named in the query answers,
+// for harnesses that pre-warm before their first real request. A failed
+// start is the same 503 the request path answers with.
+func (g *Gateway) wait(w http.ResponseWriter, r *http.Request) {
+	model := r.URL.Query().Get("model")
+	if model == "" {
+		apiError(w, http.StatusBadRequest, "name the model to wait for: /v1/berth/wait?model=NAME")
+		return
+	}
+	t, ok := g.resolve(r.Context(), model)
+	if !ok {
+		apiError(w, http.StatusNotFound, fmt.Sprintf("no engine on this node serves %q (GET /v1/models lists what does)", model))
+		return
+	}
+	if !t.live {
+		if err := g.ensure(r.Context(), t.engine); err != nil {
+			g.startFailed(w, t.engine.Name, model, err)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"model": model, "ready": true})
 }
 
 // startFailed answers a request whose engine would not come up: a 503
