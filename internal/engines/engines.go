@@ -257,7 +257,7 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 					out.Window = p.NCtx
 				}
 			}
-			if ss, serr := w.slots(ctx, base+"/slots", ""); serr == nil {
+			if ss, serr := w.slots(ctx, base+"/slots", "", ""); serr == nil {
 				out.Slots = ss
 			}
 		}
@@ -273,7 +273,7 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 	case "ollama":
 		err = w.ollama(ctx, base, &out)
 	case "strata":
-		err = w.strata(ctx, base, &out)
+		err = w.strata(ctx, base, e.APIKeyEnv, &out)
 	case "vllm":
 		err = w.openAIWithProm(ctx, base, e.APIKeyEnv, "vllm:", vllmNames, &out)
 	case "sglang":
@@ -359,7 +359,7 @@ func (w *Watcher) custom(ctx context.Context, base string, e config.Engine, out 
 		}
 	}
 	if e.Slots != "" {
-		ss, err := w.slots(ctx, base+e.Slots, "")
+		ss, err := w.slots(ctx, base+e.Slots, "", "")
 		if err != nil && gate {
 			return err
 		}
@@ -451,7 +451,7 @@ func (w *Watcher) llamaSwap(ctx context.Context, base string, out *proto.Engine)
 				out.Models[len(out.Models)-1].Window = p.NCtx
 			}
 		}
-		if ss, serr := w.slots(ctx, px+"/slots", m.Model); serr == nil {
+		if ss, serr := w.slots(ctx, px+"/slots", m.Model, ""); serr == nil {
 			out.Slots = append(out.Slots, ss...)
 		}
 	}
@@ -476,8 +476,8 @@ func SlotBusy(state string, isProcessing bool) bool {
 // counts as processing on either. Any error - a 404 or 501 from a build
 // without the endpoint, a timeout - is the caller's to swallow, so an engine
 // without /slots stays up with no slot data.
-func (w *Watcher) slots(ctx context.Context, url, model string) ([]proto.Slot, error) {
-	b, err := w.get(ctx, url)
+func (w *Watcher) slots(ctx context.Context, url, model, keyEnv string) ([]proto.Slot, error) {
+	b, err := w.getKey(ctx, url, keyEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -527,12 +527,12 @@ func (w *Watcher) ollama(ctx context.Context, base string, out *proto.Engine) er
 }
 
 // strata reads /health for the model (open on every install) and /metrics
-// for the counters the server totals since it started. /metrics is best
-// effort: a keyed install answers 401, and the engine still reports up with
-// its model and no rates. Its prompt seconds count only fresh reads while
+// for the counters the server totals since it started. Metrics and slots
+// use api_key_env when configured and remain best effort: health alone
+// decides up/down. Its prompt seconds count only fresh reads while
 // prompt tokens include cached prefixes, as in the llama.cpp-based readers,
 // so a cache-heavy workload reads a high prefill tok/s.
-func (w *Watcher) strata(ctx context.Context, base string, out *proto.Engine) error {
+func (w *Watcher) strata(ctx context.Context, base, keyEnv string, out *proto.Engine) error {
 	b, err := w.get(ctx, base+"/health")
 	if err != nil {
 		return err
@@ -551,14 +551,18 @@ func (w *Watcher) strata(ctx context.Context, base string, out *proto.Engine) er
 	}
 	out.Models = append(out.Models, proto.Model{Name: h.Model, State: state, Window: h.MaxContext})
 	out.Window = h.MaxContext
-	b, err = w.get(ctx, base+"/metrics")
+	if slots, err := w.slots(ctx, base+"/slots", h.Model, keyEnv); err == nil {
+		out.Slots = slots
+	}
+	b, err = w.getKey(ctx, base+"/metrics", keyEnv)
 	if err != nil {
 		return nil
 	}
 	var m struct {
 		Live struct {
-			State  string `json:"state"`
-			Queued int    `json:"queued"`
+			State   string `json:"state"`
+			Running *int   `json:"running"`
+			Queued  int    `json:"queued"`
 		} `json:"live"`
 		Totals struct {
 			PromptTokens float64 `json:"prompt_tokens"`
@@ -568,9 +572,12 @@ func (w *Watcher) strata(ctx context.Context, base string, out *proto.Engine) er
 		} `json:"totals"`
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
-		return fmt.Errorf("/metrics: %w", err)
+		return nil
 	}
-	if m.Live.State == "reading" || m.Live.State == "generating" {
+	switch {
+	case m.Live.Running != nil:
+		out.Metrics.Processing = float64(*m.Live.Running)
+	case m.Live.State == "reading" || m.Live.State == "generating":
 		out.Metrics.Processing = 1
 	}
 	out.Metrics.Waiting = float64(m.Live.Queued)
