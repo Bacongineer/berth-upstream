@@ -367,18 +367,13 @@ func comfyVRAM(base string) (free, total uint64, err error) {
 	return stats.Devices[0].VRAMFree, stats.Devices[0].VRAMTotal, nil
 }
 
-// slotBoundary waits until the engine behind the drain-post URL reports no
-// processing slot, so an unload never cuts an in-flight request off. A host
-// with no boundary at all (404, an unreachable host, a body that is not a
-// slot list) unloads at once and says so. A sick boundary (any other
+// slotBoundaryAt waits until the engine at base reports no processing
+// slot, so an unload never cuts an in-flight request off. A host with no
+// boundary at all (404, an unreachable host, a body that is not a slot
+// list) unloads at once and says so. A sick boundary (any other
 // status, a read timeout) waits like a busy one: Berth then has proof work
 // was running and none that it stopped. An engine that exits meanwhile
 // ends the drain.
-func slotBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
-	return slotBoundaryAt(o, drainPostBase(o.DrainPost), done, say)
-}
-
-// slotBoundaryAt is slotBoundary for an engine at base.
 func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(string, ...any)) bool {
 	if base == "" {
 		return true
@@ -614,7 +609,7 @@ func drain(o Options, cmd *exec.Cmd, done <-chan struct{}, released chan<- struc
 		}
 	}
 	if o.DrainPost != "" {
-		if !slotBoundary(o, done, say) {
+		if !slotBoundaryAt(o, drainPostBase(o.DrainPost), done, say) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
