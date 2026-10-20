@@ -2,7 +2,9 @@ name: Release
 
 # A pushed tag vX.Y.Z runs the same checks as CI, then publishes static Linux
 # binaries (no CGO) with SHA256SUMS on the GitHub release for that tag.
-# Release notes come from notes/<tag>.md if that file exists, otherwise GitHub's auto-generated notes.
+# Release notes come from three places, first match wins:
+# notes/<tag>.md if it exists, the tag's section in CHANGELOG.md if it has
+# one, otherwise GitHub's auto-generated notes.
 on:
   push:
     tags: ["v*"]
@@ -42,6 +44,16 @@ jobs:
         run: |
           if [ -f "notes/${GITHUB_REF_NAME}.md" ]; then
             gh release create "$GITHUB_REF_NAME" dist/* --title "Berth ${GITHUB_REF_NAME}" --notes-file "notes/${GITHUB_REF_NAME}.md"
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* --title "${GITHUB_REF_NAME}" --generate-notes
+            exit 0
           fi
+          if [ -f CHANGELOG.md ]; then
+            awk -v tag="${GITHUB_REF_NAME}" '
+              $0 ~ "^## \\[" tag "\\] " || $0 == "## [" tag "]" { on = 1; next }
+              on && /^## / { exit }
+              on' CHANGELOG.md > release-from-changelog.md
+            if [ -s release-from-changelog.md ]; then
+              gh release create "$GITHUB_REF_NAME" dist/* --title "Berth ${GITHUB_REF_NAME}" --notes-file release-from-changelog.md
+              exit 0
+            fi
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --title "${GITHUB_REF_NAME}" --generate-notes
