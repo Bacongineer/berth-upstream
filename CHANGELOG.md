@@ -8,6 +8,18 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The prediction of switch times: `internal/swapcost` records the times
+  completed switches took, per engine and tier (hot on the card, warm
+  parked in RAM, cool in the kernel page cache, cold on disk), keeping
+  the last 20, and answers the next switch as the median of what it has
+  seen. A tier with no samples stays unknown and is never filled with a
+  guess, so a plan total with unmeasured steps is a lower bound, "at
+  least N s, M steps unmeasured", not a promise. `Plan` works out a
+  chain an orchestrator declares ahead of time, step by step: the cost
+  of each switch, the engines to prefetch while the current holder
+  drains, and the engines the chain comes back to, so the caller parks
+  them in RAM instead of stopping them. Groundwork; wired to the daemon
+  and the gateway in a later PR.
 - The building blocks for KV snapshots: `internal/kvsnap` saves a
   llama.cpp engine's busy slots to files on disk and restores them
   before the next engine's first request, so a sequential run of
