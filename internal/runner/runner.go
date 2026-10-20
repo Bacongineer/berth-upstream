@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -463,11 +464,10 @@ func slotsTimeout(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded)
 }
 
-// slotsBusy reports whether any llama.cpp-style slot is processing. A slot
-// counts on either shape engines serve: a "processing" state or an
-// is_processing bool, the same rule the engine reader uses. Failures come
-// back as a *slotsErr so the caller can tell "no boundary" from "sick
-// boundary" (see failOpen).
+// slotsBusy reports whether any llama.cpp-style slot is processing. The
+// counting rule is engines.SlotBusy, the same one the engine reader uses.
+// Failures come back as a *slotsErr so the caller can tell "no boundary"
+// from "sick boundary" (see failOpen).
 func slotsBusy(url string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -491,7 +491,7 @@ func slotsBusy(url string) (bool, error) {
 		return false, &slotsErr{badBody: true, err: fmt.Errorf("/slots: %w", err)}
 	}
 	for _, s := range slots {
-		if s.State == "processing" || s.IsProcessing {
+		if engines.SlotBusy(s.State, s.IsProcessing) {
 			return true, nil
 		}
 	}

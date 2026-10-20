@@ -463,6 +463,13 @@ func (w *Watcher) llamaSwap(ctx context.Context, base string, out *proto.Engine)
 	return nil
 }
 
+// SlotBusy reports whether one /slots entry is processing a request.
+// llama.cpp reports a slot's state in "state"; NInfer builds serve an
+// "is_processing" bool instead, so a slot counts as processing on either.
+func SlotBusy(state string, isProcessing bool) bool {
+	return state == "processing" || isProcessing
+}
+
 // slots fetches an engine's /slots endpoint (the llama.cpp family) and maps
 // its sessions to the wire shape. llama.cpp reports a slot's state in
 // "state"; NInfer builds serve an "is_processing" bool instead, so a slot
@@ -493,7 +500,7 @@ func (w *Watcher) slots(ctx context.Context, url, model string) ([]proto.Slot, e
 			Window:     s.NCtx,
 			Used:       s.NPromptTokens,
 			Cached:     s.NCache,
-			Processing: s.State == "processing" || s.IsProcessing,
+			Processing: SlotBusy(s.State, s.IsProcessing),
 		})
 	}
 	return out, nil
