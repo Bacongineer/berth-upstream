@@ -130,13 +130,13 @@ func TestForNeverCrossesModels(t *testing.T) {
 func TestForNewestFirst(t *testing.T) {
 	x := testIndex(t)
 	at := time.Now().Truncate(time.Second)
-	if err := x.Record(keyA, 0, Result{Bytes: 100}, at); err != nil {
+	if err := x.Record(keyA, 0, Result{Tokens: 1, Bytes: 100}, at); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.Record(keyA, 1, Result{Bytes: 200}, at.Add(time.Minute)); err != nil {
+	if err := x.Record(keyA, 1, Result{Tokens: 1, Bytes: 200}, at.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.Record(keyA, 2, Result{Bytes: 300}, at.Add(2*time.Minute)); err != nil {
+	if err := x.Record(keyA, 2, Result{Tokens: 1, Bytes: 300}, at.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	got, err := x.For(keyA)
@@ -169,7 +169,7 @@ func TestEvictOrderAndBudget(t *testing.T) {
 		if err := os.WriteFile(p, make([]byte, s.size), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := x.Record(s.key, s.slot, Result{Bytes: s.size}, s.at); err != nil {
+		if err := x.Record(s.key, s.slot, Result{Tokens: 1, Bytes: s.size}, s.at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -213,7 +213,7 @@ func TestEvictForeignAloneOverBudget(t *testing.T) {
 	if err := os.WriteFile(p, make([]byte, 1000), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.Record(keyA, 0, Result{Bytes: 1000}, at); err != nil {
+	if err := x.Record(keyA, 0, Result{Tokens: 1, Bytes: 1000}, at); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(x.Dir, "foreign.bin"), make([]byte, 5000), 0o644); err != nil {
@@ -241,13 +241,12 @@ func TestEvictForeignAloneOverBudget(t *testing.T) {
 func TestPlan(t *testing.T) {
 	x := testIndex(t)
 	live := []Slot{
-		{ID: 0, Busy: true, Tokens: 4217},
-		{ID: 1},             // idle
-		{ID: 2, Busy: true}, // busy but unaccounted
-		{ID: 3, Busy: true, Tokens: 9},
+		{ID: 0, Tokens: 4217}, // idle, a count left over
+		{ID: 1},               // idle, no count: its cache may still be full
+		{ID: 2, Busy: true},   // busy: never saved mid-generation
 	}
 	got := x.Plan(keyA, live)
-	want := []Slot{{ID: 0, Busy: true, Tokens: 4217}, {ID: 3, Busy: true, Tokens: 9}}
+	want := []Slot{{ID: 0, Tokens: 4217}, {ID: 1}}
 	if len(got) != len(want) {
 		t.Fatalf("Plan = %v, want %v", got, want)
 	}
@@ -255,6 +254,28 @@ func TestPlan(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("Plan[%d] = %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// A save that wrote no tokens is an empty slot: its file and any older
+// record of the slot go.
+func TestRecordEmptySave(t *testing.T) {
+	x := testIndex(t)
+	at := time.Now()
+	if err := os.WriteFile(filepath.Join(x.Dir, Name(keyA, 0)), []byte("cache"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.Record(keyA, 0, Result{Tokens: 900, Bytes: 5}, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.Record(keyA, 0, Result{}, at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if ss, err := x.For(keyA); err != nil || len(ss) != 0 {
+		t.Fatalf("For = %+v, %v; want nothing after an empty save", ss, err)
+	}
+	if _, err := os.Stat(filepath.Join(x.Dir, Name(keyA, 0))); !os.IsNotExist(err) {
+		t.Fatalf("the empty save's file is still there: %v", err)
 	}
 }
 

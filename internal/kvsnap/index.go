@@ -71,13 +71,16 @@ func Name(key Key, slot int) string {
 	return fmt.Sprintf("%x_s%d", h[:8], slot)
 }
 
-// Plan is which of the engine's live slots hold a prompt worth saving: the
-// busy ones with a token count. A slot the engine does not account and an
-// idle one are left alone.
+// Plan is which of the engine's live slots to save: every idle one. A drain
+// asks only after the slot boundary, so the slots are idle then, and
+// llama.cpp reports a slot's prompt tokens only while a task is attached, so
+// an idle slot's count says nothing about its cache. The save itself says:
+// Record keeps only a save that wrote tokens. A busy slot is never saved
+// mid-generation.
 func (x *Index) Plan(key Key, live []Slot) []Slot {
 	out := []Slot{}
 	for _, s := range live {
-		if s.Busy && s.Tokens > 0 {
+		if !s.Busy {
 			out = append(out, s)
 		}
 	}
@@ -86,7 +89,7 @@ func (x *Index) Plan(key Key, live []Slot) []Slot {
 
 // Record lists a save: key's slot saved with r's tokens and bytes at time.
 // A record under the same key and slot replaces its predecessor, since the
-// engine overwrote the file.
+// engine overwrote the file; a save of an empty slot removes both.
 func (x *Index) Record(key Key, slot int, r Result, at time.Time) error {
 	ss, err := x.read()
 	if err != nil {
@@ -98,6 +101,14 @@ func (x *Index) Record(key Key, slot int, r Result, at time.Time) error {
 			continue
 		}
 		kept = append(kept, s)
+	}
+	if r.Tokens == 0 {
+		// An empty slot: the engine wrote a file with nothing to restore,
+		// over any older snapshot of this slot. Neither is worth keeping.
+		if err := os.Remove(filepath.Join(x.Dir, Name(key, slot))); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return x.write(kept)
 	}
 	kept = append(kept, Snapshot{Key: key, Slot: slot, File: Name(key, slot), Tokens: r.Tokens, Bytes: r.Bytes, SavedAt: at})
 	return x.write(kept)

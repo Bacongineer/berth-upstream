@@ -22,7 +22,7 @@ func TestWarmCallsPrefetchOnTheKeyFiles(t *testing.T) {
 	}
 	at := time.Now().Truncate(time.Second)
 	for _, slot := range []int{0, 1} {
-		if err := x.Record(keyA, slot, Result{Bytes: 100}, at.Add(time.Duration(slot)*time.Minute)); err != nil {
+		if err := x.Record(keyA, slot, Result{Tokens: 1, Bytes: 100}, at.Add(time.Duration(slot)*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,7 +52,7 @@ func TestWarmToleratesTheOffLinuxPageCache(t *testing.T) {
 		Prefetch: func(string) error { return pagecache.ErrUnsupported },
 		Info:     func(string) (storage.Root, error) { return storage.Root{}, nil },
 	}
-	if err := x.Record(keyA, 0, Result{Bytes: 100}, time.Now().Truncate(time.Second)); err != nil {
+	if err := x.Record(keyA, 0, Result{Tokens: 1, Bytes: 100}, time.Now().Truncate(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if err := x.Warm(keyA); err != nil {
