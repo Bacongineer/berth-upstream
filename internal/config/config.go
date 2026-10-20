@@ -94,6 +94,7 @@ type Config struct {
 	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
 	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
 	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
+	Library  LibraryConfig  `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
 }
 
 // ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope
@@ -154,6 +155,42 @@ func (c *Config) ClaimRules() ([]claims.Rule, error) {
 // scanned anyway, so this is only for a library kept somewhere else.
 type ModelsConfig struct {
 	Dirs []string `toml:"dirs,omitempty" json:"dirs,omitempty" yaml:"dirs,omitempty"`
+}
+
+// DefaultFreeFloor is the share of a root's total space a pull must leave
+// free. A drive never fills: a pull that would go under it is refused.
+const DefaultFreeFloor = 0.10
+
+// LibraryConfig is the model library's placement rules: how much space a
+// root must keep free, and what a root is - which shelf it holds and which
+// other OS reads it.
+type LibraryConfig struct {
+	// FreeFloor is the fraction of a root's total space that stays free
+	// after any pull; nil keeps the default, 0 turns the guard off.
+	FreeFloor *float64 `toml:"free_floor,omitempty" json:"free_floor,omitempty" yaml:"free_floor,omitempty"`
+	// Root declares facts about a specific root: its shelf and the other OS
+	// it is shared with. Paths that are not declared take the defaults:
+	// the shelf is whatever a file states, and the root is local only.
+	Root []LibraryRoot `toml:"root,omitempty" json:"root,omitempty" yaml:"root,omitempty"`
+}
+
+// LibraryRoot is one root's declared facts.
+type LibraryRoot struct {
+	Path string `toml:"path" json:"path" yaml:"path"`
+	// Shelf declares what the whole root holds; it beats what a file states.
+	Shelf string `toml:"shelf,omitempty" json:"shelf,omitempty" yaml:"shelf,omitempty"`
+	// Shared names the other OS that reads this root, like "windows". A
+	// shared root never gets symlinks, and a move off it needs consent.
+	Shared string `toml:"shared,omitempty" json:"shared,omitempty" yaml:"shared,omitempty"`
+}
+
+// LibraryFloor is the configured floor, the default when the config names
+// none.
+func (c *Config) LibraryFloor() float64 {
+	if c.Library.FreeFloor != nil {
+		return *c.Library.FreeFloor
+	}
+	return DefaultFreeFloor
 }
 
 // PriorityConfig decides juggles: two engines at the same priority asking for
@@ -378,6 +415,25 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("engines.discover_ports: %d is not a port", p))
 		}
 	}
+	if f := c.Library.FreeFloor; f != nil {
+		if *f < 0 || *f > 1 {
+			errs = append(errs, fmt.Errorf("library.free_floor %g must be a fraction in [0, 1]", *f))
+		}
+	}
+	rootSeen := map[string]bool{}
+	for i, r := range c.Library.Root {
+		where := fmt.Sprintf("library.root[%d]", i)
+		if strings.TrimSpace(r.Path) == "" {
+			errs = append(errs, fmt.Errorf("%s: path is required", where))
+		} else if rootSeen[r.Path] {
+			errs = append(errs, fmt.Errorf("%s: %q is declared twice", where, r.Path))
+		} else {
+			rootSeen[r.Path] = true
+		}
+		if r.Shelf != "" && !shelfValid(r.Shelf) {
+			errs = append(errs, fmt.Errorf("%s: shelf %q is not chat, image or audio", where, r.Shelf))
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -402,6 +458,14 @@ func contains(list []string, s string) bool {
 		if x == s {
 			return true
 		}
+	}
+	return false
+}
+
+func shelfValid(s string) bool {
+	switch s {
+	case "chat", "image", "audio":
+		return true
 	}
 	return false
 }

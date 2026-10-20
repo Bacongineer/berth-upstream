@@ -43,10 +43,11 @@ type Model struct {
 	Files      []string  `json:"files,omitempty" yaml:"files,omitempty"`           // every part of a split GGUF
 	Companions []string  `json:"companions,omitempty" yaml:"companions,omitempty"` // mmproj/drafts that go with it
 	Bytes      uint64    `json:"bytes" yaml:"bytes"`
-	Format     string    `json:"format" yaml:"format"`                 // gguf | safetensors | ollama
-	Source     string    `json:"source" yaml:"source"`                 // dir | hf-cache | lmstudio | ollama
-	Role       string    `json:"role,omitempty" yaml:"role,omitempty"` // model | mmproj | draft | embedding
-	Arch       string    `json:"arch,omitempty" yaml:"arch,omitempty"` // model_type for safetensors
+	Format     string    `json:"format" yaml:"format"`                   // gguf | safetensors | ollama
+	Source     string    `json:"source" yaml:"source"`                   // dir | hf-cache | lmstudio | ollama
+	Shelf      Shelf     `json:"shelf,omitempty" yaml:"shelf,omitempty"` // chat | image | audio; empty = undetermined
+	Role       string    `json:"role,omitempty" yaml:"role,omitempty"`   // model | mmproj | draft | embedding
+	Arch       string    `json:"arch,omitempty" yaml:"arch,omitempty"`   // model_type for safetensors
 	Quant      string    `json:"quant,omitempty" yaml:"quant,omitempty"`
 	Params     uint64    `json:"params,omitempty" yaml:"params,omitempty"`
 	Context    uint64    `json:"context,omitempty" yaml:"context,omitempty"`
@@ -131,6 +132,9 @@ func Scan(dirs []string) []Model {
 	var out []Model
 	for _, r := range roots {
 		out = append(out, scanRoot(r)...)
+	}
+	for i := range out {
+		out[i].Shelf = ShelfOf(&out[i])
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {

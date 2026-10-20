@@ -50,6 +50,34 @@ materialised, and the environment that decides which file that is.
 		},
 	},
 	{
+		Name:    "civitai",
+		Summary: "search and browse CivitAI, for finding things to pull",
+		Help: `CivitAI is a search and a listing, not a pull: search finds a model and its
+version ids, and a pull takes them: berth pull civitai:<version-id>. A model
+id pulls its latest version: berth pull civitai:model:<model-id>.`,
+		Sub: []*Command{
+			{
+				Name:    "search",
+				Summary: "search CivitAI's models by query and asset kind",
+				Args:    "QUERY [--type T]... [--limit N] [--token-env V] [--format F]",
+				Help: `Ask CivitAI for models matching QUERY. Public models need no key; --token-env
+names the environment variable holding an API key when you want gated results.
+The printed ids are what berth pull takes.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runCivitaiSearch,
+			},
+			{
+				Name:    "versions",
+				Summary: "list a CivitAI model's versions, newest first",
+				Args:    "MODEL_ID [--token-env V] [--format F]",
+				Help: `List the versions of a model, newest first, with the version ids a pull
+takes. The id of the first line is what civitai:model:<MODEL_ID> resolves to.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runCivitaiVersions,
+			},
+		},
+	},
+	{
 		Name:    "daemon",
 		Summary: "run the broker for one card (berthd)",
 		Args:    "[flags]",
@@ -147,21 +175,27 @@ has the secret written into its config: "apiKey": "!berth key".`,
 	},
 	{
 		Name:    "models",
-		Summary: "the model files this machine holds, and what they were used for",
-		Args:    "[--dir D]... [--all] [--usage W] [--no-usage] [--format F]",
+		Summary: "the model files this machine holds, their shelves, and what they were used for",
+		Args:    "[--dir D]... [--shelf S] [--all] [--usage W] [--no-usage] [--format F]",
 		Help: `List the model files where the usual tools keep them - the Hugging Face
 cache, LM Studio's model directories, Ollama's store and ~/models - plus any
 --dir you name, or the [models] dirs berth.toml names.
 
 One row per model: MODEL is the file's stem (the name that never collides - a
-model's quants all answer to the same name inside the file), then QUANT, SIZE,
+model's quants all answer to the same name inside the file), SHELF (chat,
+image, audio, or - when nothing in the file states one), then QUANT, SIZE,
 PARAMS, CTX, ARCH, how many companion files belong to it (+COMP) and USED, when
-the harbor last saw it serve a request. --usage 30d adds REQ and TOKENS for that
-window. Sorted by name. --all also lists the companion files themselves: a
+the harbor last saw it serve a request. --shelf image lists one shelf only,
+and the totals under the listing say how much of the library each shelf holds;
+a root declared in [library] with a shelf (say shelf = "image") beats what the
+files themselves say. --usage 30d adds REQ and TOKENS for that window. Sorted
+by name. --all also lists the companion files themselves: a
 vision projector (mmproj, clip) and a speculative draft (mtp, eagle, dflash)
 are run with a model, not on their own, so they are counted rather than listed.
 A split GGUF is one model: its parameter count is summed over every part.
 Headers only: berth never loads weights, hashes a file or downloads anything.
+Every scan leaves its snapshot in each root under .berth/catalog.json, so a
+second machine reading the same root sees what this one resolved.
 
 The harbor's request log decides USED, REQ and TOKENS, and it is opened
 read-only. No harbor database is no usage: every model reads "never". --no-usage
@@ -187,19 +221,31 @@ ollama create does (it takes its own blob), which is why --dry-run exists.`,
 	},
 	{
 		Name:    "pull",
-		Summary: "download a model from Hugging Face, checked byte for byte",
-		Args:    "hf:ORG/REPO[:QUANT|FILE|GLOB][@REV] [--dir D] [--dry-run] [--token-env V] [--format F]",
-		Help: `Download model files from the Hugging Face Hub into DIR/<org>/<repo>/
-(~/models by default). A quant name picks the matching GGUF and every part of a
-split model, plus the vision projector when the repo has one; a file name or a
-glob picks exactly that.
+		Summary: "download a model from Hugging Face or CivitAI, checked byte for byte",
+		Args:    "REF [--dir D] [--dry-run] [--token-env V] [--format F]",
+		Help: `REF is one of:
 
-Every file comes from one commit, resolved once at the start, and is checked
-against the size and sha256 the Hub publishes before it is moved into place.
-An interrupted pull resumes where it stopped when you run it again, and a file
-already present and correct is not downloaded twice. A manifest beside the
-files records the commit and every hash, so berth verify can re-check them
-later without the network. Gated and private repos read a token from $HF_TOKEN.`,
+  hf:ORG/REPO[:QUANT|FILE|GLOB][@REV]  the Hugging Face Hub
+  civitai:VERSION_ID                   a CivitAI model version
+  civitai:model:MODEL_ID               that model's latest version
+  https://civitai.com/model-versions/ID  the site's own URLs
+
+A Hub pull downloads to DIR/<org>/<repo>/ (~/models by default). A quant name
+picks the matching GGUF and every part of a split model, plus the vision
+projector when the repo has one; a file name or a glob picks exactly that. A
+CivitAI pull resolves the version and downloads the files it lists to
+DIR/civitai/<model>/.
+
+Every file comes from one snapshot of its source, resolved once at the start,
+and is checked against the size and sha256 the source publishes before it is
+moved into place. An interrupted pull resumes where it stopped when you run it
+again, and a file already present and correct is not downloaded twice. Before
+anything is downloaded the pull measures the destination root and refuses when
+the files would leave it under the [library] floor, a tenth of the root by
+default; a root whose space this platform cannot measure says the floor was
+not checked. A manifest beside the files records the source, the reference
+and every hash, so berth verify can re-check them later without the network.
+Gated and private models read a token from $HF_TOKEN or $CIVITAI_API_KEY.`,
 		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 		Run:     runPull,
 	},
@@ -250,6 +296,22 @@ why, what holds memory without a lease, the engines found, and the collisions
 board. Read only: nothing here changes the node.`,
 		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 		Run:     runStatus,
+	},
+	{
+		Name:    "storage",
+		Summary: "the model roots: their filesystems, space, floors and shelves",
+		Args:    "[--dir D]... [--format F]",
+		Help: `Check each model root: the filesystem it sits on, the space it has left,
+what it supports (hard links, symlinks, reflinks), which other operating
+systems it is shared with, and how much of it each shelf (chat, image,
+audio) holds. A root that is under its floor marks the check failed; the
+floor is [library] free_floor, a tenth of the root by default.
+
+Roots come from --dir, else the [models] dirs and the [library] roots in
+the config, else the usual stores. The catalog age is how long ago a berth
+last scanned the root.`,
+		Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+		Run:     runStorage,
 	},
 	{
 		Name:    "verify",
