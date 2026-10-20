@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/comfy"
+	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/httpauth"
 	"github.com/T-Crypt/berth/internal/park"
@@ -57,8 +58,9 @@ type Options struct {
 	// never cut off. There is no time limit; a job ends when it ends.
 	DrainComfyUI string
 	// APIKeyEnv names the credential source; APIKey is resolved once by Run.
-	APIKeyEnv string
-	APIKey    string
+	APIKeyEnv  string
+	APIKeyFile string
+	APIKey     string
 	// DrainMax is a ceiling on how long a drain may wait at a boundary (a
 	// processing slot, a running ComfyUI job) before it runs the normal
 	// stop ladder anyway: a wedged engine that keeps reporting busy holds
@@ -122,12 +124,13 @@ func (o Options) pollEvery() time.Duration {
 
 func Run(o Options) int {
 	say := func(format string, a ...any) { fmt.Fprintf(o.Stderr, "berth: "+format+"\n", a...) }
-	if o.APIKeyEnv != "" {
-		o.APIKey = os.Getenv(o.APIKeyEnv)
-		if strings.TrimSpace(o.APIKey) == "" {
-			say("credential environment variable %s is empty; not starting %s", o.APIKeyEnv, o.Engine)
+	if o.APIKeyEnv != "" || o.APIKeyFile != "" {
+		key, err := (config.Engine{APIKeyEnv: o.APIKeyEnv, APIKeyFile: o.APIKeyFile}).APIKey()
+		if err != nil {
+			say("credential: %v; not starting %s", err, o.Engine)
 			return ExitRefused
 		}
+		o.APIKey = key
 	}
 
 	conn, raw, err := server.Dial(o.Socket)

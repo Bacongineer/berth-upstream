@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"syscall"
@@ -20,7 +21,7 @@ import (
 )
 
 func TestRunAuthenticatesDrainRequests(t *testing.T) {
-	for _, kind := range []string{"slots", "post", "comfy"} {
+	for _, kind := range []string{"slots", "post", "comfy", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Setenv("FIXTURE_DRAIN_KEY", "fixture-boundary-token")
 			var busy atomic.Bool
@@ -54,6 +55,13 @@ func TestRunAuthenticatesDrainRequests(t *testing.T) {
 			sock, b := parkDaemon(t, card, 16<<30)
 			e := config.Engine{Name: "fixture", Priority: "interactive", NeedsMiB: 8192, APIKeyEnv: "FIXTURE_DRAIN_KEY"}
 			switch kind {
+			case "file":
+				e.APIKeyEnv = ""
+				e.APIKeyFile = filepath.Join(t.TempDir(), "key")
+				if err := os.WriteFile(e.APIKeyFile, []byte("fixture-boundary-token"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				e.DrainSlots = srv.URL
 			case "slots":
 				e.DrainSlots = srv.URL
 			case "post":
@@ -94,7 +102,7 @@ func TestRunAuthenticatesDrainRequests(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatalf("runner did not finish: %s", logs.String())
 			}
-			if kind != "slots" && actions.Load() != 1 {
+			if (kind == "post" || kind == "comfy") && actions.Load() != 1 {
 				t.Fatalf("authenticated actions = %d, want 1", actions.Load())
 			}
 		})

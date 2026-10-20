@@ -97,6 +97,9 @@ func runArgv(o runner.Options) []string {
 	if o.Group != "" {
 		args = append(args, "--group", o.Group)
 	}
+	if o.APIKeyFile != "" {
+		args = append(args, "--api-key-file", o.APIKeyFile)
+	}
 	if o.APIKeyEnv != "" {
 		args = append(args, "--api-key-env", o.APIKeyEnv)
 	}
