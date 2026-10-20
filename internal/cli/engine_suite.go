@@ -566,6 +566,35 @@ func runEngineRemove(c *Context) int {
 	if idx < 0 {
 		return c.fail(Failf("no install named %q in %s", name, suite.SuitePath(*cfgPath)))
 	}
+	inst := &st.Installs[idx]
+	if *del {
+		// the same two protections update and rollback apply: a running
+		// queue is never cut off, and deleting the directory destroys
+		// uncommitted work, so the trees are re-read live first
+		n, err := queueRunning(*inst)
+		if err != nil {
+			return c.fail(Systemf("the queue of %s cannot be read: %v", name, err))
+		}
+		if n > 0 {
+			return c.fail(Failf("%s has %d job%s running; remove at the job boundary, when the queue is empty",
+				name, n, plural(n)))
+		}
+		m := engineSuiteDeps(c.Log())
+		var dirty []string
+		for i := range inst.Components {
+			cp := &inst.Components[i]
+			if err := suite.RefreshDirty(m.Git, inst.ComponentDir(*cp), cp); err != nil {
+				return c.fail(Systemf("re-read the tree of %s: %v", cp.Name, err))
+			}
+			if cp.Dirty {
+				dirty = append(dirty, cp.Name)
+			}
+		}
+		if len(dirty) > 0 {
+			return c.fail(Failf("%s has local changes (dirty) in %s; commit or revert them before deleting the directory",
+				name, strings.Join(dirty, ", ")))
+		}
+	}
 	if err := suite.Remove(&st, name, *del); err != nil {
 		return c.fail(Systemf("%v", err))
 	}

@@ -599,6 +599,65 @@ func TestEngineRemoveDropsTheEntry(t *testing.T) {
 	}
 }
 
+func TestEngineRemoveDeleteIsGuarded(t *testing.T) {
+	cfg := suiteTestConfig(t)
+	g := newFakeSuiteGit()
+	useSuiteFakes(t, g, &fakeSuiteShell{t: t})
+	tree := t.TempDir()
+	suiteTestTree(t, tree)
+	// a running queue refuses the delete; the tree and the state entry stay
+	port := queueServer(t, 2)
+	writeStateFile(t, cfg, suite.State{Installs: []suite.Install{
+		suiteTestInstall("comfyui", tree, port),
+	}})
+	code, _, errOut := runCLI(t, "engine", "remove", "comfyui", "--delete", "--yes", "--config", cfg)
+	if code != ExitFail {
+		t.Fatalf("running queue: exit = %d, want %d (stderr %q)", code, ExitFail, errOut)
+	}
+	if !strings.Contains(errOut, "2 jobs running") {
+		t.Errorf("stderr %q does not name the running jobs", errOut)
+	}
+	if _, err := os.Stat(tree); err != nil {
+		t.Errorf("the directory was deleted though the queue was running: %v", err)
+	}
+	st := loadStateFile(t, cfg)
+	if len(st.Installs) != 1 {
+		t.Errorf("the state entry dropped though the queue was running: %+v", st.Installs)
+	}
+	// a tree changed after the state was written refuses the delete, naming the component
+	g.dirty[tree] = true
+	writeStateFile(t, cfg, suite.State{Installs: []suite.Install{
+		suiteTestInstall("comfyui", tree, freePort(t)),
+	}})
+	code, _, errOut = runCLI(t, "engine", "remove", "comfyui", "--delete", "--yes", "--config", cfg)
+	if code != ExitFail {
+		t.Fatalf("dirty tree: exit = %d, want %d (stderr %q)", code, ExitFail, errOut)
+	}
+	if !strings.Contains(errOut, "dirty") || !strings.Contains(errOut, "comfyui") {
+		t.Errorf("stderr %q does not name the dirty component", errOut)
+	}
+	if _, err := os.Stat(tree); err != nil {
+		t.Errorf("the directory was deleted though the tree was dirty: %v", err)
+	}
+	st = loadStateFile(t, cfg)
+	if len(st.Installs) != 1 {
+		t.Errorf("the state entry dropped though the tree was dirty: %+v", st.Installs)
+	}
+	// both clean: the delete proceeds, and the directory and entry go
+	g.dirty[tree] = false
+	code, _, errOut = runCLI(t, "engine", "remove", "comfyui", "--delete", "--yes", "--config", cfg)
+	if code != ExitOK {
+		t.Fatalf("clean: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(tree); !os.IsNotExist(err) {
+		t.Errorf("the directory %s survived a clean --delete --yes", tree)
+	}
+	st = loadStateFile(t, cfg)
+	if len(st.Installs) != 0 {
+		t.Errorf("installs = %+v, want none", st.Installs)
+	}
+}
+
 // TestEngineCheckSeesTheSuiteInstall is the end of the wiring: the state file
 // beside the config is enough for engine check to read the derived engine.
 func TestEngineCheckSeesTheSuiteInstall(t *testing.T) {
