@@ -76,6 +76,8 @@ export function stateTone(state) {
     case "waiting": return "amber";
     case "active": return "cyan";
     case "draining": return "amber";
+    case "parking": return "amber";
+    case "parked": return "green";
     case "releasing": return "dim";
     case "stuck": return "magenta";
     default: return "dim";
@@ -93,6 +95,10 @@ export function kindWord(kind) {
     case "lease.stuck": return "AGROUND";
     case "lease.refused": return "REFUSED";
     case "lease.reattached": return "REBOARDED";
+    case "lease.parked": return "PARKED";
+    case "lease.resumed": return "RESUMED";
+    case "lease.park_refused": return "PARK FAILED";
+    case "lease.park_evicted": return "EVICTED";
     case "lease.juggle": return "JUGGLE";
     case "squatter.appeared": return "STOWAWAY";
     case "squatter.gone": return "STOWAWAY GONE";
@@ -140,6 +146,8 @@ export const STATE_SI = {
   waiting: "boarding",
   active: "docked",
   draining: "casting-off",
+  parking: "parking",
+  parked: "warm",
   releasing: "adrift",
   stuck: "aground",
 };
@@ -150,6 +158,11 @@ const KIND_SI = {
   "lease.granted": "docked",
   "lease.reattached": "docked",
   "lease.draining": "casting-off",
+  "lease.parking": "parking",
+  "lease.parked": "warm",
+  "lease.resumed": "docked",
+  "lease.park_refused": "crit",
+  "lease.park_evicted": "warn",
   "lease.released": "adrift",
   "lease.freed": "adrift",
   "lease.stuck": "aground",

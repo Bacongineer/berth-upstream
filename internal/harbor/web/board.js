@@ -6,10 +6,12 @@ const COLS = ["ticket", "vessel", "berth", "cls", "hold", "status", "time"];
 // Columns the header can sort. The board keeps the broker's queue order
 // until the operator picks one.
 const SORTABLE = { vessel: "vessel", hold: "hold", status: "status", time: "time" };
-const STATUS_RANK = { waiting: 0, active: 1, draining: 2, releasing: 3, stuck: 4 };
+const STATUS_RANK = { waiting: 0, active: 1, parking: 2, parked: 3, draining: 4, releasing: 5, stuck: 6 };
 function holdBytes(entry) {
   const l = entry.lease;
-  if (!entry.isWaiting && l.used > 0) return l.used;
+  if (entry.isWaiting) return l.needs > 0 ? l.needs : -1;
+  if (l.state === "parked") return entry.fp > 0 ? entry.fp : -1; // the RAM its warm copy holds
+  if (l.used > 0) return l.used;
   return l.needs > 0 ? l.needs : -1;
 }
 function sortEntries(entries, sort) {
@@ -203,22 +205,28 @@ export class Board {
       const word = statusText(st);
       if (!isNew && this.prevState.get(entry.key) !== word) flash(row, "row-changed");
       this.prevState.set(entry.key, word);
-      const tone = { active: "cyan", draining: "amber", stuck: "magenta", waiting: "amber" }[st] || "dim";
+      const tone = { active: "cyan", draining: "amber", stuck: "magenta", waiting: "amber", parking: "amber", parked: "green" }[st] || "dim";
       const c = row._cells;
-      // HOLD: what the driver measures once docked, else what was asked for.
-      const hold = !entry.isWaiting && l.used > 0 ? gib(l.used) : l.needs > 0 ? gib(l.needs) : "CARD";
+      // HOLD: what the driver measures once docked, what was asked for while
+      // waiting, and what the engine's warm copy holds in RAM while parked.
+      const hold = !entry.isWaiting && st === "parked" && entry.fp > 0 ? gib(entry.fp)
+        : !entry.isWaiting && l.used > 0 ? gib(l.used)
+        : l.needs > 0 ? gib(l.needs) : "CARD";
       updateCell(c.ticket, fit(ticketNo(l.id), WIDTH.ticket), "");
       updateCell(c.vessel, fit(l.engine || "?", WIDTH.vessel), "");
       updateCell(c.berth, fit(berth, WIDTH.berth), "");
       updateCell(c.cls, fit(CLASS[l.priority] || l.priority || "", WIDTH.cls), "");
       updateCell(c.hold, fit(hold, WIDTH.hold), "");
-      // status cell: flip tiles, then the contested flag
+      // status cell: flip tiles, then the WARM and CONTESTED flags
       syncSi(c.status, st);
       updateCell(c.status, fit(statusText(st), WIDTH.status), tone);
+      syncWarm(row, entry);
+      syncQueued(row, entry);
       syncContest(c.status, l.contested);
       updateCell(c.time, fit(ageText(l.age_seconds), WIDTH.time), "");
       row.setAttribute("aria-label", "open ticket " + l.id + ", " + l.engine + ", " + statusText(st).toLowerCase());
-      if (l.contested > 0) row.title = "granted while holders without a lease kept " + fmtBytes(l.contested) + " on this card";
+      const title = rowTitle(entry);
+      if (title) row.title = title;
       else row.removeAttribute("title");
       this.rowsEl.append(row); // keeps DOM order = display order
       i += 1;
@@ -245,6 +253,8 @@ function statusText(st) {
     case "waiting": return "BOARDING";
     case "active": return "DOCKED";
     case "draining": return "CASTING OFF";
+    case "parking": return "PARKING";
+    case "parked": return "WARM";
     case "releasing": return "ADRIFT";
     case "stuck": return "AGROUND";
     default: return String(st || "").toUpperCase();
@@ -261,12 +271,75 @@ function ageText(sec) {
 }
 // The flag sits in the row's grid on top of the status column, not inside the
 // status cell, which clips anything past its fixed tile width.
+// The WARM flag: the tier the weights live in. A HOT line would sit on every
+// docked row, so only the parked state carries one, and the berth panel and
+// the ticket spell the tiers in words.
+function syncWarm(row, entry) {
+  let flag = row.querySelector(".flag-warm");
+  const l = entry.lease;
+  const show = !entry.isWaiting && l.state === "parked";
+  if (show && !flag) {
+    flag = el("span", "flag flag-warm", "WARM");
+    row.append(flag);
+  } else if (!show && flag) {
+    flag.remove();
+  }
+  if (show) {
+    const at = l.parked_since != null ? " for " + ageWord(l.parked_since) : "";
+    flag.title = "capacity parked in RAM (est. " + (entry.fp > 0 ? "about " + gib(entry.fp) : "unknown")
+      + ")" + at + "; resume with berth resume " + (l.engine || "?");
+  }
+}
+// syncQueued marks a waiting row's place in line: Q and the position, with
+// the node's completion estimate when it sent one. Nothing renders when the
+// status payload has neither field.
+function syncQueued(row, entry) {
+  let flag = row.querySelector(".flag-queue");
+  const l = entry.lease;
+  const show = entry.isWaiting && l.position != null;
+  if (show && !flag) {
+    flag = el("span", "flag flag-queue", "Q" + l.position);
+    row.append(flag);
+  } else if (!show && flag) {
+    flag.remove();
+  }
+  if (show && l.estimate_s != null) flag.title += ", est. " + ageWord(l.estimate_s) + " to a berth";
+}
+// rowTitle is the hover text that has no room in the fixed board cells:
+// the park, the queue and the container, each only when the status payload
+// says it.
+function rowTitle(entry) {
+  const l = entry.lease;
+  const bits = [];
+  if (l.contested > 0) bits.push("granted while holders without a lease kept " + fmtBytes(l.contested) + " on this card");
+  if (!entry.isWaiting && l.state === "parked") {
+    const ram = entry.fp > 0 ? "about " + gib(entry.fp) : "an unknown amount";
+    bits.push("weights parked in RAM" + (l.parked_since != null ? " for " + ageWord(l.parked_since) : "") + ", holding " + ram);
+  }
+  if (entry.isWaiting && l.position != null) {
+    bits.push("waiting at queue position " + l.position + (l.estimate_s != null ? ", est. " + ageWord(l.estimate_s) + " to a berth" : ""));
+  }
+  if (l.container_name) {
+    bits.push("runs in container " + l.container_name + (l.container ? " (" + l.container + ")" : ""));
+  }
+  return bits.join("; ");
+}
+// ageWord reads a seconds figure the way the log does: 6m 2s, 1h 30m.
+function ageWord(sec) {
+  if (sec == null || !Number.isFinite(sec)) return "";
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m " + (s % 60) + "s";
+  const h = Math.floor(m / 60);
+  return h + "h " + (m % 60) + "m";
+}
 function syncContest(statusCell, contested) {
   const row = statusCell.parentElement;
-  let flag = row.querySelector(".flag");
+  let flag = row.querySelector(".flag-contest");
   const show = contested != null && contested > 0;
   if (show && !flag) {
-    flag = el("span", "flag", "CONTESTED");
+    flag = el("span", "flag flag-contest", "CONTESTED");
     row.append(flag);
   } else if (!show && flag) {
     flag.remove();

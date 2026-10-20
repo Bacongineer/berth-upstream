@@ -1,11 +1,13 @@
 // The passage ticket: a boat ticket with a perforated stub and a rubber stamp.
 // Esc and the close button both return focus to the voyage that opened it.
-import { fmtGiB, fmtBytes, fmtAge, classWord, stateTone, berthLabel } from "./util.js";
+import { fmtGiB, fmtBytes, fmtAge, classWord, stateTone, berthLabel, el } from "./util.js";
 import { toast, copyText } from "./ui.js";
 const STAMP_WORD = {
   active: "CLEARED",
   waiting: "BOARDING",
   draining: "CASTING OFF",
+  parking: "PARKING",
+  parked: "WARM",
   releasing: "ADRIFT",
   stuck: "AGROUND",
 };
@@ -28,6 +30,14 @@ export class Ticket {
       berth: dialog.querySelector("#t-berth"),
       requested: dialog.querySelector("#t-requested"),
       hold: dialog.querySelector("#t-hold"),
+      tier: dialog.querySelector("#t-tier"),
+      tierRow: dialog.querySelector("#t-tier-row"),
+      pos: dialog.querySelector("#t-pos"),
+      posRow: dialog.querySelector("#t-pos-row"),
+      container: dialog.querySelector("#t-container"),
+      containerRow: dialog.querySelector("#t-container-row"),
+      cmds: dialog.querySelector("#t-cmds"),
+      cmdRow: dialog.querySelector("#t-cmd-row"),
       pid: dialog.querySelector("#t-pid"),
       gpupids: dialog.querySelector("#t-gpupids"),
       issued: dialog.querySelector("#t-issued"),
@@ -102,7 +112,92 @@ export class Ticket {
       f.stamp2.textContent = "CONTESTED " + fmtBytes(lease.contested);
       f.stamp2.className = "stamp stamp-second ink-magenta";
     }
+    this.fillTier(lease, status);
+    this.fillQueue(lease);
+    this.fillContainer(lease);
+    this.fillCmds(lease);
     f.stubNo.textContent = f.no.textContent;
     f.stubCls.textContent = f.cls.textContent;
+  }
+  // TIER is where the weights live: hot on the card, warm parked in RAM.
+  // The est. RAM is the engine's learned footprint, a measurement of past
+  // runs, never a reservation.
+  fillTier(lease, status) {
+    const st = lease.state;
+    switch (st) {
+      case "active":
+      case "draining":
+        this.f.tierRow.hidden = false;
+        this.f.tier.textContent = "HOT - running on the card";
+        break;
+      case "parking":
+        this.f.tierRow.hidden = false;
+        this.f.tier.textContent = "PARKING - the weights are moving to RAM";
+        break;
+      case "parked": {
+        this.f.tierRow.hidden = false;
+        let fp = "";
+        for (const x of (status && status.footprints) || []) {
+          if (x.engine === lease.engine && x.estimated_vram_bytes > 0) fp = fmtBytes(x.estimated_vram_bytes);
+        }
+        this.f.tier.textContent = "WARM - parked in RAM"
+          + (lease.parked_since != null ? " for " + fmtAge(lease.parked_since) : "")
+          + (fp ? ", holding " + fp + " (est., from past runs)" : "");
+        break;
+      }
+      default:
+        this.f.tierRow.hidden = true;
+        return;
+    }
+  }
+  // QUEUE / EST. says where a boarding request sits and how long the node
+  // expects it to wait. The row renders only when the status payload named
+  // position or estimate_s; an older node sends neither and nothing shows.
+  fillQueue(lease) {
+    const has = lease.position != null || lease.estimate_s != null;
+    this.f.posRow.hidden = !has;
+    if (has) {
+      const bits = [];
+      if (lease.position != null) bits.push("position " + lease.position);
+      if (lease.estimate_s != null) bits.push("est. " + fmtAge(lease.estimate_s));
+      this.f.pos.textContent = bits.join(", ");
+    }
+  }
+  // CONTAINER: the name the operator gave the container an engine runs in,
+  // with the full ID in the tooltip.
+  fillContainer(lease) {
+    const name = lease.container_name || "";
+    this.f.containerRow.hidden = !name;
+    if (name) {
+      this.f.container.textContent = name;
+      this.f.container.title = lease.container || name;
+    }
+  }
+  // The terminal row: the exact orders, as copy buttons. The ticket is the
+  // operator's seat at the counter, not the node's stick; the harbor reads
+  // and the terminal acts, so these buttons copy and never send.
+  fillCmds(lease) {
+    const cmds = [];
+    if (lease.state === "parked") cmds.push(["resume", "berth resume " + lease.engine]);
+    else if (lease.state === "active" || lease.state === "draining" || lease.state === "parking") {
+      cmds.push(["stop", "berth stop " + lease.engine]);
+    }
+    if (lease.state === "stuck" || lease.state === "releasing") {
+      cmds.push(["reclaim", "berth reclaim " + lease.id]);
+    }
+    this.f.cmdRow.hidden = cmds.length === 0;
+    if (!cmds.length) return;
+    this.f.cmds.replaceChildren();
+    for (const [label, command] of cmds) {
+      const btn = el("button", "tcmd", label, el("span", "tcmd-word", command));
+      btn.type = "button";
+      btn.setAttribute("aria-label", "copy: " + command);
+      btn.title = command;
+      btn.addEventListener("click", async () => {
+        const ok = await copyText(command);
+        toast(ok ? command + " copied" : "copy failed", ok ? "good" : "bad");
+      });
+      this.f.cmds.append(btn);
+    }
   }
 }
