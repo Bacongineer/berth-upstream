@@ -43,7 +43,11 @@ type FetchSpec struct {
 // checks size and hash, and renames the part to Dest when both agree. A
 // part longer than the file is from something else and starts over.
 func Fetch(ctx context.Context, hc *http.Client, spec FetchSpec) error {
-	out, err := os.OpenFile(spec.Part, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// No O_APPEND: Go opens an O_APPEND file on Windows without the write
+	// access right, and a file without it cannot be truncated, which the
+	// stale-part path below needs. The file has one writer, so a seek to
+	// the end is the same append.
+	out, err := os.OpenFile(spec.Part, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -58,6 +62,9 @@ func Fetch(ctx context.Context, hc *http.Client, spec FetchSpec) error {
 			return err
 		}
 		have = 0
+	}
+	if _, err := out.Seek(have, io.SeekStart); err != nil {
+		return err
 	}
 	if have < spec.Size {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, spec.URL, nil)
@@ -85,6 +92,9 @@ func Fetch(ctx context.Context, hc *http.Client, spec FetchSpec) error {
 				return err
 			}
 			have = 0
+			if _, err := out.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
 		}
 		w := &counter{w: out, n: have, total: spec.Size, prog: spec.Prog}
 		if _, err := io.Copy(w, resp.Body); err != nil {
