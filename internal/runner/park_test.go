@@ -406,6 +406,87 @@ func TestRunParksThroughBerthProtocol(t *testing.T) {
 	waitFor(t, "active again", func() bool { return b.Status().Leases[0].State == "active" })
 }
 
+// keep_comfyui_up is the park alias: the unload stays the park (with the
+// RAM copy kept), the engine stays on its port, and the lease is parked
+// instead of released; the wake is the engine's own next-prompt load.
+func TestRunParksComfyUIKeepUp(t *testing.T) {
+	card := &parkCard{total: 24 << 30}
+	sock, b := parkDaemon(t, card, 16<<30)
+	stub := &comfyStub{}
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+
+	adapter, ok := park.For("comfyui", "", "")
+	if !ok {
+		t.Fatal("the comfyui adapter is missing")
+	}
+	log := &syncBuf{}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("engine log:\n%s", log.String())
+		}
+	})
+	exited := make(chan int, 1)
+	go func() {
+		exited <- Run(Options{Socket: sock, Engine: "comfyui", Priority: "interactive", Needs: 8 << 30,
+			DrainComfyUI: srv.URL, Park: &adapter, ParkBase: srv.URL, ParkProbe: "/system_stats",
+			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: log})
+	}()
+	pid := attachAndMeasure(t, b, card)
+
+	holder := acquireIn(b, broker.Request{Engine: "game", Priority: broker.Foreground})
+	waitFor(t, "the park unload", func() bool {
+		stub.mu.Lock()
+		defer stub.mu.Unlock()
+		return stub.frees >= 1
+	})
+	stub.mu.Lock()
+	body := ""
+	if len(stub.bodies) > 0 {
+		body = stub.bodies[len(stub.bodies)-1] // the park adapter's unload is the last ask
+	}
+	stub.mu.Unlock()
+	if !strings.Contains(body, `"unload_models":true`) || strings.Contains(body, "free_memory") {
+		t.Fatalf("the park unload = %s, want unload_models without free_memory (the RAM copy stays)", body)
+	}
+	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 512 << 20})
+	waitFor(t, "parked", func() bool { return b.Status().Leases[0].State == "parked" })
+	if out := log.String(); !strings.Contains(out, "parked comfyui in RAM") {
+		t.Fatalf("no parked line; log:\n%s", out)
+	}
+	select {
+	case code := <-exited:
+		t.Fatalf("the parked runner exited with %d", code)
+	default:
+	}
+
+	// The wake is nothing to call; the readiness probe answers, the lease
+	// is active, and the engine is still on its port.
+	if err := b.Resume("comfyui"); err != nil {
+		t.Fatal(err)
+	}
+	hold := <-holder
+	if hold == nil {
+		t.Fatal("the waiter was never granted")
+	}
+	hold.Release()
+	wake := time.Now().Add(5 * time.Second)
+	for {
+		if out := log.String(); strings.Contains(out, "resumed comfyui in") {
+			break
+		}
+		if time.Now().After(wake) {
+			t.Fatalf("no resumed line; log:\n%s", log.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case code := <-exited:
+		t.Fatalf("the wake killed the server (%d)", code)
+	default:
+	}
+}
+
 // A hook whose engine answers nothing: the probe is negative once, the
 // drain stops the engine as today, and no probe repeats.
 func TestRunHookProbeNegative(t *testing.T) {

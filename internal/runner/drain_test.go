@@ -13,15 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/T-Crypt/berth/internal/procs"
-	"github.com/T-Crypt/berth/internal/runs"
 )
 
 // comfyStub is a ComfyUI stand-in: an empty or busy queue, a /free that
@@ -88,124 +84,6 @@ func sayTo(logs *strings.Builder) func(string, ...any) {
 	return func(f string, a ...any) { fmt.Fprintf(logs, f+"\n", a...) }
 }
 
-// A drain with an empty queue unloads via POST /free with ComfyUI's own
-// shape, then keeps the server up when asked: the lease is released, the
-// run is recorded, and the process never exits.
-func TestDrainUnloadsThenKeepsUp(t *testing.T) {
-	stub := &comfyStub{}
-	srv := httptest.NewServer(stub.handler())
-	defer srv.Close()
-
-	cmd, waited := startSleep(t)
-	done := make(chan struct{})
-	released := make(chan struct{})
-	var logs strings.Builder
-	sock := filepath.Join(t.TempDir(), "berthd.sock")
-
-	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
-
-	select {
-	case <-released:
-	default:
-		t.Fatalf("lease was not released; log:\n%s", &logs)
-	}
-	stub.mu.Lock()
-	frees, body := stub.frees, ""
-	if len(stub.bodies) > 0 {
-		body = stub.bodies[0]
-	}
-	stub.mu.Unlock()
-	if frees != 1 {
-		t.Fatalf("/free hits = %d, want 1; log:\n%s", frees, &logs)
-	}
-	if !strings.Contains(body, `"unload_models":true`) || !strings.Contains(body, `"free_memory":true`) {
-		t.Fatalf("/free body = %s, want unload_models and free_memory", body)
-	}
-	select {
-	case err := <-waited:
-		t.Fatalf("keep-up killed the server (%v); log:\n%s", err, &logs)
-	case <-time.After(200 * time.Millisecond):
-	}
-	if out := logs.String(); !strings.Contains(out, "leaving the server up") {
-		t.Fatalf("no keep-up line; log:\n%s", out)
-	}
-	records := runs.List(runs.Dir(sock), procs.System{}.StartTime)
-	if len(records) != 1 || records[0].Reason != runs.ReasonKeepUp || records[0].Engine != "comfyui" {
-		t.Fatalf("keep-up records = %+v, want one comfyui run with reason %q", records, runs.ReasonKeepUp)
-	}
-}
-
-// A keep-up release waits for the driver to show the models gone; the
-// lease is not released while the card still holds them.
-func TestDrainKeepUpWaitsForFreedVRAM(t *testing.T) {
-	stub := &comfyStub{}
-	stub.hold.Store(true) // /free succeeds but the models stay for now
-	srv := httptest.NewServer(stub.handler())
-	defer srv.Close()
-
-	cmd, waited := startSleep(t)
-	done := make(chan struct{})
-	released := make(chan struct{})
-	var logs strings.Builder
-	sock := filepath.Join(t.TempDir(), "berthd.sock")
-
-	go drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 200 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
-
-	select {
-	case <-released:
-		t.Fatal("released while the models were still on the card")
-	case <-time.After(120 * time.Millisecond):
-	}
-	stub.freed.Store(true)
-	select {
-	case <-released:
-	case <-time.After(3 * time.Second):
-		t.Fatalf("no release after the device freed; log:\n%s", &logs)
-	}
-	select {
-	case err := <-waited:
-		t.Fatalf("keep-up killed the server (%v)", err)
-	case <-time.After(200 * time.Millisecond):
-	}
-}
-
-// An unload that never frees the card falls back to stopping the server:
-// no keep-up record, the process dies, and the lease is not released early.
-func TestDrainKeepUpTimeoutStops(t *testing.T) {
-	stub := &comfyStub{}
-	stub.hold.Store(true)
-	srv := httptest.NewServer(stub.handler())
-	defer srv.Close()
-
-	cmd, waited := startSleep(t)
-	done := make(chan struct{})
-	released := make(chan struct{})
-	var logs strings.Builder
-	sock := filepath.Join(t.TempDir(), "berthd.sock")
-
-	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true, Socket: sock,
-		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
-
-	select {
-	case <-released:
-		t.Fatalf("timeout released the lease; log:\n%s", &logs)
-	default:
-	}
-	select {
-	case <-waited:
-	case <-time.After(3 * time.Second):
-		t.Fatalf("server still alive after the timeout; log:\n%s", &logs)
-	}
-	if out := logs.String(); !strings.Contains(out, "did not free within") {
-		t.Fatalf("no timeout line; log:\n%s", out)
-	}
-	if records := runs.List(runs.Dir(sock), procs.System{}.StartTime); len(records) != 0 {
-		t.Fatalf("timeout wrote keep-up records: %+v", records)
-	}
-}
-
 // Without keep-up the server is stopped after the unload: the process dies.
 func TestDrainUnloadsThenStops(t *testing.T) {
 	stub := &comfyStub{}
@@ -214,17 +92,11 @@ func TestDrainUnloadsThenStops(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL,
-		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 
-	select {
-	case <-released:
-		t.Fatalf("stop path released the lease; log:\n%s", &logs)
-	default:
-	}
 	select {
 	case <-waited:
 	case <-time.After(3 * time.Second):
@@ -253,17 +125,11 @@ func TestDrainUnloadFailureStops(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
-	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL, KeepComfyUI: true,
-		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+	drain(Options{Engine: "comfyui", DrainComfyUI: srv.URL,
+		Grace: 50 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 
-	select {
-	case <-released:
-		t.Fatalf("failed unload released the lease; log:\n%s", &logs)
-	default:
-	}
 	select {
 	case <-waited:
 	case <-time.After(3 * time.Second):
@@ -320,14 +186,13 @@ func TestDrainSlotBoundaryWaits(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -367,10 +232,9 @@ func TestDrainSlotsWaitsThenStops(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 	go drain(Options{Engine: "strata", DrainSlots: srv.URL,
-		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 
 	time.Sleep(200 * time.Millisecond)
 	select {
@@ -411,12 +275,11 @@ func TestDrainNoSlotsProceeds(t *testing.T) {
 
 	cmd, _ := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	start := time.Now()
 	drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+		Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 	if el := time.Since(start); el > 5*time.Second {
 		t.Fatalf("drain took %s without a slot boundary", el)
 	}
@@ -458,14 +321,13 @@ func TestDrainSlotSickWaits(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "llama-swap", DrainPost: srv.URL + "/unload",
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -514,14 +376,13 @@ func TestDrainSlotBusyMaxStops(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "strata", DrainSlots: srv.URL, DrainMax: 300 * time.Millisecond,
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 	}()
 
 	select {
@@ -558,14 +419,13 @@ func TestDrainSlotBusyUnboundedWaits(t *testing.T) {
 
 	cmd, waited := startSleep(t)
 	done := make(chan struct{})
-	released := make(chan struct{})
 	var logs strings.Builder
 
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		drain(Options{Engine: "strata", DrainSlots: srv.URL,
-			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, released, "test", sayTo(&logs))
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
 	}()
 
 	// After 500 ms the engine must still be running: with no max the

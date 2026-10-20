@@ -186,12 +186,19 @@ func (l *leaseLine) park(o Options, say func(string, ...any)) bool {
 		_ = l.send(proto.Msg{Op: proto.OpParkFailed})
 		return false
 	}
-	if err := l.send(proto.Msg{Op: proto.OpParked}); err != nil {
-		say("parked, but could not reach berthd: %v", err)
-	}
+	// Parked is believed before the reservation rides out: the broker can
+	// grant the wake back at once, and the wake's routing must find the
+	// parked flag up.
 	l.mu.Lock()
 	l.parked = true
 	l.mu.Unlock()
+	if err := l.send(proto.Msg{Op: proto.OpParked}); err != nil {
+		l.mu.Lock()
+		l.parked = false
+		l.mu.Unlock()
+		say("parked, but could not reach berthd (%v); draining the usual way", err)
+		return false
+	}
 	say("parked %s in RAM in %s", o.Engine, time.Since(start).Round(100*time.Millisecond))
 	return true
 }

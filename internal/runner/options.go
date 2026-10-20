@@ -52,21 +52,27 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
-		DrainMax: e.DrainMax.Duration, KeepComfyUI: e.KeepComfyUI, Container: e.Container,
+		DrainMax: e.DrainMax.Duration, Container: e.Container,
 		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output,
 	}
 	// park = "hook" hands the drain the engine's own offload calls; when
 	// the entry carries no URLs either, the drain probes Berth's park
-	// protocol on the engine's URL instead.
-	if e.Park == "hook" {
+	// protocol on the engine's URL instead. keep_comfyui_up is the same
+	// alias for a ComfyUI: its unload stays the park, with the base the
+	// drain URL names.
+	if e.Park == "hook" || e.KeepComfyUI {
 		adapter, ok := park.For(e.Type, e.ParkURL, e.ResumeURL)
+		base := e.URL
+		if e.Park != "hook" {
+			base = e.DrainComfyUI
+		}
 		if ok {
 			opts.Park = &adapter
 		} else {
 			opts.Hook = true
 		}
-		opts.ParkBase, opts.ParkProbe = e.URL, probe
+		opts.ParkBase, opts.ParkProbe = base, probe
 	}
 	return opts
 }
