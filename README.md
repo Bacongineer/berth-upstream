@@ -14,6 +14,9 @@
 
 # Berth
 
+Berth makes the programs on your PC take turns with the GPU's memory, so they stop crashing each
+other, and tells you who is holding it.
+
 Berth decides who gets your GPU. Chat models, image pipelines, voice engines, games and GPU apps
 lease the card instead of grabbing it, so two of them never load at once and crash each other
 with an out-of-memory error. One Go binary, no cloud account, nothing else to install.
@@ -710,21 +713,19 @@ drain_slots = "http://127.0.0.1:8080"
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
-### Next: v0.3, fast swap and proof
+### Next: v0.3, fast swap and proof (target 2026-11-30)
 
 v0.3 goes after the cost you feel most, reloading every engine from disk on every switch, and
-proves Berth holds up when an engine misbehaves.
+proves Berth holds up when an engine misbehaves. It ships when the swap benchmark and the failure
+scenarios pass, not on the date.
 
-- **Park in RAM.** On a drain, an engine with spare RAM to land in keeps its weights in system
-  memory and comes back in seconds instead of reloading from disk. An engine that can offload
-  itself does it through its own park and resume URLs; unmodified CUDA engines on Linux use
-  NVIDIA's `cuda-checkpoint` next. Berth parks only when the free RAM it measures covers the
-  engine plus a floor, and stops parked engines first when memory runs short. Without the RAM,
-  the drain runs as it does today.
-- **Warm starts on smaller machines.** Berth shows how much of each model's file the page cache
-  still holds, and reads the next engine's files ahead while the holder drains.
-- **No swap when both fit.** Berth learns each engine's real footprint from what it held, `berth
-  fit` says which engines can share the card, and a scene pins a pair that never swaps.
+In v0.3:
+
+- **Park in RAM.** On a drain, an engine that can offload itself moves its weights to system
+  memory through its own park and resume URLs, and comes back in seconds instead of reloading
+  from disk. ComfyUI gets a built-in adapter. Berth parks only when the free RAM it measures
+  covers the engine plus a floor, and stops parked engines first when memory runs short.
+  Without the RAM, the drain runs as it does today.
 - **Measured.** A swap benchmark (cold, warm and parked, per engine) with the numbers published
   here.
 - **`berth reclaim`.** Lists the processes Berth recorded under a lease that still hold memory
@@ -732,20 +733,29 @@ proves Berth holds up when an engine misbehaves.
   never started stay report-only.
 - **Handoff fixes.** A lease frees only after a card read shows its memory gone; a gateway
   restart keeps the engines it started; a streaming request gets keep-alive lines while its
-  engine loads; a waiting request sees its place in the queue and an estimate.
+  engine loads.
 - **Proof.** Tagged releases with changelogs; `contrib/chaos`, the failure scenarios anyone can
   run (an engine that ignores SIGTERM, a child that escapes, a stowaway, a daemon restart
-  mid-lease); a public table of tested GPUs, drivers and engines that credits each tester.
+  mid-lease); a public table of tested GPUs, drivers and engines.
+
+In v0.3 if ready, else a v0.3.x release: NVIDIA's `cuda-checkpoint` for unmodified CUDA engines
+on Linux; reading the next engine's files ahead while the holder drains, and showing how much
+of each model the page cache still holds; `berth fit` and scenes, so engines that fit together
+never swap; a place in the queue and an estimate in every wait reason.
 
 ### After v0.3
 
-AMD on Linux, then the Windows node out of experimental (installer, per-process memory, a
-locked-down control pipe). Multi-GPU scheduling, the fleet and offers follow; their order is
-still open.
+| Release | What it brings |
+|---|---|
+| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (installer, per-process memory, a locked-down control pipe) |
+| v0.5 | Multi-GPU scheduling, including one lease across two cards for engines that split a model |
+| v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
+| later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 
 On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the update watch, the
 migration manager, and Berth swapping models itself. llama-swap already swaps models well;
-Berth works beside it.
+Berth works beside it, and generic load hooks are being proposed to llama-swap so Berth needs no
+wrapper line.
 
 ## What Berth never does
 
@@ -755,6 +765,24 @@ Berth works beside it.
 - Take a card from another user's machine without their consent (on one machine, only the
   priorities you set decide).
 - Require a cloud account, telemetry upload, or any other software to work.
+
+## FAQ
+
+**What is an engine?** A program that runs a model on your GPU: llama.cpp, llama-swap, Ollama,
+vLLM, ComfyUI, a voice server. Berth doesn't run models; it decides which engine has the card.
+
+**Why not just llama-swap?** Use both. llama-swap swaps the models in its own config. Berth
+covers the whole card, including ComfyUI, games and the stray process holding memory that
+neither tool started. See [Berth and llama-swap](#berth-and-llama-swap).
+
+**Can a 700B model take turns on a 24 GB card?** No. Berth gives each engine the whole card in
+turn; it doesn't make a model fit that doesn't.
+
+**How reliable is it?** Alpha. It runs every day on the author's RTX 4090 workstation, and v0.3
+adds `contrib/chaos` and a public table of tested hardware so you can check it on yours.
+
+**AMD? Windows?** AMD on Linux and a full Windows node are planned for v0.4. Windows with NVIDIA
+works today as experimental; see the [support matrix](#support-matrix).
 
 ## Contributing
 
