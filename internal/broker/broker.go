@@ -173,6 +173,12 @@ type Request struct {
 	// app that must not be stopped (berth run --pinned) keeps the card until
 	// it lets go; waiters are told who pins it.
 	Pinned bool
+	// MinTurn is a minimum turn: while the lease is younger than it after
+	// the grant, no waiter drains it, whatever the waiter's priority,
+	// except a hold (a game, a call, the operator's own berth hold). When
+	// the turn ends the normal rules apply. A re-attach starts a fresh
+	// turn. 0 = off.
+	MinTurn time.Duration
 	// Container is the engine's container: Acquire takes the name the
 	// operator gave (--container), the attach resolves the full ID. A GPU
 	// process inside it belongs to the lease.
@@ -194,6 +200,7 @@ type lease struct {
 	lostWhy  string
 	reattach bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
 	pinned   bool // never drained (Request.Pinned)
+	minTurn  time.Duration
 	prio     Priority
 	needs    uint64
 	state    state
@@ -246,6 +253,18 @@ func (l *lease) used() uint64 {
 	return n
 }
 
+// inTurn is whether l is inside its minimum turn: granted, and younger
+// than the turn, by the broker's clock (a duration from the grant, not
+// an order among leases).
+func (l *lease) inTurn(now time.Time) bool {
+	return l.minTurn > 0 && now.Sub(l.granted) < l.minTurn
+}
+
+// turnWhy is the line a waiter blocked by l's minimum turn is told.
+func (l *lease) turnWhy(now time.Time) string {
+	return fmt.Sprintf("%s has its minimum turn, %s left", l.engine, (l.minTurn - now.Sub(l.granted)).Round(time.Second))
+}
+
 // newLease builds the lease one request becomes: the same shape Acquire
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
@@ -256,6 +275,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		prio:     r.Priority,
 		needs:    r.Needs,
 		pinned:   r.Pinned,
+		minTurn:  r.MinTurn,
 		gpu:      map[ident]gpu.Proc{},
 		desc:     map[ident]struct{}{},
 		arrived:  now,
@@ -1048,6 +1068,13 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 			pending = append(pending, h)
 		case h.pinned || h.prio > w.prio:
 			blockers = append(blockers, h)
+		case w.prio != Hold && h.inTurn(now):
+			// A minimum turn: the holder keeps the card until its turn
+			// ends, whatever the waiter's priority; only a hold (a game,
+			// a call, the operator's own berth hold) takes it out before.
+			kept = append(kept, h)
+			keptWhy = h.turnWhy(now)
+			continue
 		case h.prio == w.prio:
 			if keep, why := b.keeps(h, w, now); keep {
 				kept, keptWhy = append(kept, h), why

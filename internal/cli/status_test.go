@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -197,6 +198,35 @@ func TestStatusCarriesTheEngineFootprint(t *testing.T) {
 	}
 	if !strings.Contains(out, "estimated_vram_bytes") {
 		t.Errorf("json %q lacks the estimated_vram_bytes field", out)
+	}
+}
+
+// The LEASE table carries a TURN column: the remaining turn of a lease that
+// has one, "-" for a lease that does not.
+func TestStatusShowsTheTurnColumn(t *testing.T) {
+	var out, errOut bytes.Buffer
+	c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+	st := &proto.Status{
+		API: proto.APIVersion, Version: "test",
+		Leases: []proto.Lease{
+			{ID: "comfyui-1", Engine: "comfyui", Priority: "interactive", State: "active", Age: 180, TurnS: 270},
+			{ID: "llama-2", Engine: "llama", Priority: "batch", State: "active", Age: 300},
+		},
+	}
+	if err := (statusView{st: st}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "TURN") {
+		t.Errorf("stdout %q lacks the TURN column", s)
+	}
+	for _, line := range strings.Split(s, "\n") {
+		switch {
+		case strings.Contains(line, "comfyui-1") && !strings.Contains(line, "4m30s"):
+			t.Errorf("the lease with a turn does not show it: %q", line)
+		case strings.Contains(line, "llama-2") && !strings.Contains(line, "  -  "):
+			t.Errorf("the lease without a turn does not show '-': %q", line)
+		}
 	}
 }
 

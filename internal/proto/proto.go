@@ -71,6 +71,10 @@ type Msg struct {
 	PID      int     `json:"pid,omitempty"`
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
 	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
+	// MinTurn is the lease's minimum turn, in seconds: while the lease is
+	// younger than it after the grant, no waiter drains it but a hold.
+	// OpAcquire and OpReattach; 0 = off.
+	MinTurn float64 `json:"min_turn,omitempty"`
 	// Container is the container the engine runs in: OpAcquire and
 	// OpReattach carry the name the operator gave (--container), OpAttach
 	// the full ID berth run resolved it to. The broker matches GPU
@@ -357,6 +361,9 @@ type Lease struct {
 	// ParkedSince is how long the engine has been parked, in seconds; 0
 	// when it is not parked.
 	ParkedSince float64 `json:"parked_since,omitempty"`
+	// TurnS is the seconds of the lease's minimum turn left; 0 when the
+	// lease has no turn or it has run out.
+	TurnS float64 `json:"turn_s,omitempty"`
 	// Position is the lease's place in the queue, 1 = next in line; 0 for
 	// a lease that is not waiting.
 	Position int `json:"position,omitempty"`

@@ -28,6 +28,7 @@ func runRun(c *Context) int {
 	drainComfy := fs.String("drain-comfyui", "", "ComfyUI base URL: on drain, wait until its queue is empty before stopping it (never cuts a job off)")
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
 	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine anyway; 0 = unbounded")
+	minTurn := fs.Duration("min-turn", 0, "minimum turn: after the grant the card stays this run's for this long; no request drains it meanwhile, only a hold does (a game, a call, berth hold); 0 = off")
 	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD when berthd is unreachable")
@@ -51,7 +52,7 @@ func runRun(c *Context) int {
 	if entry := engineEntry(merged, *engine, *group); entry != nil {
 		e = *entry
 	}
-	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax, container)
+	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax, minTurn, container)
 	e.Name = *engine
 	if _, err := broker.ParsePriority(e.Priority); err != nil {
 		return c.fail(Systemf("%v", err))
@@ -88,7 +89,7 @@ func engineEntry(cfg config.Config, as, group string) *config.Engine {
 // a flag the operator set wins and says so, in the file's key and value;
 // an unset flag defers to the entry.
 func applyEngineEntry(c *Context, e *config.Engine,
-	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool, drainMax *time.Duration, container *string) {
+	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool, drainMax, minTurn *time.Duration, container *string) {
 	notice := func(flag, key, toml string) {
 		fmt.Fprintf(c.Err, "berth: --%s overrides berth.toml %s = %s for %s\n", flag, key, toml, e.Name)
 	}
@@ -140,6 +141,12 @@ func applyEngineEntry(c *Context, e *config.Engine,
 			notice("drain-max", "drain_max", e.DrainMax.String())
 		}
 		e.DrainMax.Duration = *drainMax
+	}
+	if c.Changed("min-turn") {
+		if e.MinTurn.Duration > 0 && e.MinTurn.Duration != *minTurn {
+			notice("min-turn", "min_turn", e.MinTurn.String())
+		}
+		e.MinTurn.Duration = *minTurn
 	}
 }
 

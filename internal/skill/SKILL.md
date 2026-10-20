@@ -40,6 +40,7 @@ do not assume any engine is protected.
 |---|---|
 | Run an engine under a lease | `berth run --as NAME [--priority batch\|interactive\|foreground] [--needs-mib N] -- CMD ARGS` |
 | Run an app that must not be drained (Blender, a training job) | `berth run --as NAME --pinned -- CMD` |
+| Give an engine a minimum turn before a request can drain it | `berth run --as NAME --min-turn 5m -- CMD`, or `min_turn = "5m"` in its engine entry (a hold still wins; `berth status` shows the turn left in the TURN column) |
 | Free the card for the user (game, call) | `berth hold [--for 2h] [--reason game]` (ends on Ctrl-C) |
 | Call a model and let Berth start its engine | the gateway: `http://127.0.0.1:9799/v1`, bearer key from `berth key` |
 | Wrap every llama-swap model at once | `berth wire llama-swap --config CFG` (plan), `--write` (apply, keeps a backup) |

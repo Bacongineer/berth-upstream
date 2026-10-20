@@ -60,6 +60,8 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 		if waiting {
 			header += "\tPOS\tSTART"
+		} else {
+			header += "\tTURN"
 		}
 		fmt.Fprintln(tw, header+"\tAGE")
 		for _, l := range ls {
@@ -83,6 +85,12 @@ func (v statusView) Human(c *Context, ok bool) error {
 				} else {
 					row += "\t-"
 				}
+			} else {
+				turn := "-"
+				if l.TurnS > 0 {
+					turn = age(l.TurnS)
+				}
+				row += "\t" + turn
 			}
 			fmt.Fprintf(tw, "%s\t%s\n", row, age(l.Age))
 		}

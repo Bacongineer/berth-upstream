@@ -395,6 +395,24 @@ startup, so a change to the roots applies on the next restart.
   model under its own name, so give each `--group llama-swap`. `berth status` shows the ranking
   and a count of juggles stopped; the harbor log shows each one with the reason.
 
+  - **A minimum turn per engine.** `min_turn = "5m"` on the engine entry (or
+    `berth run --min-turn 5m`) gives the engine a turn it keeps for that long after the
+    grant: in that time a request of equal or lower priority cannot drain it, and neither can
+    a higher one, because a request interrupted halfway is a lost one. Only a hold (a game, a
+    call, `berth hold`) takes the card out before the turn ends.
+
+    ```toml
+    [[engine]]
+    name  = "comfyui"
+    min_turn = "5m"   # the card stays this engine's for 5m after the grant
+    ```
+
+    A blocked waiter is told how much of the turn is left ("next in line: comfyui has its
+    minimum turn, 3m12s left"), and `berth status` shows the time a lease has left in the
+    TURN column. When the turn ends the normal rules apply: a drain still starts at the slot
+    or job boundary, and a minimum turn never cuts a request off. After a daemon restart, a
+    re-attach starts a fresh turn.
+
 ### Games, apps and holds
 - **Claims cover work Berth does not start.** berthd scans the process table every 2 s.
   A *hold* claim keeps the card while its process runs: engines are drained and wait, with a
