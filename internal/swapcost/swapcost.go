@@ -12,6 +12,15 @@
 // does not pull a warm estimate up. A pair with no samples is unknown:
 // the book does not fill it with a guess, so a figure it gives is one it
 // has measured.
+//
+// Plan takes a chain an orchestrator declares ahead of time, such as main,
+// research, synthesize, back to main, and works it out step by step: how
+// long each switch will take if the times hold, which engine the caller
+// should prefetch while the current holder drains, and which engines the
+// chain comes back to, so the caller parks them in RAM instead of
+// stopping them and paying a reload later. A total that has unmeasured
+// steps is a lower bound, "at least N s, M steps unmeasured", never a
+// promise.
 package swapcost
 
 import (
