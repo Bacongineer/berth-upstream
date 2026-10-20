@@ -4,8 +4,10 @@
 // Package park moves an engine's weights to system RAM on a drain, so the
 // next use resumes in seconds instead of reloading from disk. An Adapter
 // names the calls that park and resume one engine: the built-in table
-// covers ComfyUI, vLLM and SGLang, and a plain POST to a configured URL
-// covers any other engine that can offload itself. Everything here talks
+// covers ComfyUI, vLLM and SGLang, a plain POST to a configured URL covers
+// any other engine that can offload itself, and the Berth park protocol
+// (contrib/PARK-PROTOCOL.md) covers any engine that serves /berth/park,
+// /berth/resume and /berth/state, detected by Probe. Everything here talks
 // to an engine's HTTP API; nothing in the package touches a GPU or a
 // process.
 package park

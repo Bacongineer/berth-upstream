@@ -8,6 +8,16 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The Berth park protocol: three endpoints an engine can serve on its own
+  HTTP API to be parkable without a Berth-side adapter, `POST /berth/park`,
+  `POST /berth/resume` (both without a body) and `GET /berth/state`, which
+  answers one of `hot`, `parking`, `parked`, `resuming`. Berth detects it
+  with a single state read of 3 s or less, parks an engine through it, and
+  waits for a card read to show the residual before the next engine takes
+  the card; a park that leaves the card full falls back to the normal
+  drain. The contract, timing, idempotency rules and a minimal reference
+  server are in contrib/PARK-PROTOCOL.md, written for engine authors.
+
 - `berth update [--check] [--yes] [--force]`: asks the release page whether a newer
   berth exists, and without `--check` downloads this machine's binary and the
   release's SHA256SUMS, checks the hash, and replaces the running binary in place
