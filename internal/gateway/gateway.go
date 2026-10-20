@@ -63,6 +63,8 @@ type Gateway struct {
 	// processes, so the next gateway adopts the ones still running
 	// instead of starting them again. Empty disables the record.
 	StateFile string
+	// LogMax caps an engine's log file before it starts over; 0 = 64 MiB.
+	LogMax int64
 
 	mu      sync.Mutex
 	running map[string]*started // engines this gateway started, by name

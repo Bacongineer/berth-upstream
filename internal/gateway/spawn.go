@@ -35,7 +35,8 @@ func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, erro
 	if err != nil {
 		return 0, fmt.Errorf("engine log: %w", err)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	// O_APPEND lets the follower truncate the file under a live writer.
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, fmt.Errorf("engine log: %w", err)
 	}

@@ -260,3 +260,41 @@ func TestEngineLogSurvivesTheGateway(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// A long-running engine's log starts over past its LogMax instead of filling
+// the disk, and lines written after the rotation still reach the tail.
+func TestEngineLogRotates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "e.log")
+	w, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	g := &Gateway{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), LogMax: 1 << 10}
+	s := &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go g.followEngine("e", path, 0, stop, done, s)
+	line := strings.Repeat("x", 99) + "\n"
+	for i := 0; i < 40; i++ { // 4000 bytes, well past its LogMax
+		if _, err := w.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := w.WriteString("after the rotation\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * logEvery)
+	close(stop)
+	<-done
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() >= 4000 {
+		t.Fatalf("log is %d bytes; it never started over", st.Size())
+	}
+	if !strings.Contains(s.output.String(), "after the rotation") {
+		t.Fatal("a line written after the rotation never reached the tail")
+	}
+}

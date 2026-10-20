@@ -18,6 +18,18 @@ import (
 // logEvery is how often a follower reads new bytes out of an engine's log.
 const logEvery = 250 * time.Millisecond
 
+// defaultLogMax is how large an engine log may grow before the follower
+// starts it over. The journal keeps the copy; the file only has to hold
+// the recent lines a failed start quotes.
+const defaultLogMax = 64 << 20
+
+func (g *Gateway) logMax() int64 {
+	if g.LogMax > 0 {
+		return g.LogMax
+	}
+	return defaultLogMax
+}
+
 // finalLogDrain caps one last read of a followed log: after the run ends
 // the tail must have its last lines, but a grandchild still writing (a
 // keep-up server) must not hold the caller of the follower.
@@ -88,6 +100,19 @@ func (g *Gateway) followEngine(name, path string, from int64, stop <-chan struct
 			}
 		}
 	}
+	// rotate starts the file over once it passes logMax. The run opened it
+	// O_APPEND, so its next write lands at the new end; the few bytes
+	// written between the last read and the truncate reach neither the
+	// file nor the journal, a cost a log that would fill the disk is worth.
+	rotate := func() {
+		off, err := f.Seek(0, io.SeekCurrent)
+		if err != nil || off < g.logMax() {
+			return
+		}
+		if err := os.Truncate(path, 0); err == nil {
+			_, _ = f.Seek(0, io.SeekStart)
+		}
+	}
 	drain(false)
 	for {
 		select {
@@ -97,6 +122,7 @@ func (g *Gateway) followEngine(name, path string, from int64, stop <-chan struct
 		case <-time.After(logEvery):
 		}
 		drain(false)
+		rotate()
 	}
 }
 
