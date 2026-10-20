@@ -124,5 +124,5 @@ func (s *Stream) Read(ctx context.Context) (Snapshot, error) {
 		s.mu.Unlock()
 	}
 	snap.Procs = procs
-	return snap, nil
+	return withPDH(snap), nil
 }
