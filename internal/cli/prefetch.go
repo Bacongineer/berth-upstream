@@ -55,23 +55,18 @@ func runPrefetch(c *Context) int {
 	var dirs stringList
 	fs := c.FlagSet()
 	fs.Var(&dirs, "dir", "where to look for a name, repeatable (default: berth.toml's [models] dirs)")
-	// A person types the name first and the flags after, and the flag package
-	// stops at the first bare word, so the name is taken from wherever it is.
-	if code, done := c.Parse(fs); done {
+	if code, done := c.ParseInterspersed(fs); done {
 		return code
 	}
-	arg := ""
-	if len(c.Args) > 0 {
-		arg, c.Args = c.Args[0], c.Args[1:]
-		if code, done := c.Parse(fs); done {
-			return code
-		}
+	if len(c.Args) > 1 {
+		return c.fail(Failf("unexpected argument %q", c.Args[1]))
 	}
-	if len(c.Args) > 0 {
-		return c.fail(Systemf("unexpected argument %q", c.Args[0]))
+	arg := ""
+	if len(c.Args) == 1 {
+		arg = c.Args[0]
 	}
 	if arg == "" {
-		return c.fail(Systemf("prefetch needs a model name or a path").
+		return c.fail(Failf("prefetch needs a model name or a path").
 			WithHint("run \"berth models\" for the list"))
 	}
 	cfg, _, _, e := loadConfig(c, config.DefaultPath())
