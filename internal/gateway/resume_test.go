@@ -170,6 +170,18 @@ func TestGatewayResumesAParkedEngine(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 8 << 30})
+	// Admission parks only what a card read measured: wait for the broker
+	// to see the 8 GiB before anything drains the engine.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		if st := b.Status(); len(st.Leases) > 0 && st.Leases[0].Used > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the broker never measured the engine")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	holderDone := make(chan *broker.Lease, 1)
 	go func() {
 		l, err := b.Acquire(context.Background(), broker.Request{Engine: "game", Priority: broker.Foreground}, nil)
@@ -191,7 +203,7 @@ func TestGatewayResumesAParkedEngine(t *testing.T) {
 			card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 512 << 20})
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the engine never parked: %+v", st.Leases)
+			t.Fatalf("the engine never parked: %+v\nengine log:\n%s", st.Leases, engineLog.String())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
