@@ -409,6 +409,7 @@ func (b *Broker) Run(ctx context.Context) {
 func (b *Broker) Tick(ctx context.Context) {
 	defer b.persist() // after the unlock below; also saves counts made between ticks
 	defer func() { b.persistUsage(time.Now(), false) }()
+	readAt := time.Now()
 	snap, err := b.probe.Read(ctx)
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
@@ -505,7 +506,10 @@ func (b *Broker) Tick(ctx context.Context) {
 		if l.state != releasing && l.state != stuck {
 			continue
 		}
-		if len(l.gpu) == 0 {
+		if len(l.gpu) == 0 && readAt.After(l.released) {
+			// Only a tick whose card read happened after the release
+			// frees the lease: an earlier read knows nothing about a
+			// process that appeared after it.
 			b.log.Info("lease freed", "lease", key, "engine", l.engine)
 			b.counters.VRAMHandedOff += l.peak
 			b.emit(proto.Event{Kind: proto.EvFreed, Lease: key, Engine: l.engine, Bytes: l.peak})
@@ -566,7 +570,7 @@ func (b *Broker) owner(id ident) *lease {
 		}
 	}
 	for _, l := range b.leases {
-		if (l.state == active || l.state == draining) && l.pid > 0 &&
+		if (l.state == active || l.state == draining || l.state == releasing) && l.pid > 0 &&
 			b.tree.StartTime(l.pid) == l.pidStart && procs.DescendsFrom(b.tree, id.pid, l.pid) {
 			return l
 		}
@@ -913,6 +917,29 @@ func (l *Lease) Attach(pid int) {
 	l.b.mu.Unlock()
 }
 
+// beginRelease takes a granted lease off the grant path: releasing waits for
+// a tick whose card read happened after now to show none of its processes.
+// A lease that never recorded a process (no attached wrapper, nothing on the
+// card) has nothing that could turn up later, and goes at once. announce
+// keeps abandon quiet, as it has always been.
+func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
+	x.state = releasing
+	x.released = now
+	if !announce {
+		if x.pid == 0 && len(x.gpu) == 0 {
+			delete(b.leases, x.id)
+		}
+		return
+	}
+	b.log.Info("released", "lease", x.id, "engine", x.engine, "held", now.Sub(x.granted).Round(time.Second))
+	b.emit(proto.Event{Kind: proto.EvReleased, Lease: x.id, Engine: x.engine, Bytes: x.used()})
+	if x.pid == 0 && len(x.gpu) == 0 {
+		b.counters.VRAMHandedOff += x.peak
+		b.emit(proto.Event{Kind: proto.EvFreed, Lease: x.id, Engine: x.engine, Bytes: x.peak})
+		delete(b.leases, x.id)
+	}
+}
+
 // Release gives the berth back. Its memory stays counted until the card
 // shows its processes gone, or ReleaseGrace passes.
 func (l *Lease) Release() {
@@ -923,15 +950,7 @@ func (l *Lease) Release() {
 	if !ok || x.state == releasing || x.state == stuck {
 		return
 	}
-	x.state = releasing
-	x.released = time.Now()
-	b.log.Info("released", "lease", x.id, "engine", x.engine, "held", x.released.Sub(x.granted).Round(time.Second))
-	b.emit(proto.Event{Kind: proto.EvReleased, Lease: x.id, Engine: x.engine, Bytes: x.used()})
-	if len(x.gpu) == 0 {
-		b.counters.VRAMHandedOff += x.peak
-		b.emit(proto.Event{Kind: proto.EvFreed, Lease: x.id, Engine: x.engine, Bytes: x.peak})
-		delete(b.leases, x.id)
-	}
+	b.beginRelease(x, time.Now(), true)
 	b.schedule(time.Now())
 }
 
@@ -1029,9 +1048,7 @@ func (b *Broker) abandon(l *lease, why string) error {
 		}
 	}
 	if l.state != waiting {
-		l.state = releasing
-		l.released = time.Now()
-		delete(b.leases, l.id)
+		b.beginRelease(l, time.Now(), false)
 	}
 	b.schedule(time.Now())
 	if l.lastWait != "" {
