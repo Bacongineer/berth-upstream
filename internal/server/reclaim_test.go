@@ -189,16 +189,16 @@ func TestReclaimStopsOnlyRecordedHolders(t *testing.T) {
 	}
 	raw.Close()
 	for _, h := range m.Holders {
-		switch {
-		case h.PID == engine.Process.Pid:
+		switch h.PID {
+		case engine.Process.Pid:
 			if !h.Stopped {
 				t.Fatalf("engine holder = %+v, want stopped", h)
 			}
-		case h.PID == doomed.Process.Pid:
+		case doomed.Process.Pid:
 			if h.Lease == "" || h.Skipped == "" {
 				t.Fatalf("doomed holder = %+v, want a skip reason", h)
 			}
-		case h.PID == stranger.Process.Pid:
+		case stranger.Process.Pid:
 			if h.Skipped != "" || h.Stopped {
 				t.Fatalf("stranger = %+v, want it untouched", h)
 			}
