@@ -501,6 +501,105 @@ func TestDrainSlotSickWaits(t *testing.T) {
 	}
 }
 
+// Scenario 6 from contrib/chaos, fixed: an engine that keeps reporting a
+// processing slot ends its drain after drain_max, and the drain runs the
+// normal stop ladder instead of holding the card until someone notices.
+func TestDrainSlotBusyMaxStops(t *testing.T) {
+	stub := &slotStub{}
+	stub.busy.Store(true)
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+
+	cmd, waited := startSleep(t)
+	done := make(chan struct{})
+	released := make(chan struct{})
+	var logs strings.Builder
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		drain(Options{Engine: "strata", DrainSlots: srv.URL, DrainMax: 300 * time.Millisecond,
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not end after drain_max")
+	}
+	if out := logs.String(); !strings.Contains(out, "still busy after 300ms (1 slot processing); draining anyway") {
+		t.Fatalf("no ceiling line; log:\n%s", out)
+	}
+	select {
+	case <-waited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("engine survived the stop ladder after drain_max")
+	}
+	if unloads, _ := stub.counts(); unloads != 0 {
+		t.Fatalf("drain-slots posted %d unloads, want none", unloads)
+	}
+}
+
+// With no drain_max the wait stays unbounded: a busy boundary holds the
+// stop ladder back for as long as it reads busy (a long generation is
+// never cut off), and the journal says why. The wait ends when the engine
+// exits, which Run marks by closing done.
+func TestDrainSlotBusyUnboundedWaits(t *testing.T) {
+	stub := &slotStub{}
+	stub.busy.Store(true)
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+
+	orig := drainProgressEvery
+	drainProgressEvery = 50 * time.Millisecond
+	t.Cleanup(func() { drainProgressEvery = orig })
+
+	cmd, waited := startSleep(t)
+	done := make(chan struct{})
+	released := make(chan struct{})
+	var logs strings.Builder
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		drain(Options{Engine: "strata", DrainSlots: srv.URL,
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, done, released, "test", sayTo(&logs))
+	}()
+
+	// After 500 ms the engine must still be running: with no max the
+	// busy boundary holds the stop ladder back, and the drain has kept
+	// reading it.
+	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-waited:
+		t.Fatal("engine stopped while its boundary stayed busy and no max was set")
+	default:
+	}
+	if _, seen := stub.counts(); seen == 0 {
+		t.Fatal("drain never read the busy boundary")
+	}
+
+	// The operator's way out: stop the engine, as Run would on its exit.
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-waited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("engine did not exit")
+	}
+	close(done)
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("drain did not end when the engine exited")
+	}
+	// Read the log only once the drain goroutine has ended.
+	if out := logs.String(); !strings.Contains(out, "1 slot busy for") {
+		t.Fatalf("no progress line while the wait ran; log:\n%s", out)
+	}
+}
+
 // failOpen tells "no boundary here" from "boundary sick": 404, garbage,
 // and an unreachable host fail open; 500 and timeouts wait.
 func TestSlotsFailOpenKinds(t *testing.T) {

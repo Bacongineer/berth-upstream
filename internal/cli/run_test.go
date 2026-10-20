@@ -180,6 +180,33 @@ func TestRunOverrideNoticeIsPrinted(t *testing.T) {
 	}
 }
 
+// A run with --drain-max set names the engine's drain_max as the flag
+// overrides it, like the other drain flags.
+func TestRunDrainMaxOverrideNoticeIsPrinted(t *testing.T) {
+	isolate(t)
+	home := t.TempDir()
+	toml := filepath.Join(home, "berth.toml")
+	file := "" +
+		"[[engine]]\n" +
+		"name = \"strata\"\n" +
+		"type = \"llamacpp\"\n" +
+		"url = \"http://127.0.0.1:8080\"\n" +
+		"drain_slots = \"http://127.0.0.1:8080\"\n" +
+		"drain_max = \"10m\"\n"
+	if err := os.WriteFile(toml, []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(home, "nope.sock")
+	code, _, errOut := runCLI(t, "run", "--as", "strata", "--drain-max", "5m",
+		"--socket", missing, "--config", toml, "--", "true")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "berth: --drain-max overrides berth.toml drain_max = 10m0s for strata") {
+		t.Errorf("stderr = %q, want the override notice", errOut)
+	}
+}
+
 // A run that names a model reads the settings of the entry its --group names.
 func TestRunMatchesTheGroupEntry(t *testing.T) {
 	isolate(t)
