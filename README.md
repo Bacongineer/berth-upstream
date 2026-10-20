@@ -754,7 +754,7 @@ never swap; a place in the queue and an estimate in every wait reason.
 
 On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the update watch, the
 migration manager, and Berth swapping models itself. llama-swap already swaps models well;
-Berth works beside it, and generic load hooks are being proposed to llama-swap so Berth needs no
+Berth works beside it, and a proposal to llama-swap for generic load hooks is planned, so Berth needs no
 wrapper line.
 
 ## What Berth never does
