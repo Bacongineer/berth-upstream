@@ -7,9 +7,14 @@ package runner
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"syscall"
+	"testing"
+
+	"github.com/T-Crypt/berth/internal/procs"
+	"github.com/T-Crypt/berth/internal/sysd"
 )
 
 var stopSignals = []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP}
@@ -22,6 +27,29 @@ func isolate(cmd *exec.Cmd) {
 
 // afterStart has nothing to do: the process group was set at start.
 func afterStart(*exec.Cmd) {}
+
+// scopeToChild starts the engine in its own transient scope, so the
+// lease can name every process under it by cgroup even when one escapes
+// the process tree (chaos scenario 3: a child that forks and whose
+// parent exits before any tick records it). A run the gateway started
+// already lives in a berth-engine scope and passes that scope down;
+// without a user manager the child runs in this cgroup, as always.
+func scopeToChild(as string, argv []string, log *slog.Logger) []string {
+	// Tests start fake engines: never in the developer's own user manager.
+	if testing.Testing() {
+		return argv
+	}
+	if _, scoped := procs.Scope(os.Getpid()); scoped {
+		return argv
+	}
+	if !sysd.ScopeReady() {
+		if log != nil {
+			log.Debug("no systemd user manager; the engine runs in this run's cgroup", "engine", as)
+		}
+		return argv
+	}
+	return sysd.ScopeArgv("berth-run", as, argv)
+}
 
 func signalGroup(cmd *exec.Cmd, s os.Signal) {
 	if sig, ok := s.(syscall.Signal); ok {

@@ -89,7 +89,7 @@ func runRun(c *Context) int {
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.OptionsFor(&e, runner.Over{
 		Socket: *sock, Group: *group, Pinned: *pinned, Wait: *wait, Grace: *grace,
-		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err,
+		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err, Log: c.Log(),
 	}))
 }
 
