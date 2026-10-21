@@ -24,6 +24,19 @@ has a matching GitHub release whose body comes from its section below.
   one WARN line. A relative path fails `berth config check`, and `berth prefetch MODEL` makes the
   same ask by hand.
 
+### Fixed
+
+- A lease whose attached run process dies without the wrapper's disconnect
+  reaching the daemon (the run's tree force-killed, a crash, a power loss)
+  is no longer left granted with an empty PIDS list: the broker now checks
+  the attached process itself on every tick, and after it has been seen
+  gone on two consecutive ticks it releases the lease exactly as a
+  disconnect would, once the card shows nothing of the run left. A PID the
+  kernel reused counts as gone, a lease that names a container or still
+  counts a process on the card is left alone, and nothing is signalled.
+  The event log gets `lease.orphaned`, then `lease.released` and
+  `lease.freed` ([#104](https://github.com/T-Crypt/berth/issues/104)).
+
 ## [v0.3.2] - 2026-10-20
 
 Fixes from the first Windows testers, and four contributions. On Windows, the Epic Games
