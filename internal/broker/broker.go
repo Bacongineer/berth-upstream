@@ -154,6 +154,11 @@ type Config struct {
 	// on Linux); "" = a host process. Tests fake it. A GPU process whose
 	// container matches an attached lease's belongs to that lease.
 	Containers func(pid int) (string, bool)
+	// Scopes reads a process's Berth scope (procs.Scope on Linux): the
+	// path of the berth-*.scope cgroup it runs in, "" for a process
+	// outside one. Tests fake it. A GPU process in the scope an attached
+	// lease recorded belongs to that lease.
+	Scopes func(pid int) (string, bool)
 	// ContainerName resolves a container id to its runtime name (docker,
 	// then podman, inspect); "" when neither answers. Used to name a
 	// stowaway's container in the report; never affects scheduling.
@@ -214,13 +219,18 @@ type lease struct {
 	// ("" for a host process), containerName the name the operator gave.
 	container     string
 	containerName string
-	gpu           map[ident]gpu.Proc
-	desc          map[ident]struct{} // descendants recorded while the lease ran
-	contested     uint64             // squatter bytes on the card when granted
-	peak          uint64             // most memory its processes were measured holding
-	arrived       time.Time
-	granted       time.Time
-	released      time.Time
+	// scope is the berth-*.scope path the attached engine runs in
+	// ("" when it runs outside one). A cgroup is inherited on fork, so
+	// every process under that path is the lease's, however its process
+	// tree is shaped.
+	scope     string
+	gpu       map[ident]gpu.Proc
+	desc      map[ident]struct{} // descendants recorded while the lease ran
+	contested uint64             // squatter bytes on the card when granted
+	peak      uint64             // most memory its processes were measured holding
+	arrived   time.Time
+	granted   time.Time
+	released  time.Time
 	// releasedRead and parkedRead are the card reads started when the lease
 	// was released or its park call was done: only a tick whose read is
 	// later frees it or marks it parked. Clock-free, so a coarse clock
@@ -516,6 +526,9 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	if cfg.Containers == nil {
 		cfg.Containers = procs.Container
 	}
+	if cfg.Scopes == nil {
+		cfg.Scopes = procs.Scope
+	}
 	if cfg.ContainerName == nil {
 		cfg.ContainerName = containerNameCLI
 	}
@@ -623,13 +636,15 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.probeErr = nil
 	b.snap = snap
 	b.recordDescendants()
+	b.refreshScopes()
 
 	present := map[ident]bool{}
 	claimed := map[ident]claimedProc{}
 	for _, p := range snap.Procs {
 		id := b.identify(p.PID)
 		present[id] = true
-		if l := b.owner(id, b.containerOf(p.PID)); l != nil {
+		scope := b.scopeOf(p.PID)
+		if l := b.owner(id, b.containerOf(p.PID), scope); l != nil {
 			if l.state != active && l.state != draining && b.runFor(p.PID) != nil {
 				// A released lease keeps blocking while its processes hold
 				// memory, unless a run record says they were left behind on
@@ -638,6 +653,13 @@ func (b *Broker) Tick(ctx context.Context) {
 				delete(l.gpu, id)
 			} else {
 				l.gpu[id] = p
+				if scope != "" && l.scope == scope {
+					// In the lease's scope but never recorded: a child that
+					// escaped the tree before any tick. Record it now, so
+					// reclaim and the stuck report name it exactly like a
+					// recorded descendant.
+					l.desc[id] = struct{}{}
+				}
 				l.peak = max(l.peak, l.used())
 				if s, ok := b.squatters[id]; ok {
 					b.reportGone(s)
@@ -773,10 +795,11 @@ func (b *Broker) reportGone(s *squatter) {
 
 // owner finds the lease a GPU process belongs to: one it was already
 // attributed to, else a recorded descendant of an attached lease, else a
-// container the lease names, else the lease whose wrapped engine it
-// descends from. The engine's PID only counts while its start time still
-// matches, so a reused PID never inherits a lease.
-func (b *Broker) owner(id ident, container string) *lease {
+// scope the lease recorded, else a container the lease names, else the
+// lease whose wrapped engine it descends from. The engine's PID only
+// counts while its start time still matches, so a reused PID never
+// inherits a lease. An empty scope never matches an empty one.
+func (b *Broker) owner(id ident, container, scope string) *lease {
 	for _, l := range b.leases {
 		if _, ok := l.gpu[id]; ok {
 			return l
@@ -786,6 +809,9 @@ func (b *Broker) owner(id ident, container string) *lease {
 		if _, ok := l.desc[id]; ok {
 			return l
 		}
+	}
+	if l := b.scopeLease(scope); l != nil {
+		return l
 	}
 	if container != "" {
 		for _, l := range b.leases {
@@ -1250,10 +1276,14 @@ func (l *Lease) Contested() uint64 {
 }
 
 // Attach records the engine holding the berth, by PID plus start time.
+// Its Berth scope is read on the next tick, not here: systemd-run moves
+// itself into the scope only after a round trip to the user manager, so
+// at attach the engine still sits in its wrapper's cgroup.
 func (l *Lease) Attach(pid int) {
 	start := l.b.tree.StartTime(pid)
 	l.b.mu.Lock()
 	l.l.pid, l.l.pidStart = pid, start
+	l.l.scope = ""
 	l.b.mu.Unlock()
 }
 
@@ -1334,6 +1364,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	if pid <= 0 || start == 0 || b.tree.StartTime(pid) != start {
 		return nil, fmt.Errorf("%w: pid %d is not the process that started as %s", ErrRefused, pid, r.Engine)
 	}
+	scope, _ := b.cfg.Scopes(pid)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, l := range b.leases {
@@ -1350,6 +1381,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	}
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
+	l.scope = scope
 	l.granted = now
 	l.grantedN = b.order()
 	close(l.grantCh)

@@ -4,6 +4,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -716,5 +717,65 @@ func TestLibraryFloorDefaults(t *testing.T) {
 	c.Library.FreeFloor = &off
 	if c.LibraryFloor() != 0 {
 		t.Errorf("explicit 0 = %g, want the guard off", c.LibraryFloor())
+	}
+}
+
+func TestEngineFallbackParsedAndValidated(t *testing.T) {
+	const engines = `
+[[engine]]
+name   = "strata"
+type   = "llamacpp"
+url    = "http://127.0.0.1:8080"
+serves = ["qwen3.8"]
+%s
+[[engine]]
+name   = "strata-cpu"
+type   = "llamacpp"
+url    = "http://127.0.0.1:8081"
+serves = ["qwen3.8-cpu"]
+`
+	c, err := Load(write(t, fmt.Sprintf(engines, `
+fallback = "strata-cpu"
+fallback_after = "30s"
+fallback_model = "qwen3.8-cpu"
+`)))
+	if err != nil {
+		t.Fatalf("a valid fallback was refused: %v", err)
+	}
+	if c.Engine[0].Fallback != "strata-cpu" || c.Engine[0].FallbackAfter.Seconds() != 30 || c.Engine[0].FallbackModel != "qwen3.8-cpu" {
+		t.Fatalf("fallback keys not loaded: %+v", c.Engine[0])
+	}
+	// Without fallback_after the gateway applies its own default.
+	c, err = Load(write(t, fmt.Sprintf(engines, `fallback = "strata-cpu"`)))
+	if err != nil || c.Engine[0].FallbackAfter.Duration != 0 {
+		t.Fatalf("no fallback_after: %+v err=%v", c.Engine[0], err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		keys    string
+		wantErr string
+	}{
+		{"unknown engine", `fallback = "nope"`, `engine[0] "strata": fallback "nope" is not an engine in this file`},
+		{"itself", `fallback = "strata"`, `engine[0] "strata": fallback names the engine itself`},
+		{"negative after", `fallback = "strata-cpu"
+fallback_after = "-5s"`, `engine[0] "strata": fallback_after -5s must be >= 0`},
+	} {
+		_, err := Load(write(t, fmt.Sprintf(engines, tc.keys)))
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error lacks %q: %v", tc.name, tc.wantErr, err)
+		}
+	}
+	// A fallback that has a fallback of its own is refused, and the error
+	// names both engines.
+	_, err = Load(write(t, fmt.Sprintf(engines, `fallback = "strata-cpu"`)+`
+[[engine]]
+name   = "third"
+type   = "llamacpp"
+url    = "http://127.0.0.1:8082"
+fallback = "strata"
+`))
+	if err == nil || !strings.Contains(err.Error(), `engine[2] "third": fallback "strata" has a fallback of its own; no chains`) {
+		t.Errorf("a chain was accepted or names neither engine: %v", err)
 	}
 }

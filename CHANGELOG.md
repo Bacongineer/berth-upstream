@@ -6,6 +6,30 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
+  needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
+  default). A request that has waited that long for its own engine is proxied to the fallback when
+  the fallback answers its probe at that moment, with the body's model renamed when `fallback_model`
+  is set. A non-streaming answer carries `X-Berth-Fallback: <fallback>`; a streaming one, whose SSE
+  preamble was already sent, gets the fallback's stream after one `: berth: fallback <fallback>`
+  comment. The gateway never starts, leases or drains the fallback, and the primary's start is never
+  cancelled, so later requests land on it. The request reaches the fallback without its
+  `Authorization` header, so the node's API key never leaves the gateway. One hop: `berth config check`
+  refuses chains.
+- Cgroup attribution closes the one known stowaway window (chaos scenario 3: a child
+  whose parent exits within one 2 s tick). On Linux with a systemd user manager,
+  `berth run` execs the engine in its own transient cgroup scope (`systemd-run --user
+  --scope`, unit `berth-run-<name>-<rand>`), which every child inherits on fork: a
+  child that escapes its process group and reparents stays the lease's, the lease
+  turns stuck naming it, `berth reclaim` lists it, and a whole-card request is never
+  granted `contested` over it. A GPU process in a scope no live lease recorded is a
+  stowaway as before, and a process outside every scope is never attributed to a
+  scopeless lease. Without a user manager, inside a `Type=notify` service (where
+  systemd only accepts readiness from the service's own cgroup), and on Windows, the run
+  starts as before and the window stands.
+
 ## [v0.3.3] - 2026-10-21
 
 Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -111,6 +112,10 @@ type Options struct {
 	// (the terminal still gets them too). The gateway keeps its tail, so a
 	// start that dies says why in the engine's words, not berth's.
 	Output io.Writer
+	// Log is the run's debug log (nil = silent). It records the one
+	// product decision the run makes without asking: whether the engine
+	// child starts in its own systemd scope.
+	Log *slog.Logger
 }
 
 // ExitRefused is EX_TEMPFAIL: no berth was granted.
@@ -173,7 +178,8 @@ func Run(o Options) int {
 		}
 	}
 
-	cmd := command(o.Argv, o.Output)
+	cmd := command(o, o.Output)
+	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
 		return 127
@@ -223,7 +229,6 @@ func Run(o Options) int {
 	}
 	if o.ExitComfyUIIdle {
 		go func() {
-			var session comfySession
 			complete := false
 			for {
 				if !complete {
@@ -572,7 +577,7 @@ func slotsBusy(url, key string) (int, error) {
 }
 
 func runUnleased(o Options, reason string) int {
-	cmd := command(o.Argv, o.Output)
+	cmd := command(o, o.Output)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(o.Stderr, "berth: start %s: %v\n", o.Argv[0], err)
 		return 127
@@ -603,7 +608,8 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 	return remove
 }
 
-func command(argv []string, out io.Writer) *exec.Cmd {
+func command(o Options, out io.Writer) *exec.Cmd {
+	argv := scopeToChild(o.Engine, o.Argv, o.Log)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if out != nil {

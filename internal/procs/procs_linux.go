@@ -69,6 +69,18 @@ func Container(pid int) (string, bool) {
 	return containerID(bytes.NewReader(b))
 }
 
+// Scope is the Berth scope that owns pid, from an actual
+// /proc/<pid>/cgroup: the path of the nearest berth-*.scope ancestor,
+// "" when the process runs outside one (a plain terminal app, a cgroup
+// v1 machine, any process Berth did not start).
+func Scope(pid int) (string, bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return "", false
+	}
+	return scopeID(bytes.NewReader(b))
+}
+
 // statFields reads /proc/<pid>/stat once: the command name inside the
 // parenthesis, and the fields after it, so index 0 is field 3 (state). The
 // name is "(comm)" and may contain spaces or parens, so the split starts

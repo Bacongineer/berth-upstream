@@ -11,6 +11,3 @@ import "os/exec"
 // job object tying it to its own engine already limits what a gateway
 // restart leaves behind.
 func detach(*exec.Cmd) {}
-
-// scopeArgv has no user manager to answer to on this platform.
-func scopeArgv(name string, argv []string) []string { return argv }

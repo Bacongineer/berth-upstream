@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -15,9 +16,10 @@ import (
 // comfySession retains the original grant and work evidence across refused
 // attempts. Failure timers belong to each wait, not to the session lifetime.
 type comfySession struct {
-	granted  time.Time
-	baseline map[string]bool
-	observed bool
+	granted     time.Time
+	baseline    map[string]bool
+	observed    bool
+	initialized bool
 }
 
 func (session *comfySession) wait(o Options, done <-chan struct{}, say func(string, ...any)) bool {
@@ -42,8 +44,11 @@ func (session *comfySession) wait(o Options, done <-chan struct{}, say func(stri
 	// that read belongs to this grant. History is used only by session release.
 	if session.granted.IsZero() {
 		session.granted = time.Now()
+	}
+	if !session.initialized {
+		session.initialized = true
 		if o.ExitComfyUIIdle {
-			if keys, err := comfyHistoryKeys(o.DrainComfyUI, o.APIKey); err == nil {
+			if keys, err := comfyHistoryKeys(o.DrainComfyUI, o.APIKey, session.granted); err == nil {
 				session.baseline = keys
 			}
 		}
@@ -77,7 +82,7 @@ func (session *comfySession) wait(o Options, done <-chan struct{}, say func(stri
 				say("ComfyUI queue empty; handing off")
 				return true
 			case session.baseline == nil:
-				session.baseline, err = comfyHistoryKeys(o.DrainComfyUI, o.APIKey)
+				session.baseline, err = comfyHistoryKeys(o.DrainComfyUI, o.APIKey, session.granted)
 				if err != nil {
 					if histBad.IsZero() {
 						histBad = time.Now()
@@ -146,9 +151,9 @@ func (session *comfySession) wait(o Options, done <-chan struct{}, say func(stri
 	}
 }
 
-// comfyHistoryKeys reads the newest completed-work key, enough to detect
-// whether this grant has completed a job without fetching the full history.
-func comfyHistoryKeys(base, key string) (map[string]bool, error) {
+// comfyHistoryKeys excludes timestamped terminal work from the baseline
+// when it belongs to the current grant.
+func comfyHistoryKeys(base, key string, since time.Time) (map[string]bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	history, err := comfy.History(httpauth.WithBearer(ctx, key), base)
@@ -156,14 +161,49 @@ func comfyHistoryKeys(base, key string) (map[string]bool, error) {
 		return nil, err
 	}
 	keys := make(map[string]bool, len(history))
-	for k := range history {
-		keys[k] = true
+	for k, record := range history {
+		if since.IsZero() || !comfyCompletedAfter(record, since) {
+			keys[k] = true
+		}
 	}
 	return keys, nil
 }
 
+// comfyCompletedAfter accepts only terminal work recorded in this grant. Missing,
+// malformed, or future timestamps cannot prove that lifetime history is new work.
+func comfyCompletedAfter(raw json.RawMessage, since time.Time) bool {
+	var record struct {
+		Status struct {
+			Messages [][]json.RawMessage `json:"messages"`
+		} `json:"status"`
+	}
+	if json.Unmarshal(raw, &record) != nil {
+		return false
+	}
+	for _, message := range record.Status.Messages {
+		if len(message) != 2 {
+			continue
+		}
+		var event string
+		if json.Unmarshal(message[0], &event) != nil ||
+			(event != "execution_success" && event != "execution_error" && event != "execution_interrupted") {
+			continue
+		}
+		var detail struct {
+			Timestamp int64 `json:"timestamp"`
+		}
+		if json.Unmarshal(message[1], &detail) == nil {
+			completed := time.UnixMilli(detail.Timestamp)
+			if completed.After(since) && !completed.After(time.Now()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func comfyFirstNewJob(base, key string, baseline map[string]bool) (bool, error) {
-	keys, err := comfyHistoryKeys(base, key)
+	keys, err := comfyHistoryKeys(base, key, time.Time{})
 	if err != nil {
 		return false, err
 	}
