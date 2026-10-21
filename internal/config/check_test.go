@@ -188,6 +188,60 @@ func TestDurationMarshalsAsString(t *testing.T) {
 	}
 }
 
+// The engine's file list is `prefetch` in all three encodings, so a harbor
+// or script that reads the config sees the key the file uses.
+func TestPrefetchKeySpelledAlikeInEveryEncoding(t *testing.T) {
+	c, err := Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nprefetch = [\"/models/x\", \"/models/y\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"prefetch":["/models/x","/models/y"]`) {
+		t.Errorf("json = %s", b)
+	}
+	var fromJSON Config
+	if err := json.Unmarshal(b, &fromJSON); err != nil {
+		t.Fatal(err)
+	}
+	if got := fromJSON.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
+		t.Errorf("json round trip = %v", got)
+	}
+
+	y, err := yaml.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(y), "prefetch:") || !strings.Contains(string(y), "- /models/x") {
+		t.Errorf("yaml has no prefetch list: %s", y)
+	}
+	var fromYAML Config
+	if err := yaml.Unmarshal(y, &fromYAML); err != nil {
+		t.Fatal(err)
+	}
+	if got := fromYAML.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
+		t.Errorf("yaml round trip = %v", got)
+	}
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `prefetch = ["/models/x", "/models/y"]`) {
+		t.Errorf("toml = %s", buf.String())
+	}
+	var fromTOML Config
+	if _, err := toml.Decode(buf.String(), &fromTOML); err != nil {
+		t.Fatal(err)
+		return
+	}
+	if got := fromTOML.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
+		t.Errorf("toml round trip = %v", got)
+	}
+}
+
 func TestDurationRejectsANumber(t *testing.T) {
 	var d Duration
 	if err := yaml.Unmarshal([]byte("5\n"), &d); err == nil {

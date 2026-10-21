@@ -57,10 +57,15 @@ type Engine struct {
 	NeedsMiB uint64   `toml:"needs_mib,omitzero" json:"needs_mib,omitempty" yaml:"needs_mib,omitempty"` // 0 = the whole card
 	// NeedsRAMMiB estimates the engine's host RAM spike at cold start, for
 	// the gateway headroom guard. 0 = unknown, and the guard fails open.
-	NeedsRAMMiB  uint64 `toml:"needs_ram_mib,omitzero" json:"needs_ram_mib,omitempty" yaml:"needs_ram_mib,omitempty"`
-	DrainPost    string `toml:"drain_post,omitempty" json:"drain_post,omitempty" yaml:"drain_post,omitempty"`          // as berth run --drain-post
-	DrainSlots   string `toml:"drain_slots,omitempty" json:"drain_slots,omitempty" yaml:"drain_slots,omitempty"`       // as berth run --drain-slots
-	DrainComfyUI string `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
+	NeedsRAMMiB uint64 `toml:"needs_ram_mib,omitzero" json:"needs_ram_mib,omitempty" yaml:"needs_ram_mib,omitempty"`
+	// Prefetch is what the gateway asks the kernel to read into the page
+	// cache when it decides to start this engine, so the start's own reads
+	// meet a warm cache instead of the disk. Every path is absolute: a file,
+	// or a directory, which means the regular files directly inside it.
+	Prefetch     []string `toml:"prefetch,omitempty" json:"prefetch,omitempty" yaml:"prefetch,omitempty"`
+	DrainPost    string   `toml:"drain_post,omitempty" json:"drain_post,omitempty" yaml:"drain_post,omitempty"`          // as berth run --drain-post
+	DrainSlots   string   `toml:"drain_slots,omitempty" json:"drain_slots,omitempty" yaml:"drain_slots,omitempty"`       // as berth run --drain-slots
+	DrainComfyUI string   `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
 	// DrainMax is berth run --drain-max: a ceiling on how long a drain may
@@ -542,6 +547,11 @@ func (c *Config) Validate() error {
 		}
 		if len(e.Start) > 0 && len(e.Serves) == 0 && e.Type != "comfyui" {
 			errs = append(errs, fmt.Errorf("%s: start needs serves, the models the gateway may start it for", where))
+		}
+		for _, p := range e.Prefetch {
+			if !filepath.IsAbs(p) {
+				errs = append(errs, fmt.Errorf("%s: prefetch %q must be an absolute path: the gateway starts engines from its own working directory", where, p))
+			}
 		}
 		if e.Type == "comfyui" && len(e.Serves) > 0 {
 			errs = append(errs, fmt.Errorf("%s: a comfyui engine is reached at the gateway's /prompt, not through serves (ComfyUI is not OpenAI-compatible)", where))
