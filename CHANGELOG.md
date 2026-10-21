@@ -6,6 +6,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.3] - 2026-10-21
+
+Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the
+squatter total no longer passes the card's used memory, so `berth run` gets its grant while a model
+is loaded. A lease whose `berth run` process dies after attach now frees itself, and the Windows check
+kit prints its per-process rows and events again. The gateway reads the next engine's files into the
+page cache while the holder drains, and it measures every start it runs and prices a switch, or a
+chain of them, from those times.
+
 ### Added
 
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
@@ -39,6 +48,17 @@ has a matching GitHub release whose body comes from its section below.
   (`squatters`, `unprotected`, `leases`; there is no `holders`). `berth events` is called with
   `--format json`, and a berth that answers nothing leaves its stderr in the report instead of
   a silent "returned nothing".
+- The squatter sum is bounded by the memory the driver reports the card as
+  using: on Windows a process's reading counts its committed reservation, so
+  while the v0.3.2 per-process cap bounds one process, the sum could still
+  exceed the card's real usage (the desktop compositor read as 11 GB on a
+  16 GB card the driver reported at 15.5 GB in use) and a `berth run` request
+  that fit the free space the driver actually shows was refused forever.
+  Admission, the contested-grant figure and the "squatters hold N MiB" wait
+  reason now count the bounded total, and the per-squatter status and event
+  entries keep the raw readings. While it clamps, the bound logs at most one
+  INFO line per change of that state, never per tick.
+  [#103](https://github.com/T-Crypt/berth/issues/103)
 - A lease whose attached run process dies without the wrapper's disconnect
   reaching the daemon (the run's tree force-killed, a crash, a power loss)
   is no longer left granted with an empty PIDS list: the broker now checks
