@@ -42,7 +42,7 @@ claim. When another engine holds it, Berth:
 The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
 shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 
-> **Status: alpha, v0.3.2.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> **Status: alpha, v0.3.3.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
 > Strata, ComfyUI and games, and testers run it on Windows. [Capabilities](#capabilities) lists what works and has tests; the
 > [Roadmap](#roadmap) lists the phases and what is still missing.
 
@@ -1142,15 +1142,21 @@ per-process VRAM on Windows and the test suite on Windows in CI; and the proof k
 form and the [tested hardware](#tested-hardware) table. v0.3.1 fixed `berth update` answering from
 a stale cache. The [CHANGELOG](CHANGELOG.md) has every entry.
 
-### Shipped since: v0.3.2 (2026-10-20)
+### Shipped since: v0.3.3 (2026-10-21)
 
-A fix release from the first Windows testers' reports: the Epic launcher no longer holds the
-card from the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts
-only the governed card ([#82](https://github.com/T-Crypt/berth/issues/82)), and `berth service
-install` starts its Windows tasks, writes their logs and takes the listen addresses from
-berth.toml ([#89](https://github.com/T-Crypt/berth/issues/89)). It also brings the minimum turn,
-keys on drain requests and in owner-only files, fail-closed drain boundaries, ComfyUI sessions
-that hand the card back, and the harbor's Home Screen icon.
+v0.3.2 carried the first Windows testers' reports: the Epic launcher no longer holds the card from
+the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts only the
+governed card ([#82](https://github.com/T-Crypt/berth/issues/82)), and `berth service install`
+starts its Windows tasks ([#89](https://github.com/T-Crypt/berth/issues/89)), with the minimum turn,
+keys on drain requests and fail-closed drain boundaries beside them.
+
+v0.3.3 carries the next round. The squatter total stops at the memory the driver reports in use, so
+a Windows compositor's committed reservation no longer blocks admission
+([#103](https://github.com/T-Crypt/berth/issues/103)). A lease whose `berth run` process dies after
+attach frees itself ([#104](https://github.com/T-Crypt/berth/issues/104)), and the Windows check kit
+works again ([#105](https://github.com/T-Crypt/berth/issues/105)). The gateway warms the next
+engine's files during a drain (`prefetch`) and serves measured switch costs at `/v1/berth/cost` and
+`/v1/berth/plan`.
 
 ### Next: v0.3.x
 
