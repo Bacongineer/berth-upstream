@@ -38,6 +38,8 @@ type Engine struct {
 	// APIKeyEnv names an environment variable holding a bearer token for
 	// engines that want one; the token itself never goes in the file.
 	APIKeyEnv string `toml:"api_key_env,omitempty" json:"api_key_env,omitempty" yaml:"api_key_env,omitempty"`
+	// APIKeyFile is an absolute owner-private Unix file, exclusive with APIKeyEnv.
+	APIKeyFile string `toml:"api_key_file,omitempty" json:"api_key_file,omitempty" yaml:"api_key_file,omitempty"`
 	// Custom engines: every path is optional. Health decides up/down (else
 	// metrics or models do, else GET /); Models is an OpenAI-style list;
 	// Slots is a llama.cpp-style /slots; Map names the metrics to read.
@@ -484,6 +486,12 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("%s: duplicate name", where))
 		}
 		seen[e.Name] = true
+		if e.APIKeyEnv != "" && e.APIKeyFile != "" {
+			errs = append(errs, fmt.Errorf("%s: api_key_env and api_key_file are mutually exclusive", where))
+		}
+		if e.APIKeyFile != "" && !filepath.IsAbs(e.APIKeyFile) {
+			errs = append(errs, fmt.Errorf("%s: api_key_file must be an absolute path", where))
+		}
 		if !slices.Contains(Types, e.Type) {
 			errs = append(errs, fmt.Errorf("%s: type %q is not one of %v", where, e.Type, Types))
 		}

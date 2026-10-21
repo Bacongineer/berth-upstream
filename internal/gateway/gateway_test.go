@@ -85,6 +85,7 @@ func testRun(argv []string) {
 	fs.Bool("keep-comfyui-up", false, "")
 	fs.String("config", "", "")
 	fs.String("api-key-env", "", "")
+	fs.String("api-key-file", "", "")
 	fs.Bool("pinned", false, "")
 	fs.Bool("fail-closed", false, "")
 	if err := fs.Parse(argv); err != nil {

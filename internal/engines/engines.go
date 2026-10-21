@@ -240,6 +240,12 @@ func rates(cur *proto.Engine, prev proto.Engine) {
 func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 	out := proto.Engine{Name: e.Name, Type: e.Type, URL: e.URL, At: time.Now(), Models: []proto.Model{}}
 	base := strings.TrimRight(e.URL, "/")
+	var keyErr error
+	if e.APIKeyFile != "" {
+		var key string
+		key, keyErr = e.APIKey()
+		ctx = context.WithValue(ctx, credentialKey{}, credential{key, keyErr})
+	}
 	var err error
 	switch e.Type {
 	case "llamacpp", "ninfer":
@@ -302,6 +308,9 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 	out.Up = err == nil
 	if err != nil {
 		out.Error = err.Error()
+	}
+	if keyErr != nil {
+		out.Error = keyErr.Error()
 	}
 	out.Kind = kindOf(e.Type, e.Kind)
 	return out
@@ -379,7 +388,7 @@ type httpStatusError struct {
 func (e *httpStatusError) Error() string { return e.msg }
 
 func (w *Watcher) get(ctx context.Context, url string) ([]byte, error) {
-	return w.getKey(ctx, url, "")
+	return w.getKey(withoutCredential(ctx), url, "")
 }
 
 // getKey is get with a bearer token read from the environment variable
@@ -389,7 +398,14 @@ func (w *Watcher) getKey(ctx context.Context, url, keyEnv string) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	if keyEnv != "" {
+	if c, ok := ctx.Value(credentialKey{}).(credential); ok {
+		if c.err != nil {
+			return nil, c.err
+		}
+		if c.key != "" {
+			req.Header.Set("Authorization", "Bearer "+c.key)
+		}
+	} else if keyEnv != "" {
 		if tok := os.Getenv(keyEnv); tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}

@@ -29,6 +29,7 @@ func runRun(c *Context) int {
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
 	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine, or refuses with --fail-closed; 0 = unbounded except fail-closed safety checks")
 	minTurn := fs.Duration("min-turn", 0, "minimum turn: after the grant the card stays this run's for this long; no request drains it meanwhile, only a hold does (a game, a call, berth hold); 0 = off")
+	keyFile := fs.String("api-key-file", "", "absolute owner-private Unix file holding the bearer token; exclusive with --api-key-env")
 	keyEnv := fs.String("api-key-env", "", "environment variable holding the bearer token for engine drain requests")
 	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
@@ -56,6 +57,12 @@ func runRun(c *Context) int {
 	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax, minTurn, container)
 	if c.Changed("api-key-env") {
 		e.APIKeyEnv = *keyEnv
+	}
+	if c.Changed("api-key-file") {
+		e.APIKeyFile = *keyFile
+	}
+	if e.APIKeyEnv != "" && e.APIKeyFile != "" {
+		return c.fail(Systemf("api_key_env and api_key_file are mutually exclusive"))
 	}
 	e.Name = *engine
 	if _, err := broker.ParsePriority(e.Priority); err != nil {
