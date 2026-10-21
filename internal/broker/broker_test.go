@@ -4,6 +4,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -27,10 +28,14 @@ import (
 
 const GiB = 1 << 30
 
-// card is a fake GPU whose processes the test sets directly.
+// card is a fake GPU whose processes the test sets directly. When used is
+// set, the driver's used figure is that, not the processes' sum: the
+// readings a test gives can disagree with what the driver reports, as
+// Windows counters can.
 type card struct {
 	mu     sync.Mutex
 	total  uint64
+	used   uint64
 	procs  []gpu.Proc
 	onRead func() // runs at the start of a read, outside the card lock
 }
@@ -50,11 +55,17 @@ func (c *card) Read(context.Context) (gpu.Snapshot, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var used uint64
-	for _, p := range c.procs {
-		used += p.Used
+	used := c.used
+	if used == 0 {
+		for _, p := range c.procs {
+			used += p.Used
+		}
 	}
-	return gpu.Snapshot{Total: c.total, Used: used, Free: c.total - used, Procs: append([]gpu.Proc(nil), c.procs...)}, nil
+	free := uint64(0)
+	if used <= c.total {
+		free = c.total - used
+	}
+	return gpu.Snapshot{Total: c.total, Used: used, Free: free, Procs: append([]gpu.Proc(nil), c.procs...)}, nil
 }
 
 type reports struct {
@@ -615,6 +626,165 @@ func TestEmptyHoldersSmallSquatStillGrants(t *testing.T) {
 	}
 	if b.counters.ContestedGrants != 1 {
 		t.Fatalf("ContestedGrants = %d, want 1", b.counters.ContestedGrants)
+	}
+}
+
+// #103: on Windows the per-process cap bounds one process, but the SUM of
+// the readings can still exceed what the driver reports as used: the
+// counter counts committed reservations, which the card does not hold.
+// The squatter total is bounded by what the card can really hand
+// squatters, so a small probe still fits the free space the driver shows
+// instead of waiting behind a phantom 27 GB.
+func TestSquatterSumIsBoundedByTheCardsUsedMemory(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	c.total = 16303 * gpu.MiB
+	c.used = 15600 * gpu.MiB
+	c.set(
+		gpu.Proc{PID: 9, Name: "llama-server", Used: 14230 * gpu.MiB},
+		gpu.Proc{PID: 10, Name: "dwm.exe", Used: 11138 * gpu.MiB},
+	)
+	b.Tick(context.Background())
+
+	// The readings sum to 25368 MiB on a card that uses 15600, so the
+	// total counts the card's figure: 100 MiB fits the 703 MiB the card
+	// really has free, and the contested figure stays bounded too.
+	l := must(t, acquire(b, Request{Engine: "probe", Needs: 100 * gpu.MiB}))
+	if l.Contested() != 15600*gpu.MiB {
+		t.Fatalf("contested = %d MiB, want the card's used figure", l.Contested()/gpu.MiB)
+	}
+	l.Release()
+	b.Tick(context.Background())
+
+	// The per-squatter entries keep the raw readings; only the total
+	// driving decisions is bounded.
+	if st := b.Status(); len(st.Squatters) != 2 ||
+		st.Squatters[0].Name != "llama-server" || st.Squatters[0].Used != 14230*gpu.MiB ||
+		st.Squatters[1].Name != "dwm.exe" || st.Squatters[1].Used != 11138*gpu.MiB {
+		t.Fatalf("status squatters = %+v, want the raw readings kept", st.Squatters)
+	}
+}
+
+// #103: the bound shrinks the squatter total, it does not erase it: a
+// request that does not fit the card's real free space still waits, told
+// the bounded figure.
+func TestSquatterSumBoundedBigRequestStillWaits(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	c.total = 16303 * gpu.MiB
+	c.used = 15600 * gpu.MiB
+	c.set(
+		gpu.Proc{PID: 9, Name: "llama-server", Used: 14230 * gpu.MiB},
+		gpu.Proc{PID: 10, Name: "dwm.exe", Used: 11138 * gpu.MiB},
+	)
+	b.Tick(context.Background())
+
+	reasons := make(chan string, 8)
+	ch := make(chan result, 1)
+	go func() {
+		l, err := b.Acquire(context.Background(), Request{Engine: "big", Needs: 2000 * gpu.MiB}, func(s string) { reasons <- s })
+		ch <- result{l, err}
+	}()
+	pending(t, ch)
+	select {
+	case why := <-reasons:
+		if !strings.Contains(why, "at most 703 MiB can be freed") || !strings.Contains(why, "squatters hold 15600 MiB") {
+			t.Fatalf("wait reason %q", why)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiter heard no reason")
+	}
+	if st := b.Status(); len(st.Leases) != 0 {
+		t.Fatalf("leases = %+v, want none: 2000 MiB does not fit", st.Leases)
+	}
+}
+
+// Linux readings are exact: when the sum is under the card's used figure
+// the bound is a no-op and admission sees the sum, as before.
+func TestSquatterSumUnderTheUsedFigureIsUnchanged(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	c.total = 16303 * gpu.MiB
+	c.used = 9000 * gpu.MiB
+	c.set(
+		gpu.Proc{PID: 9, Name: "llama-server", Used: 2000 * gpu.MiB},
+		gpu.Proc{PID: 10, Name: "dwm.exe", Used: 3000 * gpu.MiB},
+	)
+	b.Tick(context.Background())
+
+	// The 5000 MiB sum is under the card's 9000 MiB used figure, so the
+	// bound (used minus the 4000 MiB baseline) equals the sum and nothing
+	// is clamped: the waiter hears the raw sum and the same fit as before.
+	reasons := make(chan string, 8)
+	ch := make(chan result, 1)
+	go func() {
+		l, err := b.Acquire(context.Background(), Request{Engine: "big", Needs: 10000 * gpu.MiB}, func(s string) { reasons <- s })
+		ch <- result{l, err}
+	}()
+	pending(t, ch)
+	select {
+	case why := <-reasons:
+		if !strings.Contains(why, "at most 7303 MiB can be freed") || !strings.Contains(why, "squatters hold 5000 MiB") {
+			t.Fatalf("wait reason %q", why)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiter heard no reason")
+	}
+}
+
+// #103: the cap logs at most one line per change of the clamped state, not
+// once per tick.
+func TestSquatterCapLogsOncePerStateChange(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	var buf bytes.Buffer
+	b.log = slog.New(slog.NewTextHandler(&buf, nil))
+	c.total = 16303 * gpu.MiB
+	c.used = 15600 * gpu.MiB
+	c.set(
+		gpu.Proc{PID: 9, Name: "llama-server", Used: 14230 * gpu.MiB},
+		gpu.Proc{PID: 10, Name: "dwm.exe", Used: 11138 * gpu.MiB},
+	)
+	// The first tick reads the card and sees the squatters; the queued
+	// waiter makes every later schedule recompute the bounded sum. Its
+	// first wait reason only goes out once that schedule ran.
+	b.Tick(context.Background())
+	reasons := make(chan string, 8)
+	why := make(chan struct{})
+	ch := make(chan result, 1)
+	go func() {
+		l, err := b.Acquire(context.Background(), Request{Engine: "big", Needs: 2000 * gpu.MiB}, func(s string) {
+			reasons <- s
+			select {
+			case why <- struct{}{}:
+			default:
+			}
+		})
+		ch <- result{l, err}
+	}()
+	select {
+	case <-why:
+	case <-time.After(time.Second):
+		t.Fatal("waiter never heard a reason")
+	}
+	for i := 0; i < 3; i++ {
+		b.Tick(context.Background())
+	}
+	const line = "squatter readings exceed the card's used memory"
+	if n := strings.Count(buf.String(), line); n != 1 {
+		t.Fatalf("cap logged %d times over clamped ticks, want 1:\n%s", n, buf.String())
+	}
+
+	// The driver shows the card using what the sum says: the state flips
+	// back to the raw sum, and one further tick logs nothing.
+	c.used = 25368 * gpu.MiB
+	b.Tick(context.Background())
+	b.Tick(context.Background())
+	if n := strings.Count(buf.String(), line); n != 1 {
+		t.Fatalf("cap logged %d times after unclamping, want still 1:\n%s", n, buf.String())
+	}
+
+	// And a new clamp is one more line: one per change of state.
+	c.used = 15600 * gpu.MiB
+	b.Tick(context.Background())
+	if n := strings.Count(buf.String(), line); n != 2 {
+		t.Fatalf("cap logged %d times, want 2 after re-clamping:\n%s", n, buf.String())
 	}
 }
 
