@@ -8,6 +8,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
+  needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
+  default). A request that has waited that long for its own engine is proxied to the fallback when
+  the fallback answers its probe at that moment, with the body's model renamed when `fallback_model`
+  is set. A non-streaming answer carries `X-Berth-Fallback: <fallback>`; a streaming one, whose SSE
+  preamble was already sent, gets the fallback's stream after one `: berth: fallback <fallback>`
+  comment. The gateway never starts, leases or drains the fallback, and the primary's start is never
+  cancelled, so later requests land on it. One hop: `berth config check` refuses chains.
 - Measured switch costs on the gateway: it times every start it runs, from the lease
   grant to the engine answering, and keeps the last 20 times per engine and tier in
   `~/.local/state/berth/swapcost.json`. `GET /v1/berth/cost?engine=NAME` answers one

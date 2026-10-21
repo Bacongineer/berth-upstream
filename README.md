@@ -627,6 +627,38 @@ than `--ready` (10 minutes); if the holder has not left by then, the request fai
 dropped, so it cannot take the card hours later. Asking llama-swap for one of its
 models later drains the gateway's engine the same way, so either side can take the card back.
 
+**A slow engine can name a fallback.** An interactive client should not sit through a 90 s cold start
+when an engine that needs no card can answer now. Give an engine a `fallback` (another engine in the
+same file, such as a CPU llama-server) and a request that has waited `fallback_after` (10 s by
+default) goes there instead, when the fallback answers its probe at that moment. The fallback is
+never started, leased or drained by the gateway: one that is not answering means no fallback, and the
+request keeps waiting for its own engine. The primary's start is never cancelled either way, so
+requests that come later land on it. `fallback_model` names the model the fallback lists the request
+under when the two disagree, a non-streaming answer carries `X-Berth-Fallback: <fallback>`, and a
+streaming answer, whose headers went out with the keep-alive preamble, carries one
+`: berth: fallback <fallback>` comment before its data. One hop, per engine, opt-in: `berth config check`
+refuses chains and a fallback that is not an engine in the file.
+
+```toml
+[[engine]]
+name     = "strata"
+type     = "llamacpp"
+url      = "http://127.0.0.1:8080"
+start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata", "--port", "8080"]
+serves   = ["qwen3.8-flash-next-iq2_xs"]
+priority = "interactive"
+fallback       = "strata-cpu"
+fallback_after = "10s"
+fallback_model = "qwen3.8-cpu"   # what the CPU server lists the model as
+
+[[engine]]
+name  = "strata-cpu"
+type  = "llamacpp"
+url   = "http://127.0.0.1:8010"
+start = ["llama-server", "-m", "/models/qwen3.8-cpu.gguf", "--port", "8010"]   # no GPU
+serves = ["qwen3.8-cpu"]
+```
+
 **A start reads the engine's files into the page cache while the holder drains.** Give an engine a
 `prefetch` list of absolute files and directories, and the gateway asks the kernel to read them the
 moment it decides to start that engine, before its `berth run` waits for the lease. The kernel reads
