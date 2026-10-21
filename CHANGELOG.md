@@ -9,8 +9,8 @@ has a matching GitHub release whose body comes from its section below.
 ### Added
 
 - `prefetch` on an `[[engine]]` entry: absolute file and directory paths the gateway asks the
-  kernel to read into the page cache the moment it decides to start that engine, so the model
-  files are already in RAM while the engine it replaces drains. A directory means its own files,
+  kernel to read into the page cache the moment it decides to start that engine, so the disk
+  reads overlap the drain of the engine it replaces (when the machine has the RAM to keep them). A directory means its own files,
   not its subdirectories. The ask commits no RAM, since the kernel takes the pages back when the
   machine needs them, and it never delays or fails a start: a file that cannot be asked for is
   one WARN line. A relative path fails `berth config check`, and `berth prefetch MODEL` makes the

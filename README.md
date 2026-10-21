@@ -631,7 +631,8 @@ models later drains the gateway's engine the same way, so either side can take t
 `prefetch` list of absolute files and directories, and the gateway asks the kernel to read them the
 moment it decides to start that engine, before its `berth run` waits for the lease. The kernel reads
 on its own schedule and takes the pages back when the machine needs the RAM, so a warm cache commits
-no RAM of its own, and a start that finds its files cached reads them from memory. A directory means
+no RAM of its own, and a start that finds its files still cached reads them from memory. A model
+larger than the RAM the machine can spare gains little: its pages are pushed out as they are read. A directory means
 its own files and not its subdirectories, and a file that cannot be asked for is one WARN line in the
 gateway's journal while the start goes on. `berth prefetch MODEL` makes the same ask by hand.
 
