@@ -186,6 +186,31 @@ decode throughput, the token ledger, the per-model leaderboard, storage and resi
 
 <p align="center"><img src="assets/preview-requests.png" alt="Berth harbor Engines tab, advanced mode: decode throughput per engine, the token ledger, the per-model leaderboard, storage and residency" width="900"></p>
 
+On a phone, the harbor fits the screen: the tabs move to a bar at the bottom and the panels
+stack. This is the CARD tab on an iPhone, read from a live node on the reference workstation.
+
+<p align="center"><img src="assets/preview-mobile.png" alt="Berth harbor on an iPhone: the CARD tab with the ticket counter, collisions avoided, the collision tiles and the decode and TPOT KPIs, with CARD, ENGINES and ABOUT in a bottom bar" width="300"></p>
+
+### The harbor on your iPhone's Home Screen
+
+The harbor listens on loopback, so first give your phone a way to reach it. On a tailnet,
+publish it from the Berth machine and pass the name it serves under to the harbor:
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:9798
+berth harbor --allow-host <machine>.<tailnet>.ts.net
+```
+
+Then, on the iPhone:
+
+1. Open `https://<machine>.<tailnet>.ts.net/` in Safari.
+2. Tap Share, then **Add to Home Screen**.
+3. Name it (`berth` works) and tap **Add**.
+
+The harbor ships no Home Screen icon of its own, so iOS uses a snapshot of the page for it.
+The page stays read-only. The harbor has no login, so publish it only on a tailnet or a home
+network you trust.
+
 ## Install
 
 Two ways: hand it to your coding agent, or do it yourself. Both end in the same place: the
