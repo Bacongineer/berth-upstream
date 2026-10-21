@@ -21,11 +21,10 @@
 - **API key.** Bearer token on every route; `berth key` prints it (created on first use, mode
   600). Loopback only; browser origins and non-loopback Host names are refused.
 
-The node key stays with the gateway: it is the client's credential for the gateway, and a proxied
-request to an engine carries that engine's own key when the engine has one (`api_key_env` or
-`api_key_file` on its entry) and none when it does not. An engine that checks a key is given its
-own, not the node's. A credential that will not resolve (an unset variable, an unreadable file)
-sends no `Authorization` and logs one WARN line naming the engine and the error, never the key.
+The node key authenticates the client to the gateway and stays there. A proxied request carries the
+engine's own key when its entry has one (`api_key_env` or `api_key_file`), and no `Authorization`
+when it has none. A credential that will not resolve (an unset variable, an unreadable file) sends
+no `Authorization` and logs one WARN line that names the engine and the error, never the key.
 
 ## Switch engines by naming a model
 

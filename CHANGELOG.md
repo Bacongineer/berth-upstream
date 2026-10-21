@@ -15,9 +15,8 @@ has a matching GitHub release whose body comes from its section below.
   is set. A non-streaming answer carries `X-Berth-Fallback: <fallback>`; a streaming one, whose SSE
   preamble was already sent, gets the fallback's stream after one `: berth: fallback <fallback>`
   comment. The gateway never starts, leases or drains the fallback, and the primary's start is never
-  cancelled, so later requests land on it. The node's API key never leaves the gateway: the fallback
-  gets the request without it, and with its own key from its entry when it has one. One hop: `berth config check`
-  refuses chains and a fallback that is not an engine in the file.
+  cancelled, so later requests land on it. The fallback never receives the node's API key, only its
+  own key from its entry when it has one. One hop: `berth config check` refuses chains.
 - Cgroup attribution closes the one known stowaway window (chaos scenario 3: a child
   whose parent exits within one 2 s tick). On Linux with a systemd user manager,
   `berth run` execs the engine in its own transient cgroup scope (`systemd-run --user
@@ -54,12 +53,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Security
 
-- The gateway no longer forwards the node's API key to the engine: it is the client's credential for
-  the gateway and stays with it. A proxied request, fallback and ComfyUI routes included, carries
-  the engine's own key when its entry has one (`api_key_env` or `api_key_file`) and no
-  `Authorization` when it has none. If your engine checked a key and it was the node's, give that
-  engine its own key in its berth.toml entry: the request it receives no longer carries the node's
-  key.
+- The gateway no longer forwards the node's API key to engines. A proxied request, fallback and
+  ComfyUI routes included, carries the engine's own key when its entry has one (`api_key_env` or
+  `api_key_file`) and no `Authorization` when it has none. If an engine of yours checked the node's
+  key, give it its own key in its `berth.toml` entry.
 
 ### Fixed
 
