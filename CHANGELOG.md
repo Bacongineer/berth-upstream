@@ -6,6 +6,20 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- `kv_snapshots` and `kv_snapshots_mib` on an `[[engine]]` entry: the drain saves an idle slot's
+  prompt cache into the engine's `--slot-save-path` directory once the boundary is reached, keeps
+  the directory within its budget (16 GiB by default, above the library free floor), and the
+  gateway restores the newest snapshot of the engine's model into its empty slots before the first
+  request, so a sequence of agents skips the prefill after each switch. The snapshots are keyed by
+  the model the engine itself names on `/v1/models`, so an engine that lists none or many
+  (llama-swap) never snapshots, and nothing crosses models. The restore also warms the files into
+  the page cache during the start's wait: cached, never reserved. A save is bounded at 60 s and a
+  restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
+  before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
+  for a private directory.
+
 ## [v0.3.3] - 2026-10-21
 
 Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the
@@ -32,17 +46,6 @@ chain of them, from those times.
   machine needs them, and it never delays or fails a start: a file that cannot be asked for is
   one WARN line. A relative path fails `berth config check`, and `berth prefetch MODEL` makes the
   same ask by hand.
-- `kv_snapshots` and `kv_snapshots_mib` on an `[[engine]]` entry: the drain saves an idle slot's
-  prompt cache into the engine's `--slot-save-path` directory once the boundary is reached, keeps
-  the directory within its budget (16 GiB by default, above the library free floor), and the
-  gateway restores the newest snapshot of the engine's model into its empty slots before the first
-  request, so a sequence of agents skips the prefill after each switch. The snapshots are keyed by
-  the model the engine itself names on `/v1/models`, so an engine that lists none or many
-  (llama-swap) never snapshots, and nothing crosses models. The restore also warms the files into
-  the page cache during the start's wait: cached, never reserved. A save is bounded at 60 s and a
-  restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
-  before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
-  for a private directory.
 
 ### Fixed
 
