@@ -636,7 +636,8 @@ request keeps waiting for its own engine. The primary's start is never cancelled
 requests that come later land on it. `fallback_model` names the model the fallback lists the request
 under when the two disagree, a non-streaming answer carries `X-Berth-Fallback: <fallback>`, and a
 streaming answer, whose headers went out with the keep-alive preamble, carries one
-`: berth: fallback <fallback>` comment before its data. One hop, per engine, opt-in: `berth config check`
+`: berth: fallback <fallback>` comment before its data. The fallback gets the request without its
+`Authorization` header: the node's API key stays with the gateway. One hop, per engine, opt-in: `berth config check`
 refuses chains and a fallback that is not an engine in the file.
 
 ```toml
