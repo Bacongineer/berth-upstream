@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,15 @@ func write(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// tomlList renders paths as a TOML array of strings.
+func tomlList(paths ...string) string {
+	q := make([]string, len(paths))
+	for i, p := range paths {
+		q[i] = strconv.Quote(p)
+	}
+	return "[" + strings.Join(q, ", ") + "]"
 }
 
 func TestMissingFileIsEmpty(t *testing.T) {
@@ -652,6 +662,47 @@ resume_url = "http://127.0.0.1:9000/reload"
 	for _, w := range warns {
 		if strings.Contains(w.Message, "park protocol") {
 			t.Errorf("a hook with both URLs gets no protocol warning: %+v", w)
+		}
+	}
+}
+
+func TestEnginePrefetchParsedAndValidated(t *testing.T) {
+	// Paths the platform itself calls absolute: one temp tree, spelled its way.
+	abs := filepath.Join(t.TempDir(), "models")
+	c, err := Load(write(t, "[[engine]]\nname = \"strata\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nstart = [\"/opt/strata/serve\"]\nserves = [\"router-strata\"]\nprefetch = "+tomlList(abs, abs+".gguf")+"\n"))
+	if err != nil {
+		t.Fatalf("a valid prefetch list was refused: %v", err)
+	}
+	if got := c.Engine[0].Prefetch; len(got) != 2 || got[0] != abs || got[1] != abs+".gguf" {
+		t.Fatalf("prefetch = %v, want %q and %q", got, abs, abs+".gguf")
+	}
+	// An engine that names none asks for nothing.
+	c, err = Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Engine[0].Prefetch) != 0 {
+		t.Fatalf("prefetch = %v, want none", c.Engine[0].Prefetch)
+	}
+
+	for _, tc := range []struct {
+		prefetch string
+		wantErr  string
+	}{
+		{`["models/a.gguf"]`, `engine[0] "x": prefetch "models/a.gguf" must be an absolute path`},
+		{`["models/a.gguf", "../other"]`, `engine[0] "x": prefetch "../other" must be an absolute path`},
+		{`[""]`, `engine[0] "x": prefetch "" must be an absolute path`},
+		{`["."]`, `engine[0] "x": prefetch "." must be an absolute path`},
+	} {
+		_, err := Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nprefetch = "+tc.prefetch+"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("prefetch %s: error lacks %q: %v", tc.prefetch, tc.wantErr, err)
+		}
+	}
+	// The platform's own absolute shape is valid, alone or beside another.
+	for _, list := range [][]string{{abs}, {abs + ".gguf", abs}} {
+		if _, err := Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nprefetch = "+tomlList(list...)+"\n")); err != nil {
+			t.Errorf("prefetch %v refused: %v", list, err)
 		}
 	}
 }

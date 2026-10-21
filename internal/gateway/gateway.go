@@ -59,6 +59,10 @@ type Gateway struct {
 	// MemAvailable is RAM available in bytes plus whether the box reports
 	// it; nil reads the live machine. Tests inject a fake here.
 	MemAvailable func() (avail uint64, ok bool)
+	// Prefetch asks the kernel to read one file into the page cache while a
+	// start waits for the card; nil uses pagecache.Prefetch. Tests inject a
+	// fake here.
+	Prefetch func(path string) error
 	// StateFile records the engines this gateway started as their own
 	// processes, so the next gateway adopts the ones still running
 	// instead of starting them again. Empty disables the record.
@@ -744,6 +748,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 		}
 		s = &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
 		g.running[e.Name] = s
+		if len(e.Prefetch) > 0 {
+			// The run takes the lease and the drain starts; the disk is
+			// free while that happens, so the reads go first.
+			go g.prefetch(e)
+		}
 		go g.run(e, s, ready)
 	}
 	g.mu.Unlock()

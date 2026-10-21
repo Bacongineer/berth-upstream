@@ -599,6 +599,7 @@ start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "
             "--config", "strata-262k.json", "--port", "8080"]
 serves   = ["router-strata", "qwen3.8-flash-next-iq2_xs"]
 priority = "foreground"   # equal to the engine it replaces, so the last model you ask for wins
+prefetch = ["/models/strata"]   # read into the page cache while the holder drains
 ```
 
 Run `berth gateway` (loopback `127.0.0.1:9799`; a user unit is in `contrib/berth-gateway.service`) and send
@@ -625,6 +626,15 @@ start the broker refuses comes back as a 503 with the broker's reason. A start w
 than `--ready` (10 minutes); if the holder has not left by then, the request fails and the start is
 dropped, so it cannot take the card hours later. Asking llama-swap for one of its
 models later drains the gateway's engine the same way, so either side can take the card back.
+
+**A start reads the engine's files into the page cache while the holder drains.** Give an engine a
+`prefetch` list of absolute files and directories, and the gateway asks the kernel to read them the
+moment it decides to start that engine, before its `berth run` waits for the lease. The kernel reads
+on its own schedule and takes the pages back when the machine needs the RAM, so a warm cache commits
+no RAM of its own, and a start that finds its files still cached reads them from memory. A model
+larger than the RAM the machine can spare gains little: its pages are pushed out as they are read. A directory means
+its own files and not its subdirectories, and a file that cannot be asked for is one WARN line in the
+gateway's journal while the start goes on. `berth prefetch MODEL` makes the same ask by hand.
 
 Measured on the reference RTX 4090 with the [swap bench](contrib/bench/README.md) switching between
 NInfer (through llama-swap) and Strata (262K context), both on an NVMe SSD, 2026-10-20 (two runs,
@@ -1096,8 +1106,6 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
   after each switch.
 - Measured switch costs on the live daemon and the gateway (`/v1/berth/cost`, `/v1/berth/plan`).
 - Gateway fallback routing, and models started on demand for a standalone llama-server.
-- The gateway reads the next engine's files into the page cache while the holder drains;
-  today `berth prefetch` does it by hand.
 - Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
   CUDA engines on Linux.
