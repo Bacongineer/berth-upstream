@@ -621,3 +621,8 @@ func (c *Conn) Recv() (Msg, error) {
 	}
 	return m, json.Unmarshal(line, &m)
 }
+
+// GroupVFIO is the lease group of a VFIO hold: a pinned acquire at hold
+// priority, Engine "vfio:<reason>", made by `berth vfio run`. While one is
+// granted berthd does not open the card, so the driver switch can run.
+const GroupVFIO = "vfio"

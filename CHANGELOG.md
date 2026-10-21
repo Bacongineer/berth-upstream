@@ -8,14 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
-- Card passed through to a VM (experimental): when the governed card's PCI function is bound to
-  `vfio-pci`, `berth status` shows the gpu line as passed through to a VM instead of memory figures
-  and the JSON carries `passthrough` (with the state and the driver bound). While a VFIO hold (a
-  pinned acquire in group `vfio`) is granted, the probe never runs, so berthd does not open the
-  device mid-switch; when the probe fails with the card bound to `vfio-pci` and no hold, the state
-  is read the same way instead of the probe-failed warning. Nothing new is granted while the card
-  is in a VM or switching, and every waiter is told why in its queue place. `card.passthrough` and
-  `card.returned` events mark each transition once.
+- Card passed through to a VM (experimental). While the governed card is bound to `vfio-pci`,
+  `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
+  granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.
+  `card.passthrough` and `card.returned` events mark each change.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
   needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
   default). A request that has waited that long for its own engine is proxied to the fallback when

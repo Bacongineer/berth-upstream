@@ -344,3 +344,33 @@ func TestProbeFailureOnNvidiaWarns(t *testing.T) {
 	}
 	_ = root
 }
+
+// A VFIO hold asked for while an engine holds the card drains it and is
+// granted like any hold. Until the grant the card serves the node: the
+// probe runs and the queue is scheduled, or the hold could never be granted.
+func TestVFIOHoldDrainsTheHolderFirst(t *testing.T) {
+	skipNonLinux(t)
+	sysfsCard(t, "0000:01:00.0", "nvidia")
+	p := &fakeProbe{busID: "00000000:01:00.0"}
+	b := vfioBroker(t, p)
+	b.Tick(context.Background())
+	engine := must(t, acquire(b, Request{Engine: "llama", Priority: Interactive}))
+
+	req := acquire(b, vfioRequest())
+	pending(t, req)
+	drained(t, engine)
+	b.Tick(context.Background())
+	if card := b.Status().Passthrough; card != nil {
+		t.Fatalf("card state = %+v while the hold still waits, want none", card)
+	}
+	engine.Release()
+	for i := 0; i < 3; i++ {
+		b.Tick(context.Background())
+	}
+	hold := must(t, req)
+	defer hold.Release()
+	b.Tick(context.Background())
+	if card := b.Status().Passthrough; card == nil || card.State != proto.CardDetaching {
+		t.Fatalf("card state = %+v after the grant, want detaching", card)
+	}
+}

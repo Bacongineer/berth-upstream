@@ -66,16 +66,15 @@ network you trust.
   frees: the measured starts in the waiter's chain, one per seat ahead plus its own. An
   unmeasured start says unmeasured and adds no number, and the holder's drain is never in
   the figure, because a request runs as long as it runs.
-- **A card passed through to a VM (experimental):** while the governed card's PCI function is bound to
-  `vfio-pci`, `berth status` shows its gpu line as "passed through to a VM (vfio-pci)" instead of memory
-  figures, the JSON carries it in `passthrough` (state `passthrough`, or `detaching` while a switch is in
-  progress, with the driver bound at the last look), and `card.passthrough` / `card.returned` mark each
-  transition once in the event log. While a VFIO hold (a pinned acquire in group `vfio`) is granted,
-  berthd does not open the device at all: the probe would block the driver switch, so the card state comes
-  from sysfs instead. Nothing new is granted while the card is in a VM or switching; a waiter is told why
-  in its place in the queue, "gpu0 is passed through to a VM (vfio-pci); it comes back when the VM's hold
-  ends", and the hold itself keeps the card. A probe failure with no hold behind it is read the same way
-  when the card is bound to `vfio-pci` (a switch made by hand), and still warns as today otherwise.
+- **A card passed through to a VM (experimental).** When the governed card is bound to `vfio-pci`,
+  `berth status` shows "passed through to a VM (vfio-pci)" in place of its memory figures, and the JSON
+  has a `passthrough` object with the state and the bound driver. The state reads `detaching` while a
+  switch is under way. `card.passthrough` and `card.returned` mark each change once in the event log.
+  While a VFIO hold is granted (`berth vfio run`), berthd does not open the card, because
+  its own probe would block the driver switch; it reads the driver from sysfs instead. Nothing new is
+  granted while the card is away, and each waiter's reason says so ("gpu0 is passed through to a VM
+  (vfio-pci); it comes back when the VM's hold ends"). A card switched by hand, with no hold, shows the
+  same state instead of a probe-failed warning.
 - **Alerts:** one threshold table in `berth.toml` (`[alerts]`): warn and crit per key
   (`queue`, `ttft`, `tpot`, `p95`, `cache`, `reingest`, `vram`, `temp`, `power`, `kv`).
   The node evaluates it on its 5 s sample cycle, fires a desktop notification and webhook

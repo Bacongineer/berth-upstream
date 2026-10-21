@@ -16,17 +16,12 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-// vfioGroup is the lease group a VFIO hold carries. The hold is a pinned
-// acquire at hold priority with Engine "vfio:<reason>"; this is the part
-// the broker matches on.
-const vfioGroup = "vfio"
-
 // vfioHold is the granted lease in Group "vfio" that guards a switch, or
 // nil. A releasing or stuck hold has ended; the probe reads the card again.
 // Called with b.mu held.
 func (b *Broker) vfioHold() *lease {
 	for _, l := range b.leases {
-		if l.group == vfioGroup && l.state != releasing && l.state != stuck {
+		if l.group == proto.GroupVFIO && l.state != releasing && l.state != stuck {
 			return l
 		}
 	}
