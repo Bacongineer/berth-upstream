@@ -10,6 +10,9 @@
 package gateway
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
@@ -115,4 +118,49 @@ func (g *Gateway) saveSwitch(s swapcost.Sample) {
 	if err := book.Save(); err != nil {
 		g.log().Warn("gateway could not save its switch-cost book", "path", g.CostFile, "err", err)
 	}
+}
+
+// tierOrder is the order /v1/berth/cost answers tiers in: the book's
+// four positions, nearest the card first.
+var tierOrder = []swapcost.Tier{swapcost.Hot, swapcost.Warm, swapcost.Cool, swapcost.Cold}
+
+// costReply is one engine's estimates, one per tier, times in ms. An
+// estimate with known false has no samples: its took_ms is 0 and is not
+// a prediction.
+type costReply struct {
+	Engine    string          `json:"engine"`
+	Estimates []estimateReply `json:"estimates"`
+}
+
+type estimateReply struct {
+	Tier    string `json:"tier"`
+	TookMs  int64  `json:"took_ms"`
+	Samples int    `json:"samples"`
+	Known   bool   `json:"known"`
+}
+
+// cost answers what the gateway measured about starting one engine from
+// each tier. An engine berth.toml does not name is a 404: the gateway
+// starts what it is configured to start and has measured nothing else.
+func (g *Gateway) cost(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("engine")
+	if name == "" {
+		apiError(w, http.StatusBadRequest, "name the engine to price: /v1/berth/cost?engine=NAME")
+		return
+	}
+	if g.engineByName(name) == nil {
+		apiError(w, http.StatusNotFound, fmt.Sprintf("no engine %q in the config", name))
+		return
+	}
+	book := g.costBook()
+	out := costReply{Engine: name, Estimates: make([]estimateReply, 0, len(tierOrder))}
+	g.costMu.Lock()
+	for _, tier := range tierOrder {
+		es := book.Estimate(name, tier)
+		out.Estimates = append(out.Estimates, estimateReply{
+			Tier: string(es.Tier), TookMs: es.Took.Milliseconds(), Samples: es.Samples, Known: es.Known})
+	}
+	g.costMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
