@@ -83,7 +83,7 @@ body:
     id: events
     attributes:
       label: Events JSON
-      description: Output of `berth events --json` captured around the scenario, pasted whole
+      description: Output of `berth events --format json` captured around the scenario, pasted whole
     validations:
       required: true
 
