@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,8 +46,11 @@ func (s *llamaStub) handler() http.Handler {
 		case r.URL.Path == "/slots" && r.Method == http.MethodGet:
 			fmt.Fprint(w, `[{"id":0,"is_processing":false},{"id":1,"is_processing":false}]`)
 		case strings.HasPrefix(r.URL.Path, "/slots/"):
-			slot := 0
-			fmt.Sscanf(r.URL.Path, "/slots/%d", &slot)
+			slot, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/slots/"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
 			if r.URL.Query().Get("action") == "save" {
 				s.mu.Lock()
 				s.saves = append(s.saves, slot)

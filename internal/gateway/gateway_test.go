@@ -74,7 +74,10 @@ func TestMain(m *testing.M) {
 func slotsSpec() (n int, kvlog string) {
 	n, _ = 0, ""
 	if spec := os.Getenv("BERTH_GW_SLOTS"); spec != "" {
-		fmt.Sscanf(spec, "%d", &n)
+		if _, err := fmt.Sscanf(spec, "%d", &n); err != nil {
+			fmt.Fprintf(os.Stderr, "bad BERTH_GW_SLOTS %q: %v\n", spec, err)
+			os.Exit(2)
+		}
 	}
 	return n, os.Getenv("BERTH_GW_KVLOG")
 }
@@ -161,8 +164,11 @@ func fakeEngine(addr, model string, load time.Duration) {
 			fmt.Fprintf(w, "[%s]", strings.Join(ss, ","))
 		})
 		mux.HandleFunc("/slots/", func(w http.ResponseWriter, r *http.Request) {
-			slot := 0
-			fmt.Sscanf(r.URL.Path, "/slots/%d", &slot)
+			slot, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/slots/"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
 			action := r.URL.Query().Get("action")
 			var b struct {
 				Filename string `json:"filename"`
