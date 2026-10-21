@@ -87,6 +87,17 @@ func (tr tree) process(pid int, comm string, parent int, nodes ...string) {
 	}
 }
 
+// kthread adds a kernel thread: an empty cmdline and an fd directory no
+// one but root reads, as /proc shows them to a user.
+func (tr tree) kthread(pid int, comm string) {
+	tr.t.Helper()
+	tr.process(pid, comm, 2)
+	if err := os.WriteFile(filepath.Join(tr.proc, fmt.Sprintf("%d", pid), "cmdline"), nil, 0o644); err != nil {
+		tr.t.Fatal(err)
+	}
+	tr.locked(pid)
+}
+
 // locked closes one process's fd directory to everyone.
 func (tr tree) locked(pid int) {
 	tr.t.Helper()
@@ -214,6 +225,7 @@ func TestOpenersFindsTheCardHoldersAndNamesBerthdsProbe(t *testing.T) {
 	tt.locked(103)
 	tt.process(99, "berth", 1)
 	tt.process(98, "filler", 1)
+	tt.kthread(97, "kworker/0:1") // holds no files: never listed
 
 	ops, err := tt.reader().Openers(cardAddr)
 	if err != nil {

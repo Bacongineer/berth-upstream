@@ -14,8 +14,9 @@ driver.
 - Drains every engine on the card at its boundary, as for any other lease.
 - Holds the card for the whole session with a pinned lease at hold priority, so nothing else starts on
   it and nothing drains it.
-- Checks, before your script runs, which processes hold `/dev/nvidia*` or the card's DRM nodes. Any
-  holder besides berthd's own probe stops the run, and Berth names it by PID and device node.
+- Stops berthd's own `nvidia-smi` probe for the whole hold, then checks which processes still hold
+  `/dev/nvidia*` or the card's DRM nodes. Any holder stops the run, and Berth names it by PID and
+  device node.
 - Runs your script with the terminal attached, so its sudo prompt and the VM's console reach you, and
   with `BERTH_VFIO_DEVICES` set to the card's PCI functions.
 - After the script exits, waits until every function of the card is off `vfio-pci` and the card
@@ -51,9 +52,9 @@ address yourself (`berth vfio status 0000:01:00.0`).
 berth vfio run --reason galaxy -- ~/bin/gpu-to-galaxy
 ```
 
-Engines drain first. Once the card is granted, berthd's probe gets a few seconds to go quiet and Berth
-reads the device holders again. If any process besides the probe still holds the card, Berth names it,
-releases the hold and exits 1. A process whose open files Berth cannot read (another user's, usually
+Engines drain first. Once the card is granted, berthd stops its probe, and after a few seconds Berth
+reads the device holders. If any process still holds the card, Berth names it, releases the hold and
+exits 1. A process whose open files Berth cannot read (another user's, usually
 root's) gets a warning instead, because Berth cannot prove it clear. Such a process can block the unbind.
 
 When your script exits, Berth releases the hold only if the card is back. Otherwise it keeps the hold,

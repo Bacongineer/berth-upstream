@@ -14,7 +14,7 @@ has a matching GitHub release whose body comes from its section below.
   `card.passthrough` and `card.returned` events mark each change.
 - `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to a
   VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes holding
-  the card. `run -- CMD` drains the card, refuses while another process holds it, runs your own switch
+  the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while any process holds it, runs your own switch
   script with `BERTH_VFIO_DEVICES` set, and releases the hold only when the card is back on its host
   driver. Berth never switches drivers or asks for passwords. See docs/vfio.md.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that

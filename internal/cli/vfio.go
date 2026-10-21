@@ -199,7 +199,7 @@ func (v vfioStatusView) Human(c *Context, ok bool) error {
 				confirmed++
 			}
 		}
-		c.Printf("openers %d\n", confirmed+unreadable)
+		c.Printf("openers %d\n", confirmed)
 		for _, o := range d.Openers {
 			if o.Unreadable {
 				continue

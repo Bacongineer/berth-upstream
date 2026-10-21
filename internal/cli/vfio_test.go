@@ -374,6 +374,29 @@ func TestVfioRunRefusesOpenersAndReleasesTheHold(t *testing.T) {
 	waitUntil(t, none(b))
 }
 
+// TestVfioRunRefusesALingeringProbe: berthd stops its probe for a VFIO hold;
+// an nvidia-smi of berthd's still open after the settle time is a berthd
+// that does not, and it would block the unbind like any other holder.
+func TestVfioRunRefusesALingeringProbe(t *testing.T) {
+	isolate(t)
+	sock, b := startVfioDaemon(t)
+	tr := newVfioTree(t)
+	tr.function(vfioAddr, "nvidia")
+	tr.group()
+	tr.opener(99, "berth", 1)
+	tr.opener(102, "nvidia-smi", 99, "/dev/nvidiactl")
+	smi := tr.smi()
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond},
+		"--socket", sock, "--", "/bin/true")
+	if code != ExitFail {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "berthd's own probe, still running") {
+		t.Errorf("the refusal does not name berthd's probe: %q", errOut)
+	}
+	waitUntil(t, none(b))
+}
+
 // TestVfioRunWarnsOnAnUnreadableProc: a process whose fds cannot be read is
 // listed as unreadable, never skipped; it is a warning, not a refusal,
 // because an unreadable list is no proof of a holder.

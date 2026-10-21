@@ -287,6 +287,12 @@ type Probe interface {
 	Read(ctx context.Context) (Snapshot, error)
 }
 
+// Pauser is a probe that keeps a process on the card between reads (the
+// nvidia-smi loop) and can stop it while the card's driver is switched.
+type Pauser interface {
+	Pause(bool)
+}
+
 // logger returns l, or the default logger when l is nil, so a probe without a
 // configured logger still records its PDH notes.
 func logger(l *slog.Logger) *slog.Logger {

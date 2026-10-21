@@ -105,6 +105,11 @@ func (r Reader) Openers(addr string) ([]Opener, error) {
 		if _, err := os.Stat(filepath.Join(r.proc(), e.Name())); err != nil {
 			continue
 		}
+		// A kernel thread (a readable, empty cmdline) holds no files; its fd
+		// directory is root's alone, so reading it would only add noise.
+		if b, err := os.ReadFile(filepath.Join(r.proc(), e.Name(), "cmdline")); err == nil && len(b) == 0 {
+			continue
+		}
 		fds := filepath.Join(r.proc(), e.Name(), "fd")
 		list, err := os.ReadDir(fds)
 		if err != nil {

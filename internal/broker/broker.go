@@ -624,6 +624,11 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.mu.Lock()
 	held := b.vfioHold()
 	b.mu.Unlock()
+	if p, ok := b.probe.(gpu.Pauser); ok {
+		// A probe that keeps nvidia-smi running would hold the card open
+		// through the driver switch, so it stops for the whole hold.
+		p.Pause(held != nil)
+	}
 	var snap gpu.Snapshot
 	var err error
 	if held == nil {

@@ -219,10 +219,12 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 		return c.fail(Systemf("read the openers: %v", err))
 	}
 	if bad := vfioUnreadable(openers); len(bad) > 0 {
-		for _, b := range bad {
-			c.Warnf("%s", b)
+		named := strings.Join(bad[:min(len(bad), 3)], "; ")
+		if len(bad) > 3 {
+			named += "; ..."
 		}
-		c.Warnf("the fd directories above are unreadable, so they are not proven clear; the driver unbind fails if one of them holds the card")
+		c.Warnf("%d processes could not be read, so they are not proven clear (%s); if one holds the card, the driver unbind blocks",
+			len(bad), named)
 	}
 	if bad := vfioBadOpeners(openers); len(bad) > 0 {
 		raw.Close() // the hold is not earned: the next engine may load
@@ -344,7 +346,13 @@ func vfioBadOpeners(openers []vfio.Opener) []string {
 	var bad []string
 	for _, o := range openers {
 		switch {
-		case o.Probe, o.Unreadable:
+		case o.Unreadable:
+		case o.Probe:
+			// berthd stops its probe for a VFIO hold; one still open after
+			// the settle time is a berthd that does not, and it would block
+			// the unbind like any other holder.
+			bad = append(bad, fmt.Sprintf("pid %d%s holds %s: berthd's own probe, still running; upgrade berthd so it stops the probe for a VFIO hold",
+				o.PID, vfioNamed(o.Name), strings.Join(o.Nodes, ", ")))
 		default:
 			bad = append(bad, fmt.Sprintf("pid %d%s holds %s", o.PID, vfioNamed(o.Name), strings.Join(o.Nodes, ", ")))
 		}
@@ -354,7 +362,7 @@ func vfioBadOpeners(openers []vfio.Opener) []string {
 
 // vfioUnreadable is the processes whose fd directories could not be read.
 // They are reported, never refused: an unreadable list is no proof of a
-// holder, and the unbind the script does fails where there is one.
+// holder, and the unbind the script does blocks where there is one.
 func vfioUnreadable(openers []vfio.Opener) []string {
 	var bad []string
 	for _, o := range openers {
