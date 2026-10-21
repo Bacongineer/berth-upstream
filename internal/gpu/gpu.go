@@ -9,6 +9,7 @@ package gpu
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -31,6 +32,7 @@ type Proc struct {
 type Device struct {
 	Index int
 	Name  string
+	BusID string // pci.bus_id, e.g. "00000000:01:00.0"; empty when not queried
 	Total uint64
 	Used  uint64
 	Free  uint64
@@ -47,7 +49,7 @@ type Device struct {
 }
 
 // Query is the per-card field list, memory first.
-const Query = "index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,fan.speed,clocks.sm,clocks.mem,pcie.link.gen.current,pcie.link.width.current"
+const Query = "index,name,pci.bus_id,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,fan.speed,clocks.sm,clocks.mem,pcie.link.gen.current,pcie.link.width.current"
 
 // Snapshot is one reading: the scheduled card in full, every card's memory
 // in Devices, so a multi-GPU box is inventoried with its real limits.
@@ -81,12 +83,24 @@ func (s Snapshot) Baseline() uint64 {
 // process does not.
 const graphicsProcBytes = 64 * MiB
 
-// instancePID reads the PID out of a "GPU Process Memory" instance name,
-// which the engine dresses as "pid_1234_luid_0x00000000_0x00003f9d_phys_0".
-func instancePID(instance string) (int, bool) {
+// luid is one GPU adapter's identity in a "GPU Process Memory" instance
+// name: the high and low 32-bit parts of the adapter LUID.
+type luid struct {
+	hi, lo uint32
+}
+
+// valid is true when a "luid_..." part was actually parsed, as opposed to an
+// instance name that carries none.
+func (l luid) valid() bool { return l.hi != 0 || l.lo != 0 }
+
+// parseInstance reads the PID and the adapter LUID out of a "GPU Process
+// Memory" instance name, which the engine dresses as
+// "pid_1234_luid_0x00000000_0x00015adb_phys_0". ok is false when the name
+// carries no usable PID; luid is zero when it carries no "luid_..." part.
+func parseInstance(instance string) (pid int, l luid, ok bool) {
 	const prefix = "pid_"
 	if !strings.HasPrefix(instance, prefix) {
-		return 0, false
+		return 0, luid{}, false
 	}
 	digits := strings.TrimPrefix(instance, prefix)
 	if i := strings.IndexByte(digits, '_'); i >= 0 {
@@ -94,9 +108,55 @@ func instancePID(instance string) (int, bool) {
 	}
 	pid, err := strconv.Atoi(digits)
 	if err != nil || pid <= 0 {
+		return 0, luid{}, false
+	}
+	if i := strings.Index(instance, "_luid_0x"); i >= 0 {
+		l, _ = parseLuid(instance[i+len("_luid_0x"):])
+	}
+	return pid, l, true
+}
+
+// parseLuid reads "0x<hi>_0x<lo>[_...]" into its two parts, high part first.
+func parseLuid(s string) (luid, bool) {
+	parts := strings.SplitN(s, "_", 3)
+	if len(parts) < 2 {
+		return luid{}, false
+	}
+	hi, ok := hexPart(parts[0])
+	if !ok {
+		return luid{}, false
+	}
+	lo, ok := hexPart(strings.TrimPrefix(parts[1], "0x"))
+	if !ok {
+		return luid{}, false
+	}
+	return luid{hi: hi, lo: lo}, true
+}
+
+func hexPart(s string) (uint32, bool) {
+	v, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
 		return 0, false
 	}
-	return pid, true
+	return uint32(v), true
+}
+
+// filterByLuid keeps the instances that sit on the adapters in want, so a
+// multi-GPU box reports only the card it governs. A nil want keeps every
+// instance, as when the governed card's adapter could not be pinned down.
+func filterByLuid(items []dedicatedUsage, want map[luid]bool) []dedicatedUsage {
+	if want == nil {
+		return items
+	}
+	out := make([]dedicatedUsage, 0, len(items))
+	for _, it := range items {
+		_, l, ok := parseInstance(it.Instance)
+		if !ok || !l.valid() || !want[l] {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // dedicatedUsage is one PDH sample: the instance name and its Dedicated
@@ -106,6 +166,44 @@ type dedicatedUsage struct {
 	Bytes    uint64
 }
 
+// busID is the governed card's pci.bus_id, from this read's device list.
+func busID(s Snapshot) string {
+	for _, d := range s.Devices {
+		if d.Index == s.Index {
+			return d.BusID
+		}
+	}
+	return ""
+}
+
+// parseBusID splits a pci.bus_id like "00000000:01:00.0" into its PCI bus,
+// device and function. The domain is not matched: the adapter address a
+// Windows query returns carries no domain, so a multi-domain box falls back
+// to keeping every adapter.
+func parseBusID(s string) (bus, device, function uint32, ok bool) {
+	i := strings.IndexByte(s, ':')
+	if i < 0 {
+		return 0, 0, 0, false
+	}
+	rest := s[i+1:]
+	j := strings.IndexByte(rest, ':')
+	if j < 0 {
+		return 0, 0, 0, false
+	}
+	k := strings.IndexByte(rest[j+1:], '.')
+	if k < 0 {
+		return 0, 0, 0, false
+	}
+	busHex, devHex, fnHex := rest[:j], rest[j+1:j+1+k], rest[j+1+k+1:]
+	b, e1 := strconv.ParseUint(busHex, 16, 32)
+	d, e2 := strconv.ParseUint(devHex, 16, 32)
+	f, e3 := strconv.ParseUint(fnHex, 16, 32)
+	if e1 != nil || e2 != nil || e3 != nil {
+		return 0, 0, 0, false
+	}
+	return uint32(b), uint32(d), uint32(f), true
+}
+
 // dedicatedByPid sums one read's samples by the PID their instance names
 // carry. One process can hold both cards of a multi-adapter board, so a
 // PID's figures come together. An instance that is not a process (none is
@@ -113,13 +211,39 @@ type dedicatedUsage struct {
 func dedicatedByPid(items []dedicatedUsage) map[int]uint64 {
 	out := map[int]uint64{}
 	for _, it := range items {
-		pid, ok := instancePID(it.Instance)
+		pid, _, ok := parseInstance(it.Instance)
 		if !ok || it.Bytes == 0 {
 			continue
 		}
 		out[pid] += it.Bytes
 	}
 	return out
+}
+
+// cappedRead is one PID whose raw PDH sum exceeded the card's total memory.
+type cappedRead struct {
+	pid   int
+	raw   uint64
+	total uint64
+}
+
+// capToTotal limits every PID's dedicated sum to the card's total memory, so
+// a driver's committed reservation cannot read as more than the card holds,
+// and returns the PIDs it capped, for the caller to log.
+func capToTotal(dedicated map[int]uint64, total uint64) (map[int]uint64, []cappedRead) {
+	if total == 0 {
+		return dedicated, nil
+	}
+	out := make(map[int]uint64, len(dedicated))
+	var reads []cappedRead
+	for pid, v := range dedicated {
+		if v > total {
+			reads = append(reads, cappedRead{pid: pid, raw: v, total: total})
+			v = total
+		}
+		out[pid] = v
+	}
+	return out, reads
 }
 
 // mergeProcs folds PDH's dedicated-memory figures into the compute-app
@@ -161,10 +285,20 @@ type Probe interface {
 	Read(ctx context.Context) (Snapshot, error)
 }
 
+// logger returns l, or the default logger when l is nil, so a probe without a
+// configured logger still records its PDH notes.
+func logger(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return slog.Default()
+	}
+	return l
+}
+
 // NvidiaSMI probes one GPU by index through nvidia-smi.
 type NvidiaSMI struct {
 	Index int
 	Bin   string // default "nvidia-smi"
+	Log   *slog.Logger
 }
 
 func (n NvidiaSMI) bin() string {
@@ -197,11 +331,12 @@ func (n NvidiaSMI) Read(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return s, err
 	}
-	return withPDH(s), nil
+	return withPDH(s, logger(n.Log)), nil
 }
 
-// ParseDevices reads "index, name, total, used, free[, telemetry...]" lines
-// (memory in MiB), one per card, in the order of Query.
+// ParseDevices reads "index, name[, bus_id], total, used, free[, telemetry...]"
+// lines (memory in MiB), one per card, in the order of Query. A line can carry
+// the full Query, Query without its telemetry tail, or just the memory fields.
 func ParseDevices(mem string) ([]Device, error) {
 	var out []Device
 	for _, line := range strings.Split(mem, "\n") {
@@ -209,26 +344,31 @@ func ParseDevices(mem string) ([]Device, error) {
 			continue
 		}
 		f := splitCSV(line)
-		if len(f) != 5 && len(f) != 14 {
-			return nil, fmt.Errorf("gpu query: want 5 or 14 fields, got %q", line)
+		if len(f) != 5 && len(f) != 6 && len(f) != 15 {
+			return nil, fmt.Errorf("gpu query: want 5, 6 or 15 fields, got %q", line)
 		}
 		idx, err := strconv.Atoi(f[0])
 		if err != nil {
 			return nil, fmt.Errorf("memory query index %q: %w", f[0], err)
 		}
 		d := Device{Index: idx, Name: f[1]}
+		memField := 2 // first memory field: index, name[, bus_id], total, used, free
+		if len(f) >= 6 {
+			d.BusID = f[2]
+			memField = 3
+		}
 		for i, dst := range []*uint64{&d.Total, &d.Used, &d.Free} {
-			n, err := strconv.ParseUint(f[2+i], 10, 64)
+			n, err := strconv.ParseUint(f[memField+i], 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("memory query %q field %d: %w", line, 2+i, err)
+				return nil, fmt.Errorf("memory query %q field %d: %w", line, memField+i, err)
 			}
 			*dst = n * MiB
 		}
 		tel := []*float64{&d.Util, &d.Temp, &d.Power, &d.PowerLimit, &d.Fan, &d.ClockSM, &d.ClockMem, &d.PCIeGen, &d.PCIeWidth}
 		for i, dst := range tel {
 			*dst = -1
-			if len(f) == 14 {
-				if v, err := strconv.ParseFloat(f[5+i], 64); err == nil {
+			if len(f) == 15 {
+				if v, err := strconv.ParseFloat(f[6+i], 64); err == nil {
 					*dst = v
 				}
 			}

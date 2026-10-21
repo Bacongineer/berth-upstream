@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 type Stream struct {
 	Index     int
 	Bin       string
+	Log       *slog.Logger
 	Interval  time.Duration // stream period; default 1 s
 	AppsEvery time.Duration // longest gap between process lists; default 10 s
 
@@ -35,7 +37,7 @@ type Stream struct {
 	procsFor uint64 // the scheduled card's used bytes when procs was read
 }
 
-func (s *Stream) oneShot() NvidiaSMI { return NvidiaSMI{Index: s.Index, Bin: s.Bin} }
+func (s *Stream) oneShot() NvidiaSMI { return NvidiaSMI{Index: s.Index, Bin: s.Bin, Log: s.Log} }
 
 func (s *Stream) interval() time.Duration {
 	if s.Interval <= 0 {
@@ -124,5 +126,5 @@ func (s *Stream) Read(ctx context.Context) (Snapshot, error) {
 		s.mu.Unlock()
 	}
 	snap.Procs = procs
-	return withPDH(snap), nil
+	return withPDH(snap, logger(s.Log)), nil
 }

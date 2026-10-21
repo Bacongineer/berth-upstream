@@ -7,7 +7,9 @@ package gpu
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -145,10 +147,11 @@ var (
 	pdhRun *gpuProcQuery
 )
 
-// pdhDedicated reads every process's dedicated GPU memory. The query
-// stays open between reads and samples fresh at each collect; when a
-// read fails the query is closed so the next read opens it again.
-func pdhDedicated() (map[int]uint64, error) {
+// pdhDedicated samples every process's dedicated GPU memory: one raw entry
+// per live instance, every adapter mixed together. The query stays open
+// between reads and samples fresh at each collect; when a read fails the
+// query is closed so the next read opens it again.
+func pdhDedicated() ([]dedicatedUsage, error) {
 	pdhMu.Lock()
 	defer pdhMu.Unlock()
 	if pdhRun == nil {
@@ -169,19 +172,209 @@ func pdhDedicated() (map[int]uint64, error) {
 		pdhRun = nil
 		return nil, err
 	}
-	return dedicatedByPid(found), nil
+	return found, nil
+}
+
+// The D3DKMT API is in gdi32, not x/sys, so it is loaded by name. The
+// structures mirror d3dkmthk.h and are laid out for amd64, the only
+// Windows target CI builds.
+
+const kmtqaitypeAdapterAddress = 6 // KMTQAITYPE_ADAPTERADDRESS
+
+var (
+	gdi = windows.NewLazySystemDLL("gdi32.dll")
+
+	d3dkmtEnumAdapters2Fn    = gdi.NewProc("D3DKMTEnumAdapters2")
+	d3dkmtQueryAdapterInfoFn = gdi.NewProc("D3DKMTQueryAdapterInfo")
+	d3dkmtCloseAdapterFn     = gdi.NewProc("D3DKMTCloseAdapter")
+)
+
+// d3dkmtAdapterInfo mirrors D3DKMT_ADAPTERINFO.
+type d3dkmtAdapterInfo struct {
+	hAdapter uint32       // D3DKMT_HANDLE, a UINT
+	luid     windows.LUID // AdapterLuid
+	sources  uint32       // NumOfSources
+	precise  int32        // bPrecisePresentRegionsPreferred
+}
+
+// d3dkmtEnumAdapters2 mirrors D3DKMT_ENUMADAPTERS2.
+type d3dkmtEnumAdapters2 struct {
+	count    uint32
+	adapters unsafe.Pointer
+}
+
+// d3dkmtQueryAdapterInfo mirrors D3DKMT_QUERYADAPTERINFO.
+type d3dkmtQueryAdapterInfo struct {
+	hAdapter uint32 // D3DKMT_HANDLE
+	kind     int32
+	data     unsafe.Pointer
+	dataSize uint32
+}
+
+// d3dkmtAdapterAddress mirrors D3DKMT_ADAPTERADDRESS.
+type d3dkmtAdapterAddress struct {
+	bus, device, function uint32
+}
+
+// adapter is one D3DKMT adapter: its LUID and its PCI location.
+type adapter struct {
+	luid luid
+	addr d3dkmtAdapterAddress
+}
+
+// closeD3DKMTAdapter releases one adapter handle opened by enumeration.
+func closeD3DKMTAdapter(h uint32) {
+	var c struct {
+		hAdapter uint32 // D3DKMT_HANDLE
+	}
+	c.hAdapter = h
+	_, _, _ = d3dkmtCloseAdapterFn.Call(uintptr(unsafe.Pointer(&c)))
+}
+
+// enumerateAdapters lists every adapter the display driver exposes, with its
+// LUID and PCI location, through D3DKMT.
+func enumerateAdapters() ([]adapter, error) {
+	for _, p := range []*windows.LazyProc{d3dkmtEnumAdapters2Fn, d3dkmtQueryAdapterInfoFn, d3dkmtCloseAdapterFn} {
+		if err := p.Find(); err != nil {
+			return nil, err
+		}
+	}
+	var probe d3dkmtEnumAdapters2 // nil pAdapters: count only
+	if r, _, _ := d3dkmtEnumAdapters2Fn.Call(uintptr(unsafe.Pointer(&probe))); r != 0 {
+		return nil, fmt.Errorf("d3dkmt enumerate adapters: status 0x%08x", r)
+	}
+	if probe.count == 0 {
+		return nil, nil
+	}
+	buf := make([]d3dkmtAdapterInfo, probe.count)
+	e := d3dkmtEnumAdapters2{count: uint32(len(buf)), adapters: unsafe.Pointer(&buf[0])}
+	if r, _, _ := d3dkmtEnumAdapters2Fn.Call(uintptr(unsafe.Pointer(&e))); r != 0 {
+		return nil, fmt.Errorf("d3dkmt enumerate adapters: status 0x%08x", r)
+	}
+	out := make([]adapter, 0, e.count)
+	for i := uint32(0); i < e.count; i++ {
+		a := buf[i]
+		var addr d3dkmtAdapterAddress
+		q := d3dkmtQueryAdapterInfo{
+			hAdapter: a.hAdapter,
+			kind:     kmtqaitypeAdapterAddress,
+			data:     unsafe.Pointer(&addr),
+			dataSize: uint32(unsafe.Sizeof(addr)),
+		}
+		if r, _, _ := d3dkmtQueryAdapterInfoFn.Call(uintptr(unsafe.Pointer(&q))); r != 0 {
+			closeD3DKMTAdapter(a.hAdapter)
+			continue
+		}
+		closeD3DKMTAdapter(a.hAdapter)
+		out = append(out, adapter{luid: luid{hi: uint32(a.luid.HighPart), lo: a.luid.LowPart}, addr: addr})
+	}
+	return out, nil
+}
+
+var (
+	adapterMu   sync.Mutex
+	adapterList []adapter
+	adapterErr  error
+	adapterDone bool
+)
+
+// enumerateAdaptersCached lists the adapters once per run; their LUIDs and
+// PCI locations are stable for the life of the daemon.
+func enumerateAdaptersCached() ([]adapter, error) {
+	adapterMu.Lock()
+	defer adapterMu.Unlock()
+	if adapterDone {
+		return adapterList, adapterErr
+	}
+	adapterList, adapterErr = enumerateAdapters()
+	adapterDone = true
+	return adapterList, adapterErr
+}
+
+// targetLUID pins the governed card to the one adapter LUID whose PCI
+// location is the card's pci.bus_id, so per-process figures from the other
+// adapters on the box are dropped. It reports an error when no single adapter
+// matches, which the caller takes as "keep every adapter".
+func targetLUID(s Snapshot) (map[luid]bool, error) {
+	id := busID(s)
+	bus, dev, fn, ok := parseBusID(id)
+	if !ok {
+		return nil, fmt.Errorf("the governed card's pci.bus_id %q does not parse", id)
+	}
+	adapters, err := enumerateAdaptersCached()
+	if err != nil {
+		return nil, err
+	}
+	var hit luid
+	matches := 0
+	for _, a := range adapters {
+		if a.addr.bus == bus && a.addr.device == dev && a.addr.function == fn {
+			matches++
+			hit = a.luid
+		}
+	}
+	if matches != 1 {
+		return nil, fmt.Errorf("pci.bus_id %s matches %d adapters, not one", id, matches)
+	}
+	return map[luid]bool{hit: true}, nil
+}
+
+var fallbackLogOnce sync.Once
+
+// logFallback records, once per run, why the governed card's adapter could
+// not be pinned and Berth is keeping every adapter's LUID.
+func logFallback(log *slog.Logger, reason error) {
+	log = logger(log)
+	fallbackLogOnce.Do(func() {
+		log.Warn("pdh: keeping every adapter's LUID", "reason", reason.Error())
+	})
+}
+
+var (
+	capLogMu   sync.Mutex
+	capLogLast = map[int]time.Time{}
+)
+
+// logCapped records a PID whose reading was capped to the card's total, at
+// most once per PID per minute, so a bogus counter is visible without
+// flooding the journal.
+func logCapped(log *slog.Logger, reads []cappedRead) {
+	if len(reads) == 0 {
+		return
+	}
+	log = logger(log)
+	now := time.Now()
+	capLogMu.Lock()
+	defer capLogMu.Unlock()
+	for _, r := range reads {
+		if now.Sub(capLogLast[r.pid]) < time.Minute {
+			continue
+		}
+		capLogLast[r.pid] = now
+		log.Warn("pdh reading capped to the card's total", "pid", r.pid, "raw", r.raw, "total", r.total)
+	}
 }
 
 // withPDH merges PDH's per-process reading into a parsed snapshot. The
 // driver's totals stand; PDH is Windows' only view of a process's own
-// VRAM under WDDM. A PDH failure, which happens on a machine with no GPU
-// and can happen on one with a GPU, keeps the snapshot as nvidia-smi
-// gave it and the next read retries.
-func withPDH(s Snapshot) Snapshot {
+// VRAM under WDDM. Only the governed card's adapter is counted, and a PID's
+// figure is capped at the card's total, so a driver's committed reservation
+// cannot read as more VRAM than the card holds. A PDH failure, which happens
+// on a machine with no GPU and can happen on one with a GPU, keeps the
+// snapshot as nvidia-smi gave it and the next read retries.
+func withPDH(s Snapshot, log *slog.Logger) Snapshot {
 	found, err := pdhDedicated()
 	if err != nil {
 		return s
 	}
-	s.Procs = mergeProcs(s.Procs, found)
+	want, terr := targetLUID(s)
+	if terr != nil {
+		logFallback(log, terr)
+		want = nil // keep every adapter
+	}
+	byPid := dedicatedByPid(filterByLuid(found, want))
+	capped, reads := capToTotal(byPid, s.Total)
+	logCapped(log, reads)
+	s.Procs = mergeProcs(s.Procs, capped)
 	return s
 }

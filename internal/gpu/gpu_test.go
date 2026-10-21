@@ -58,12 +58,76 @@ func TestParseTwoCards(t *testing.T) {
 }
 
 func TestParseTelemetry(t *testing.T) {
-	devs, err := ParseDevices("0, NVIDIA GeForce RTX 4090, 24564, 23134, 1030, 97, 71, 402.55, 450.00, [N/A], 2730, 10501, 4, 16\n")
+	devs, err := ParseDevices("0, NVIDIA GeForce RTX 4090, 00000000:01:00.0, 24564, 23134, 1030, 97, 71, 402.55, 450.00, [N/A], 2730, 10501, 4, 16\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := devs[0]
+	if d.BusID != "00000000:01:00.0" {
+		t.Fatalf("bus id = %q", d.BusID)
+	}
 	if d.Util != 97 || d.Temp != 71 || d.Power != 402.55 || d.PowerLimit != 450 || d.Fan != -1 || d.ClockSM != 2730 || d.PCIeGen != 4 || d.PCIeWidth != 16 {
 		t.Fatalf("telemetry = %+v (an [N/A] fan must read -1)", d)
+	}
+}
+
+func TestBusID(t *testing.T) {
+	s := Snapshot{
+		Index: 1,
+		Devices: []Device{
+			{Index: 0, Name: "A", BusID: "00000000:01:00.0"},
+			{Index: 1, Name: "B", BusID: "00000000:02:00.0"},
+		},
+	}
+	if got := busID(s); got != "00000000:02:00.0" {
+		t.Fatalf("busID = %q, want the governed card's id", got)
+	}
+	if got := busID(Snapshot{Index: 9}); got != "" {
+		t.Fatalf("busID for a missing card = %q, want empty", got)
+	}
+}
+
+func TestParseBusID(t *testing.T) {
+	for _, tc := range []struct {
+		in  string
+		bus uint32
+		dev uint32
+		fn  uint32
+		ok  bool
+	}{
+		{"00000000:01:00.0", 0x01, 0x00, 0x0, true},
+		{"00000000:36:00.0", 0x36, 0x00, 0x0, true},
+		{"00000001:ab:12.3", 0xab, 0x12, 0x3, true},
+		{"0000:01:00.0", 0x01, 0x00, 0x0, true}, // short domain still parses
+		{"00000000:01:00", 0, 0, 0, false},      // no function
+		{"00000000:01", 0, 0, 0, false},         // no device
+		{"01:00.0", 0, 0, 0, false},             // no domain separator
+		{"", 0, 0, 0, false},
+		{"00000000:zz:00.0", 0, 0, 0, false}, // bad hex
+	} {
+		bus, dev, fn, ok := parseBusID(tc.in)
+		if bus != tc.bus || dev != tc.dev || fn != tc.fn || ok != tc.ok {
+			t.Errorf("parseBusID(%q) = %d,%d,%d,%v; want %d,%d,%d,%v",
+				tc.in, bus, dev, fn, ok, tc.bus, tc.dev, tc.fn, tc.ok)
+		}
+	}
+}
+
+// TestParseDevicesFieldCounts covers the three shapes nvidia-smi output takes:
+// the full query, the query without its telemetry tail, and the memory fields
+// only.
+func TestParseDevicesFieldCounts(t *testing.T) {
+	devs, err := ParseDevices("1, X, 00000000:02:00.0, 24564, 500, 24064\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devs) != 1 || devs[0].BusID != "00000000:02:00.0" || devs[0].Total != 24564*MiB || devs[0].Util != -1 {
+		t.Fatalf("6-field = %+v", devs)
+	}
+	if _, err := ParseDevices("1, X, 24564, 500\n"); err == nil {
+		t.Fatal("4 fields must be an error")
+	}
+	if _, err := ParseDevices("1, X, 00000000:02:00.0, 24564, 500, 24064, 50\n"); err == nil {
+		t.Fatal("7 fields must be an error")
 	}
 }

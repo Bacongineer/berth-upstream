@@ -84,7 +84,7 @@ func runDaemon(c *Context) int {
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
 
-	probe := &gpu.Stream{Index: *index, Interval: *poll}
+	probe := &gpu.Stream{Index: *index, Interval: *poll, Log: log}
 	rep := server.Reporter{Notify: *notify, Webhook: *webhook, Log: log}
 	// The engine readers exist before the broker: a juggle asks them whether
 	// the holder is busy. They start reading below, once the card is known.

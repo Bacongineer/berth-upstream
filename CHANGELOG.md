@@ -20,6 +20,15 @@ has a matching GitHub release whose body comes from its section below.
   run. Its exclusion named `EpicOnlineServices`, but the folder on disk is `Epic Online Services`,
   so the overlay and helper processes matched as a running game and every engine waited behind
   them. [#81](https://github.com/T-Crypt/berth/issues/81)
+- On Windows, per-process VRAM now counts only the card Berth governs and cannot exceed it
+  [#82](https://github.com/T-Crypt/berth/issues/82). The `Dedicated Usage` counter PDH reads reports a process's committed reservation,
+  which a driver can report many times above the card's real memory, and on a multi-GPU
+  machine it mixes every adapter together, so one process could read as holding more VRAM than
+  the card holds while the other card's memory landed on the governed one. Berth now keeps
+  only the instances on the governed card's adapter, found by matching its `pci.bus_id`
+  against the adapters D3DKMT lists, and caps each process's figure at the card's total. A
+  capped reading is logged at most once per process per minute, and if the card's adapter
+  cannot be pinned to one LUID Berth counts every adapter and says so once.
 
 ## [v0.3.1] - 2026-10-20
 
