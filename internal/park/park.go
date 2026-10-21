@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/comfy"
+	"github.com/T-Crypt/berth/internal/httpauth"
 )
 
 // Adapter is one engine's park and resume. Park moves the engine's weights
@@ -127,6 +128,7 @@ func postTo(ctx context.Context, url string) error {
 	if err != nil {
 		return err
 	}
+	httpauth.Apply(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

@@ -24,6 +24,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/comfy"
 	"github.com/T-Crypt/berth/internal/engines"
+	"github.com/T-Crypt/berth/internal/httpauth"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -319,7 +320,7 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		running, pending, err := comfy.Queue(comfy.WithBearer(ctx, o.APIKey), o.DrainComfyUI)
+		running, pending, err := comfy.Queue(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI)
 		cancel()
 		var now string
 		switch {
@@ -625,7 +626,7 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 		// an engine without one unloads-and-stops here.
 		if o.Park == nil && !o.Hook {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := comfy.Free(comfy.WithBearer(ctx, o.APIKey), o.DrainComfyUI, true)
+			err := comfy.Free(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI, true)
 			cancel()
 			if err != nil {
 				say("ComfyUI unload (%v); stopping the server instead", err)

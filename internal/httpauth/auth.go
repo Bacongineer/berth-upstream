@@ -1,7 +1,7 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
-package comfy
+package httpauth
 
 import (
 	"context"
@@ -15,7 +15,8 @@ func WithBearer(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, bearerKey{}, key)
 }
 
-func authorize(req *http.Request) {
+// Apply adds the request-scoped bearer credential, when configured.
+func Apply(req *http.Request) {
 	if key, _ := req.Context().Value(bearerKey{}).(string); key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
