@@ -8,6 +8,7 @@ package gateway
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -66,6 +67,18 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// slotsSpec parses the env a fake engine reads for its slot surface:
+// BERTH_GW_SLOTS is the idle slot count to list (unset: no slot endpoints
+// at all), and BERTH_GW_KVLOG the file its slot calls and chat requests
+// are appended to, one line each in arrival order.
+func slotsSpec() (n int, kvlog string) {
+	n, _ = 0, ""
+	if spec := os.Getenv("BERTH_GW_SLOTS"); spec != "" {
+		fmt.Sscanf(spec, "%d", &n)
+	}
+	return n, os.Getenv("BERTH_GW_KVLOG")
+}
+
 // testRun is the `berth run` a spawned gateway engine process stands in
 // for: the same flags the gateway passes, then the engine's command after
 // "--". It takes a real lease from the test daemon.
@@ -100,6 +113,20 @@ func testRun(argv []string) {
 }
 
 func fakeEngine(addr, model string, load time.Duration) {
+	nSlots, kvlog := slotsSpec()
+	record := func(line string) {
+		if kvlog == "" {
+			return
+		}
+		// One small Fprintln behind O_APPEND: each line lands whole, so
+		// order between handlers is arrival order.
+		f, err := os.OpenFile(kvlog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		fmt.Fprintln(f, line)
+	}
 	mux := http.NewServeMux()
 	// The port is bound at once and answers 503 until load passes, as a real
 	// engine does while it loads: binding late would leave a window in which
@@ -113,6 +140,7 @@ func fakeEngine(addr, model string, load time.Duration) {
 		fmt.Fprintf(w, `{"object":"list","data":[{"id":%q}]}`, model)
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		record("chat " + model)
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, tok := range []string{"lease", "hand off", "never collide"} {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", tok)
@@ -121,6 +149,37 @@ func fakeEngine(addr, model string, load time.Duration) {
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	})
+	if nSlots > 0 || kvlog != "" {
+		// The slot surface, off unless the test asks: an idle slot list,
+		// and save/restore that answer the engine's own numbers and log
+		// the call in arrival order.
+		mux.HandleFunc("/slots", func(w http.ResponseWriter, r *http.Request) {
+			ss := []string{}
+			for i := 0; i < nSlots; i++ {
+				ss = append(ss, fmt.Sprintf(`{"id":%d,"is_processing":false}`, i))
+			}
+			fmt.Fprintf(w, "[%s]", strings.Join(ss, ","))
+		})
+		mux.HandleFunc("/slots/", func(w http.ResponseWriter, r *http.Request) {
+			slot := 0
+			fmt.Sscanf(r.URL.Path, "/slots/%d", &slot)
+			action := r.URL.Query().Get("action")
+			var b struct {
+				Filename string `json:"filename"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			switch action {
+			case "restore":
+				record(fmt.Sprintf("restore %d %s", slot, b.Filename))
+				fmt.Fprintf(w, `{"id_slot":%d,"filename":%q,"n_restored":12,"n_read":4096,"timings":{"restore_ms":1.0}}`, slot, b.Filename)
+			case "save":
+				record(fmt.Sprintf("save %d %s", slot, b.Filename))
+				fmt.Fprintf(w, `{"id_slot":%d,"filename":%q,"n_saved":1000,"n_written":8192,"timings":{"save_ms":1.0}}`, slot, b.Filename)
+			default:
+				http.NotFound(w, r)
+			}
+		})
+	}
 	if every := os.Getenv("BERTH_GW_LOG_EVERY"); every != "" {
 		d, err := time.ParseDuration(every)
 		if err != nil {

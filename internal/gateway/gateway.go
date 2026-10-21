@@ -787,6 +787,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 			// free while that happens, so the reads go first.
 			go g.prefetch(e)
 		}
+		if e.KVSnapshots != "" {
+			// The same wait warms the engine's saved prompt caches, so the
+			// restore below reads the page cache where it can.
+			go g.kvWarm(e, ready)
+		}
 		go g.run(e, s, ready)
 	}
 
@@ -794,6 +799,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	for {
 		if probe(ctx, e.URL) {
 			g.markAnswered(e, s)
+			if starting && e.KVSnapshots != "" {
+				// Only the start this gateway ran restores: its slots are
+				// empty, and the restore lands before the first request.
+				g.kvRestore(e)
+			}
 			return nil
 		}
 		select {
