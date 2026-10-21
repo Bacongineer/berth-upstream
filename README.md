@@ -207,7 +207,7 @@ Then, on the iPhone:
 2. Tap Share, then **Add to Home Screen**.
 3. Name it (`berth` works) and tap **Add**.
 
-The harbor ships no Home Screen icon of its own, so iOS uses a snapshot of the page for it.
+The Home Screen icon is Pilot, the harbor master llama, and the name under it is `berth`.
 The page stays read-only. The harbor has no login, so publish it only on a tailnet or a home
 network you trust.
 
