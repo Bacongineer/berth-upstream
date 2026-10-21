@@ -910,7 +910,17 @@ and what every state word and figure means.
   without exposing it, keep the loopback listener and put a same-machine reverse proxy in
   front (`tailscale serve`, caddy), passing the proxy's hostname with `--allow-host`. A systemd user unit is
   in `contrib/berth-harbor.service`.
-- **Prometheus** `/metrics` (loopback only) for Grafana and friends.
+- **Prometheus** `/metrics` for Grafana and friends, on the `[metrics] listen` address. It
+  serves loopback only and refuses a `Host` that is not a loopback name, so a web page cannot read
+  it through DNS rebinding. The endpoint names your engines, leases and queue, so Berth never
+  serves it off the machine. To scrape it from a Prometheus on another host, keep the endpoint
+  as it is and either:
+  - run a Prometheus agent or Grafana Alloy on the Berth machine, scrape `127.0.0.1`, and
+    `remote_write` to your Prometheus; or
+  - put Caddy or nginx on the same machine in front of it, sending a loopback `Host`
+    (`header_up Host 127.0.0.1`, `proxy_set_header Host 127.0.0.1;`), with the proxy's own
+    allowlist or auth on the network side. `tailscale serve` passes the tailnet name as `Host`,
+    which `/metrics` refuses.
 - **Footprint:** the node uses about 0.2% of one CPU core and ~21 MB of memory on the
   reference box; the harbor about 0.4% and ~23 MB, writing to disk once a minute.
 
