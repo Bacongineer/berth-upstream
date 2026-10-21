@@ -76,7 +76,7 @@ func Builtin() []Rule {
 		// day beside other work; holding the card for them would starve every engine.
 		{Name: "steam-library", Cmdline: `(?i)\\steamapps\\common\\`,
 			Not: `(?i)\\steamapps\\common\\(wallpaper_engine|Lossless Scaling|Steamworks Shared)\\`, Action: ActionHold, Builtin: true},
-		{Name: "epic-game", Cmdline: `(?i)\\Epic Games\\`, Not: `(?i)\\Epic Games\\(Launcher|EpicOnlineServices)\\`, Action: ActionHold, Builtin: true},
+		{Name: "epic-game", Cmdline: `(?i)\\Epic Games\\`, Not: `(?i)\\Epic Games\\(Launcher|Epic Online Services|EpicOnlineServices)\\`, Action: ActionHold, Builtin: true},
 		{Name: "gog-game", Cmdline: `(?i)\\GOG (Galaxy\\)?Games\\`, Action: ActionHold, Builtin: true},
 		{Name: "ea-game", Cmdline: `(?i)\\EA Games\\`, Action: ActionHold, Builtin: true},
 		{Name: "ubisoft-game", Cmdline: `(?i)\\Ubisoft Game Launcher\\games\\`, Action: ActionHold, Builtin: true},

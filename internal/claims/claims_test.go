@@ -155,6 +155,10 @@ func TestBuiltinWindows(t *testing.T) {
 		{PID: 120, Name: "Cyberpunk2077.exe", Parent: 100, Cmdline: `D:\SteamLibrary\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe`},
 		{PID: 130, Name: "wallpaper64.exe", Parent: 100, Cmdline: `C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe`},
 		{PID: 200, Name: "EpicGamesLauncher.exe", Cmdline: `C:\Program Files (x86)\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe`},
+		// Epic Online Services runs from the tray with no game: its overlay and helper
+		// sit under "Epic Online Services", with spaces (#81).
+		{PID: 220, Name: "EOSOverlayRenderer-Win64-Shipping.exe", Cmdline: `C:\Program Files (x86)\Epic Games\Epic Online Services\managedArtifacts\98bc04bc842e4906993fd6d6644ffb8d\EOSOverlayRenderer-Win64-Shipping.exe`},
+		{PID: 230, Name: "EpicOnlineServicesUserHelper.exe", Cmdline: `C:\Program Files (x86)\Epic Games\Epic Online Services\EpicOnlineServicesUserHelper.exe`},
 		{PID: 210, Name: "FortniteClient-Win64-Shipping.exe", Parent: 200, Cmdline: `C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe`},
 		{PID: 300, Name: "Battle.net.exe", Cmdline: `C:\Program Files (x86)\Battle.net\Battle.net.exe`},
 		{PID: 310, Name: "Agent.exe", Parent: 300, Cmdline: `C:\ProgramData\Battle.net\Agent\Agent.9001\Agent.exe`},
