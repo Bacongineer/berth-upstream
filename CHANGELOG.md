@@ -6,6 +6,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.2] - 2026-10-20
+
+Fixes from the first Windows testers, and four contributions. On Windows, the Epic Games
+launcher no longer holds the card from the tray, per-process VRAM counts only the governed card,
+and `berth service install` starts its tasks and writes their logs. Engines get a minimum turn,
+drain and park requests carry the engine's key, the key can live in an owner-only file,
+`--fail-closed` now covers drain boundaries, and a ComfyUI session can hand the card back when
+its work is done. The harbor gets a Home Screen icon.
+
 ### Added
 
 - `min_turn` on an `[[engine]]` entry and `berth run --min-turn`: a minimum turn. For that
@@ -23,15 +32,31 @@ has a matching GitHub release whose body comes from its section below.
   reports it, keeps a task it replaces whose XML differs as a .bak in the state directory
   like the systemd path keeps a differing unit, and each task appends its output to
   `<state>\logs\berthd.log` and its siblings, which `berth service status` prints (#89).
+- `api_key_file` on an `[[engine]]` entry and `berth run --api-key-file`: the engine's key in
+  an absolute file only its owner can read, as an alternative to `api_key_env`. Symlinks and
+  FIFOs are refused, the two sources are exclusive, and on Windows the file form is refused
+  with a message. [#85](https://github.com/T-Crypt/berth/pull/85)
+- `--fail-closed` covers drain boundaries too: when a slot list or a ComfyUI queue cannot be
+  read, or `drain_max` passes, the drain keeps the engine and its lease instead of stopping it,
+  and the next drain tries again. Without the flag nothing changes.
+  [#86](https://github.com/T-Crypt/berth/pull/86)
+- `exit_comfyui_idle` and `exit_comfyui_idle_after` (and their `berth run` flags): a ComfyUI
+  run hands the card back once the session's new work is done, or after an interval with no
+  job. Off by default. [#87](https://github.com/T-Crypt/berth/pull/87)
+- The harbor's iOS Home Screen icon: Pilot, the harbor master llama, with `berth` as its
+  title. [#93](https://github.com/T-Crypt/berth/pull/93)
 
 ### Fixed
 
+- Drain, park, resume and readiness requests carry the engine's `api_key_env` key, so an
+  engine that requires it no longer refuses the slot check and unload of its own drain.
+  [#84](https://github.com/T-Crypt/berth/pull/84)
 - The built-in `epic-game` claim no longer holds the card while only Epic's background services
   run. Its exclusion named `EpicOnlineServices`, but the folder on disk is `Epic Online Services`,
   so the overlay and helper processes matched as a running game and every engine waited behind
   them. [#81](https://github.com/T-Crypt/berth/issues/81)
 - On Windows, per-process VRAM now counts only the card Berth governs and cannot exceed it
-  [#82](https://github.com/T-Crypt/berth/issues/82). The `Dedicated Usage` counter PDH reads reports a process's committed reservation,
+  ([#82](https://github.com/T-Crypt/berth/issues/82)). The `Dedicated Usage` counter PDH reads reports a process's committed reservation,
   which a driver can report many times above the card's real memory, and on a multi-GPU
   machine it mixes every adapter together, so one process could read as holding more VRAM than
   the card holds while the other card's memory landed on the governed one. Berth now keeps

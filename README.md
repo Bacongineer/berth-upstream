@@ -42,7 +42,7 @@ claim. When another engine holds it, Berth:
 The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
 shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 
-> **Status: alpha, v0.3.1.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> **Status: alpha, v0.3.2.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
 > Strata, ComfyUI and games, and testers run it on Windows. [Capabilities](#capabilities) lists what works and has tests; the
 > [Roadmap](#roadmap) lists the phases and what is still missing.
 
@@ -1015,7 +1015,7 @@ and `cuda-checkpoint` follow in v0.3.x. Run the bench on your card and add a row
 | Platform | Status |
 |---|---|
 | Linux + NVIDIA | Supported |
-| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. Known issues: [#81](https://github.com/T-Crypt/berth/issues/81), [#82](https://github.com/T-Crypt/berth/issues/82), both fixed in v0.3.2 |
+| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
 | AMD on Linux | Not supported yet; planned for v0.4 (a vendor-neutral probe, then amdgpu) |
 | Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
@@ -1052,21 +1052,19 @@ per-process VRAM on Windows and the test suite on Windows in CI; and the proof k
 form and the [tested hardware](#tested-hardware) table. v0.3.1 fixed `berth update` answering from
 a stale cache. The [CHANGELOG](CHANGELOG.md) has every entry.
 
+### Shipped since: v0.3.2 (2026-10-20)
+
+A fix release from the first Windows testers' reports: the Epic launcher no longer holds the
+card from the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts
+only the governed card ([#82](https://github.com/T-Crypt/berth/issues/82)), and `berth service
+install` starts its Windows tasks, writes their logs and takes the listen addresses from
+berth.toml ([#89](https://github.com/T-Crypt/berth/issues/89)). It also brings the minimum turn,
+keys on drain requests and in owner-only files, fail-closed drain boundaries, ComfyUI sessions
+that hand the card back, and the harbor's Home Screen icon.
+
 ### Next: v0.3.x
 
-v0.3.2 is a fix release. It carries the reports from the first Windows testers and the one
-feature merged since v0.3.1:
-
-- A minimum turn per engine (`min_turn`, `berth run --min-turn`), merged in [#80](https://github.com/T-Crypt/berth/pull/80).
-- The built-in Epic rule holds the card while only Epic's background services run
-  ([#81](https://github.com/T-Crypt/berth/issues/81)).
-- Per-process VRAM on Windows can read past the card's size, because Berth sums every adapter
-  ([#82](https://github.com/T-Crypt/berth/issues/82)).
-- `berth service install` now starts the tasks it creates on Windows and each writes a log,
-  and the harbor and gateway take their listen addresses from berth.toml
-  ([#89](https://github.com/T-Crypt/berth/issues/89)).
-
-After it, in v0.3.x releases. Each item has its building blocks merged or a spec written:
+In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
 
 - Cgroup attribution, which closes the one known stowaway window (chaos scenario 3: a child
   whose parent exits within one 2 s tick).
