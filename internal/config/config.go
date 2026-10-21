@@ -91,6 +91,12 @@ type Engine struct {
 	// time, whatever its priority, only a hold takes the card out. When
 	// the turn ends the normal rules apply. 0 = off, the default.
 	MinTurn Duration `toml:"min_turn,omitzero" json:"min_turn,omitempty" yaml:"min_turn,omitempty"`
+	// ParkTTL is how long this engine stays parked before Berth stops it,
+	// in place of [park] ttl. A short one suits keep_comfyui_up: a drain
+	// leaves ComfyUI up, so work its own nodes run outside the queue (a
+	// chat call to another engine) finishes, and its CUDA context goes
+	// soon after. 0 = [park] ttl.
+	ParkTTL Duration `toml:"park_ttl,omitzero" json:"park_ttl,omitempty" yaml:"park_ttl,omitempty"`
 	// Container is the engine's container, as berth run --container: the
 	// name of `docker run --name` (or of an existing container for
 	// `docker start -a`). The drain stops it through the runtime CLI
@@ -600,6 +606,9 @@ func (c *Config) Validate() error {
 		}
 		if e.MinTurn.Duration < 0 {
 			errs = append(errs, fmt.Errorf("%s: min_turn %s must be >= 0", where, e.MinTurn))
+		}
+		if e.ParkTTL.Duration < 0 {
+			errs = append(errs, fmt.Errorf("%s: park_ttl %s must be >= 0", where, e.ParkTTL))
 		}
 		if e.GUI != "" {
 			if u, err := url.Parse(e.GUI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

@@ -40,6 +40,11 @@ has a matching GitHub release whose body comes from its section below.
   restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
   before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
   for a private directory.
+- `park_ttl` on an `[[engine]]` entry sets how long that engine stays parked before Berth stops it,
+  in place of `[park] ttl`. With `keep_comfyui_up = true` and a short `park_ttl`, a ComfyUI node that
+  calls another engine (a chat panel calling llama-swap) gets its answer. The drain leaves ComfyUI
+  up, and Berth stops the server once the ttl passes
+  ([#121](https://github.com/T-Crypt/berth/issues/121)).
 
 ### Changed
 

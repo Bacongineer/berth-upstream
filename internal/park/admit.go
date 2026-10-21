@@ -4,6 +4,7 @@
 package park
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strconv"
@@ -25,6 +26,7 @@ type Parked struct {
 	Name  string
 	Bytes uint64
 	Since time.Time
+	TTL   time.Duration // its own ttl; 0 = Evict's
 }
 
 const gib = uint64(1) << 30
@@ -69,7 +71,7 @@ func Evict(parked []Parked, b Budget, pressure, threshold float64, now time.Time
 	}
 	avail := b.Available
 	for _, p := range byAge {
-		if now.Sub(p.Since) > ttl {
+		if now.Sub(p.Since) > cmp.Or(p.TTL, ttl) {
 			stop(p)
 			avail += p.Bytes
 		}

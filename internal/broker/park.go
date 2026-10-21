@@ -12,6 +12,7 @@ package broker
 // an eviction is a drain the runner stops, exactly as today.
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"strings"
@@ -161,7 +162,7 @@ func (b *Broker) evictParked(now time.Time) {
 	var entries []park.Parked
 	for _, l := range b.leases {
 		if l.state == parked {
-			entries = append(entries, park.Parked{Name: l.id, Bytes: b.footprintOf(l), Since: l.parkedAt})
+			entries = append(entries, park.Parked{Name: l.id, Bytes: b.footprintOf(l), Since: l.parkedAt, TTL: l.parkTTL})
 		}
 	}
 	if len(entries) == 0 {
@@ -181,7 +182,7 @@ func (b *Broker) evictParked(now time.Time) {
 		}
 		why := "the memory pressure is high"
 		switch {
-		case now.Sub(l.parkedAt) > b.cfg.ParkTTL:
+		case now.Sub(l.parkedAt) > cmp.Or(l.parkTTL, b.cfg.ParkTTL):
 			why = fmt.Sprintf("parked %s, past the ttl", now.Sub(l.parkedAt).Round(time.Second))
 		case avail < b.cfg.ParkFloor:
 			why = "available RAM is under the floor"

@@ -46,7 +46,10 @@ type Options struct {
 	// neither does a higher one; only a hold (a game, a call, berth hold)
 	// takes the card out. When the turn ends the normal rules apply; a
 	// re-attach starts a fresh turn. 0 = off.
-	MinTurn   time.Duration
+	MinTurn time.Duration
+	// ParkTTL is how long the lease may stay parked before the broker stops
+	// the engine, in place of the node's [park] ttl. 0 = the node's.
+	ParkTTL   time.Duration
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
@@ -167,7 +170,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -340,7 +343,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()

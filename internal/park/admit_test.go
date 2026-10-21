@@ -106,6 +106,16 @@ func TestEvict(t *testing.T) {
 			want:     []string{"staler", "stale"},
 		},
 		{
+			name: "an engine's own ttl beats the node's, both ways",
+			parked: []Parked{
+				{Name: "short", Bytes: g, Since: now.Add(-6 * time.Minute), TTL: 5 * time.Minute},
+				{Name: "long", Bytes: g, Since: now.Add(-40 * time.Minute), TTL: time.Hour},
+				m("node", g, 6*time.Minute),
+			},
+			b:    Budget{Available: 10 * g, Floor: 4 * g},
+			want: []string{"short"},
+		},
+		{
 			name:     "below the floor: least recently parked until back at it",
 			parked:   []Parked{m("new", 4*g, time.Minute), m("mid", 4*g, 5*time.Minute), m("old", 4*g, 10*time.Minute)},
 			b:        Budget{Available: 5 * g, Floor: 10 * g},

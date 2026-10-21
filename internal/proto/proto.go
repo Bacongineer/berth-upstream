@@ -75,6 +75,9 @@ type Msg struct {
 	// younger than it after the grant, no waiter drains it but a hold.
 	// OpAcquire and OpReattach; 0 = off.
 	MinTurn float64 `json:"min_turn,omitempty"`
+	// ParkTTL is how long the lease may stay parked, in seconds, in place
+	// of the node's [park] ttl. OpAcquire and OpReattach; 0 = the node's.
+	ParkTTL float64 `json:"park_ttl,omitempty"`
 	// Container is the container the engine runs in: OpAcquire and
 	// OpReattach carry the name the operator gave (--container), OpAttach
 	// the full ID berth run resolved it to. The broker matches GPU

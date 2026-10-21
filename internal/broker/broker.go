@@ -184,6 +184,9 @@ type Request struct {
 	// the turn ends the normal rules apply. A re-attach starts a fresh
 	// turn. 0 = off.
 	MinTurn time.Duration
+	// ParkTTL is how long the lease may stay parked before the broker
+	// stops its engine, in place of the node's ParkTTL. 0 = the node's.
+	ParkTTL time.Duration
 	// Container is the engine's container: Acquire takes the name the
 	// operator gave (--container), the attach resolves the full ID. A GPU
 	// process inside it belongs to the lease.
@@ -206,6 +209,7 @@ type lease struct {
 	reattach bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
 	pinned   bool // never drained (Request.Pinned)
 	minTurn  time.Duration
+	parkTTL  time.Duration // 0 = the node's
 	prio     Priority
 	needs    uint64
 	state    state
@@ -290,6 +294,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		needs:    r.Needs,
 		pinned:   r.Pinned,
 		minTurn:  r.MinTurn,
+		parkTTL:  r.ParkTTL,
 		gpu:      map[ident]gpu.Proc{},
 		desc:     map[ident]struct{}{},
 		arrived:  now,

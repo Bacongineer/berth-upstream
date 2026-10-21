@@ -321,6 +321,31 @@ Completed-session release ends the process; daemon-requested parking and resume
 keep their native protocol and lease routing. Without these options, behavior
 is unchanged.
 
+## ComfyUI nodes that call other engines
+
+Berth hands ComfyUI's card over once its queue is empty. Some nodes do their work outside the
+queue. A chat panel or a prompt expander inside ComfyUI can call a model on llama-swap, and that
+call can drain ComfyUI's own lease. Without `keep_comfyui_up`, the drain stops the ComfyUI server,
+and the request that asked for the card dies with it.
+
+Keep ComfyUI up on a drain and give it a short park ttl:
+
+```toml
+[[engine]]
+name            = "comfyui"
+type            = "comfyui"
+url             = "http://127.0.0.1:8188"
+drain_comfyui   = "http://127.0.0.1:8188"
+keep_comfyui_up = true
+park_ttl        = "10m"
+```
+
+A drain then unloads ComfyUI's models through `POST /free` and leaves the server running, so the
+node's request finishes. The lease stays parked. After `park_ttl` Berth stops the server, which
+frees the CUDA context it still holds (504 MiB on the reference card). That stop is a normal drain,
+so a job ComfyUI is running at that moment finishes first. `park_ttl` works on any parked engine
+and replaces `[park] ttl` (30 minutes by default) for that engine.
+
 ## Park in RAM (warm switch)
 
 A drain today ends with the engine's weights on disk, and the next request
@@ -344,6 +369,7 @@ url        = "http://127.0.0.1:8000"
 park       = "hook"
 park_url   = "http://127.0.0.1:8000/sleep?level=1"   # optional: each beats the built-in
 resume_url = "http://127.0.0.1:8000/wake_up"
+park_ttl   = "1h"                                     # optional: this engine's own ttl
 
 [park]
 floor_gib = 4.0        # RAM a park must leave the machine (default 4)
