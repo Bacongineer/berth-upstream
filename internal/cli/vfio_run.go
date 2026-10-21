@@ -218,6 +218,12 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 	if err != nil {
 		return c.fail(Systemf("read the openers: %v", err))
 	}
+	if bad := vfioUnreadable(openers); len(bad) > 0 {
+		for _, b := range bad {
+			c.Warnf("%s", b)
+		}
+		c.Warnf("the fd directories above are unreadable, so they are not proven clear; the driver unbind fails if one of them holds the card")
+	}
 	if bad := vfioBadOpeners(openers); len(bad) > 0 {
 		raw.Close() // the hold is not earned: the next engine may load
 		e := Failf("the card's device nodes are in use; not holding %s", card.Addr)
@@ -332,17 +338,27 @@ func vfioPreflight(r vfio.Reader, card vfioCard) ([]vfio.Function, *Error) {
 }
 
 // vfioBadOpeners is the openers that keep the card where it is: every
-// process that is not berthd's own probe, including one whose fd directory
-// could not be read (it may hold the card; Berth cannot prove otherwise).
+// process that is not berthd's own probe and that the reader could read.
 func vfioBadOpeners(openers []vfio.Opener) []string {
 	var bad []string
 	for _, o := range openers {
 		switch {
-		case o.Probe:
-		case o.Unreadable:
-			bad = append(bad, fmt.Sprintf("pid %d%s: /proc unreadable; it may hold the card", o.PID, vfioNamed(o.Name)))
+		case o.Probe, o.Unreadable:
 		default:
 			bad = append(bad, fmt.Sprintf("pid %d%s holds %s", o.PID, vfioNamed(o.Name), strings.Join(o.Nodes, ", ")))
+		}
+	}
+	return bad
+}
+
+// vfioUnreadable is the processes whose fd directories could not be read.
+// They are reported, never refused: an unreadable list is no proof of a
+// holder, and the unbind the script does fails where there is one.
+func vfioUnreadable(openers []vfio.Opener) []string {
+	var bad []string
+	for _, o := range openers {
+		if o.Unreadable {
+			bad = append(bad, fmt.Sprintf("pid %d%s: /proc unreadable", o.PID, vfioNamed(o.Name)))
 		}
 	}
 	return bad

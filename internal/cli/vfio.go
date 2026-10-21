@@ -191,21 +191,45 @@ func (v vfioStatusView) Human(c *Context, ok bool) error {
 	if len(d.Openers) == 0 {
 		c.Printf("openers none\n")
 	} else {
-		c.Printf("openers %d\n", len(d.Openers))
+		confirmed, unreadable := 0, 0
 		for _, o := range d.Openers {
+			if o.Unreadable {
+				unreadable++
+			} else {
+				confirmed++
+			}
+		}
+		c.Printf("openers %d\n", confirmed+unreadable)
+		for _, o := range d.Openers {
+			if o.Unreadable {
+				continue
+			}
 			who := strconv.Itoa(o.PID)
 			if o.Name != "" {
 				who += " " + o.Name
-			}
-			if o.Unreadable {
-				c.Sub("pid %s: %s (its fd directory is unreadable; it may hold the card)", who, c.Style.Warn("/proc unreadable"))
-				continue
 			}
 			if o.Probe {
 				c.Sub("pid %s holds %s (berthd's own probe)", who, strings.Join(o.Nodes, ", "))
 				continue
 			}
 			c.Sub("pid %s holds %s", who, strings.Join(o.Nodes, ", "))
+		}
+		if unreadable > 0 {
+			names := make([]string, 0, 2)
+			for _, o := range d.Openers {
+				if !o.Unreadable {
+					continue
+				}
+				who := "pid " + strconv.Itoa(o.PID)
+				if o.Name != "" {
+					who += " " + o.Name
+				}
+				if len(names) < 2 {
+					names = append(names, who)
+				}
+			}
+			c.Sub("%s and %d more: %s (their fd directories could not be read; they are not proven clear)",
+				strings.Join(names, ", "), unreadable-len(names), c.Style.Warn("/proc unreadable"))
 		}
 	}
 	if d.Berthd == nil {
@@ -275,9 +299,17 @@ func vfioStatus(c *Context, r vfio.Reader, smiBin string) int {
 	if err != nil {
 		return c.fail(Systemf("%v", err))
 	}
-	group, err := r.Group(card.Addr)
-	if err != nil {
-		return c.fail(Systemf("%v", err))
+	var group []vfio.Function
+	if on {
+		// Without IOMMU the card has no group to read; the report says the
+		// state that blocks the passthrough and stays readable.
+		group, err = r.Group(card.Addr)
+		if err != nil {
+			return c.fail(Systemf("%v", err))
+		}
+	}
+	if group == nil {
+		group = []vfio.Function{}
 	}
 	openers, err := r.Openers(card.Addr)
 	if err != nil {

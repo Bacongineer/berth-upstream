@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,7 +127,10 @@ func (r Reader) Openers(addr string) ([]Opener, error) {
 				at[pid] = i
 				out = append(out, Opener{PID: pid, Name: r.comm(pid), Probe: r.isProbe(pid)})
 			}
-			out[i].Nodes = append(out[i].Nodes, t)
+			// One node opened many times reads once.
+			if !slices.Contains(out[i].Nodes, t) {
+				out[i].Nodes = append(out[i].Nodes, t)
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })

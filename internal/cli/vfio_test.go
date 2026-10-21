@@ -374,9 +374,10 @@ func TestVfioRunRefusesOpenersAndReleasesTheHold(t *testing.T) {
 	waitUntil(t, none(b))
 }
 
-// TestVfioRunRefusesAnUnreadableProc: a process whose fds cannot be read is
-// listed as unreadable, never skipped.
-func TestVfioRunRefusesAnUnreadableProc(t *testing.T) {
+// TestVfioRunWarnsOnAnUnreadableProc: a process whose fds cannot be read is
+// listed as unreadable, never skipped; it is a warning, not a refusal,
+// because an unreadable list is no proof of a holder.
+func TestVfioRunWarnsOnAnUnreadableProc(t *testing.T) {
 	isolate(t)
 	sock, b := startVfioDaemon(t)
 	tr := newVfioTree(t)
@@ -385,13 +386,13 @@ func TestVfioRunRefusesAnUnreadableProc(t *testing.T) {
 	tr.opener(100, "locked", 1)
 	tr.unreadable(100)
 	smi := tr.smi()
-	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond},
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond, poll: 5 * time.Millisecond},
 		"--socket", sock, "--", "/bin/true")
-	if code != ExitFail {
-		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
 	if !strings.Contains(errOut, "pid 100") || !strings.Contains(errOut, "unreadable") {
-		t.Errorf("the refusal does not name the unreadable process: %q", errOut)
+		t.Errorf("the warning does not name the unreadable process: %q", errOut)
 	}
 	waitUntil(t, none(b))
 }
