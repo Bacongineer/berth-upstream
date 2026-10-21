@@ -237,7 +237,7 @@ func TestVfioStatusReadsTheFakeTree(t *testing.T) {
 	tr := newVfioTree(t)
 	tr.function(vfioAddr, "nvidia")
 	tr.group()
-	code, out, errOut := runVfioStatusIn(t, tr, "", "--socket", "/nonexistent/berth.sock")
+	code, out, errOut := runVfioStatusIn(t, tr, tr.smi(), "--socket", "/nonexistent/berth.sock")
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
@@ -260,7 +260,7 @@ func TestVfioStatusJSONIsTheDocument(t *testing.T) {
 	tr.opener(100, "app", 1, "/dev/nvidia0")
 	tr.opener(101, "nvidia-smi", 99, "/dev/nvidiactl")
 	tr.opener(99, "berth", 1)
-	code, out, errOut := runVfioStatusIn(t, tr, "", "--socket", "/nonexistent/berth.sock", "--format", "json")
+	code, out, errOut := runVfioStatusIn(t, tr, tr.smi(), "--socket", "/nonexistent/berth.sock", "--format", "json")
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
@@ -301,7 +301,7 @@ func TestVfioStatusReportsPassthroughWithAnAddress(t *testing.T) {
 	tr := newVfioTree(t)
 	tr.function(vfioAddr, "vfio-pci")
 	tr.group()
-	code, out, errOut := runVfioStatusIn(t, tr, "", "--socket", "/nonexistent/berth.sock", vfioAddr)
+	code, out, errOut := runVfioStatusIn(t, tr, tr.smi(), "--socket", "/nonexistent/berth.sock", vfioAddr)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
