@@ -166,8 +166,8 @@ type dedicatedUsage struct {
 	Bytes    uint64
 }
 
-// busID is the governed card's pci.bus_id, from this read's device list.
-func busID(s Snapshot) string {
+// BusID is the governed card's pci.bus_id, from this read's device list.
+func BusID(s Snapshot) string {
 	for _, d := range s.Devices {
 		if d.Index == s.Index {
 			return d.BusID

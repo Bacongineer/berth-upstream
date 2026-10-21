@@ -297,7 +297,7 @@ func enumerateAdaptersCached() ([]adapter, error) {
 // adapters on the box are dropped. It reports an error when no single adapter
 // matches, which the caller takes as "keep every adapter".
 func targetLUID(s Snapshot) (map[luid]bool, error) {
-	id := busID(s)
+	id := BusID(s)
 	bus, dev, fn, ok := parseBusID(id)
 	if !ok {
 		return nil, fmt.Errorf("the governed card's pci.bus_id %q does not parse", id)

@@ -174,7 +174,7 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 			raw.Close()
 		}
 	}()
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: name, Group: "vfio", Priority: "hold",
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: name, Group: proto.GroupVFIO, Priority: "hold",
 		Wait: wait.Seconds(), Pinned: true}); err != nil {
 		return c.fail(Systemf("berthd on %s: %v", *sock, err))
 	}

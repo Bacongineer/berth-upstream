@@ -51,6 +51,9 @@ func (b *Broker) Status() proto.Status {
 	if b.probeErr != nil {
 		st.ProbeErr = b.probeErr.Error()
 	}
+	if b.cardState != "" {
+		st.Passthrough = &proto.Passthrough{State: b.cardState, Driver: b.cardDriver}
+	}
 	devs := b.snap.Devices
 	if len(devs) == 0 && b.snap.Total > 0 {
 		devs = []gpu.Device{{Index: b.snap.Index, Name: b.snap.Name, Total: b.snap.Total, Used: b.snap.Used, Free: b.snap.Free,

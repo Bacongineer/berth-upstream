@@ -345,7 +345,7 @@ func vfioBerthdView(card vfioCard) *vfioBerthdDoc {
 		}
 	}
 	for _, l := range card.Daemon.Leases {
-		if l.Group == "vfio" {
+		if l.Group == proto.GroupVFIO {
 			b.Hold = l.Engine + " " + l.ID
 		}
 	}

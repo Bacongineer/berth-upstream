@@ -230,6 +230,44 @@ func TestStatusShowsTheTurnColumn(t *testing.T) {
 	}
 }
 
+// The scheduled card's gpu line names the VM instead of memory figures
+// while the card is passed through, and the others keep their memory.
+func TestStatusShowsTheCardPassthrough(t *testing.T) {
+	run := func(p *proto.Passthrough) string {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+		st := &proto.Status{
+			API: proto.APIVersion, Version: "test",
+			GPUs: []proto.GPU{
+				{Index: 0, Name: "NVIDIA GeForce RTX 4090", Scheduled: true, Total: 24 << 30},
+				{Index: 1, Name: "GT 710"},
+			},
+			Passthrough: p,
+		}
+		if err := (statusView{st: st}).Human(c, true); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	s := run(&proto.Passthrough{State: proto.CardPassthrough, Driver: "vfio-pci"})
+	for _, line := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(line, "gpu0") {
+			continue
+		}
+		if !strings.Contains(line, "passed through to a VM (vfio-pci)") || strings.Contains(line, " used of ") {
+			t.Errorf("the scheduled card's line = %q, want the VM and no memory figures", line)
+		}
+	}
+	if !strings.Contains(s, "inventory only") {
+		t.Errorf("stdout %q lacks the other card's memory line", s)
+	}
+	s = run(&proto.Passthrough{State: proto.CardDetaching, Driver: "nvidia"})
+	if !strings.Contains(s, "being passed through to a VM (driver nvidia)") {
+		t.Errorf("stdout %q lacks the switching state", s)
+	}
+}
+
 func TestStatusYAML(t *testing.T) {
 	isolate(t)
 	sock := startDaemon(t)

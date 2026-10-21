@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Card passed through to a VM (experimental). While the governed card is bound to `vfio-pci`,
+  `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
+  granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.
+  `card.passthrough` and `card.returned` events mark each change.
 - `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to a
   VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes holding
   the card. `run -- CMD` drains the card, refuses while another process holds it, runs your own switch
