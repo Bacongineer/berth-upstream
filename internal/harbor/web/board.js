@@ -221,7 +221,7 @@ export class Board {
       updateCell(c.hold, fit(hold, WIDTH.hold), "");
       // status cell: flip tiles, then the WARM and CONTESTED flags
       syncSi(c.status, st);
-      updateCell(c.status, fit(statusText(st), WIDTH.status), tone);
+      updateCell(c.status, fit(word, WIDTH.status), tone);
       syncWarm(row, entry);
       syncQueued(row, entry);
       syncContest(c.status, l.contested);
