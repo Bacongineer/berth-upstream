@@ -14,6 +14,13 @@ has a matching GitHub release whose body comes from its section below.
   left, and `berth status` shows it in the TURN column. When the turn ends the normal rules
   apply; a re-attach after a daemon restart starts a fresh turn.
 
+### Fixed
+
+- The built-in `epic-game` claim no longer holds the card while only Epic's background services
+  run. Its exclusion named `EpicOnlineServices`, but the folder on disk is `Epic Online Services`,
+  so the overlay and helper processes matched as a running game and every engine waited behind
+  them. [#81](https://github.com/T-Crypt/berth/issues/81)
+
 ## [v0.3.1] - 2026-10-20
 
 ### Fixed
