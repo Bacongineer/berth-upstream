@@ -130,7 +130,7 @@ func (o Options) pollEvery() time.Duration {
 	return o.Retry
 }
 
-func Run(o Options) int {
+func Run(o Options) (code int) {
 	say := func(format string, a ...any) { fmt.Fprintf(o.Stderr, "berth: "+format+"\n", a...) }
 	if o.APIKeyEnv != "" || o.APIKeyFile != "" {
 		key, err := (config.Engine{APIKeyEnv: o.APIKeyEnv, APIKeyFile: o.APIKeyFile}).APIKey()
@@ -178,7 +178,17 @@ func Run(o Options) int {
 		}
 	}
 
-	cmd := command(o, o.Output)
+	cmd, notify, err := command(o, o.Output)
+	if err != nil {
+		say("notification socket: %v", err)
+		return 127
+	}
+	defer func() {
+		if err := notify.close(); err != nil {
+			say("notification cleanup: %v", err)
+			code = 1
+		}
+	}()
 	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
@@ -227,6 +237,17 @@ func Run(o Options) int {
 			drain(opts, cmd, line, done, reason, say)
 		}()
 	}
+	notifyResult := notify.watch(done, func(error) {
+		select {
+		case <-done:
+			return
+		case <-drainTicket:
+		}
+		defer func() { drainTicket <- struct{}{} }()
+		opts := o
+		opts.Park, opts.Hook = nil, false
+		drain(opts, cmd, line, done, "notification forwarding failed", say)
+	})
 	if o.ExitComfyUIIdle {
 		go func() {
 			complete := false
@@ -289,6 +310,10 @@ func Run(o Options) int {
 
 	err = cmd.Wait()
 	close(done)
+	if notifyErr := <-notifyResult; notifyErr != nil {
+		say("notification forwarding: %v", notifyErr)
+		return 1
+	}
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil // exited cleanly; a grandchild still held the output copy
 	}
@@ -576,8 +601,19 @@ func slotsBusy(url, key string) (int, error) {
 	return n, nil
 }
 
-func runUnleased(o Options, reason string) int {
-	cmd := command(o, o.Output)
+func runUnleased(o Options, reason string) (code int) {
+	say := func(format string, a ...any) { fmt.Fprintf(o.Stderr, "berth: "+format+"\n", a...) }
+	cmd, notify, err := command(o, o.Output)
+	if err != nil {
+		say("notification socket: %v", err)
+		return 127
+	}
+	defer func() {
+		if err := notify.close(); err != nil {
+			say("notification cleanup: %v", err)
+			code = 1
+		}
+	}()
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(o.Stderr, "berth: start %s: %v\n", o.Argv[0], err)
 		return 127
@@ -586,8 +622,17 @@ func runUnleased(o Options, reason string) int {
 	defer record(o, cmd, reason)()
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)
-	err := cmd.Wait()
+	notifyResult := notify.watch(done, func(error) {
+		opts := o
+		opts.Park, opts.Hook = nil, false
+		drain(opts, cmd, nil, done, "notification forwarding failed", say)
+	})
+	err = cmd.Wait()
 	close(done)
+	if notifyErr := <-notifyResult; notifyErr != nil {
+		say("notification forwarding: %v", notifyErr)
+		return 1
+	}
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
 	}
@@ -608,9 +653,16 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 	return remove
 }
 
-func command(o Options, out io.Writer) *exec.Cmd {
+func command(o Options, out io.Writer) (*exec.Cmd, *notifications, error) {
 	argv := scopeToChild(o.Engine, o.Argv, o.Log)
+	notify, err := startNotifications()
+	if err != nil {
+		return nil, nil, err
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	if notify != nil {
+		cmd.Env = notify.env
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if out != nil {
 		cmd.Stdout, cmd.Stderr = io.MultiWriter(os.Stdout, out), io.MultiWriter(os.Stderr, out)
@@ -619,7 +671,7 @@ func command(o Options, out io.Writer) *exec.Cmd {
 		cmd.WaitDelay = 2 * time.Second
 	}
 	isolate(cmd)
-	return cmd
+	return cmd, notify, nil
 }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
