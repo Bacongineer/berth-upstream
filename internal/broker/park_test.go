@@ -292,6 +292,30 @@ func TestParkedEnginesAreEvicted(t *testing.T) {
 	}
 }
 
+// An engine's park_ttl stops it sooner than the node's ttl: ComfyUI kept up
+// on a drain gives its context back minutes later, not half an hour.
+func TestParkedEngineOwnTTL(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	l := warmLease(t, b, c, "comfyui", 8*GiB, 100, 101)
+	b.cfg.MemAvailable = func() uint64 { return 16 * GiB }
+	b.cfg.MemPressure = func() float64 { return 0 }
+	b.mu.Lock()
+	l.l.parkTTL = 5 * time.Minute
+	l.l.parkedAt = time.Now().Add(-6 * time.Minute)
+	b.mu.Unlock()
+
+	b.Tick(context.Background())
+	select {
+	case why := <-l.Drains():
+		if !strings.Contains(why, "past the ttl") {
+			t.Fatalf("eviction drain reason %q, want past the ttl", why)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the parked engine outlived its own ttl")
+	}
+}
+
 // A resume puts the parked lease back in the queue at its own priority,
 // and the grant closes the resume signal for the runner's connection.
 func TestResumeGrantsTheParkedLease(t *testing.T) {

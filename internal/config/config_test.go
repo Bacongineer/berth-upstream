@@ -820,3 +820,17 @@ fallback = "strata"
 		t.Errorf("a chain was accepted or names neither engine: %v", err)
 	}
 }
+
+func TestEngineParkTTL(t *testing.T) {
+	const entry = "[[engine]]\nname = \"comfyui\"\ntype = \"comfyui\"\nurl = \"http://127.0.0.1:8188\"\n"
+	c, err := Load(write(t, entry+"park_ttl = \"10m\"\n"))
+	if err != nil {
+		t.Fatalf("a valid park_ttl was refused: %v", err)
+	}
+	if got := c.Engine[0].ParkTTL.Duration; got != 10*time.Minute {
+		t.Errorf("park_ttl = %s, want 10m", got)
+	}
+	if _, err := Load(write(t, entry+"park_ttl = \"-1m\"\n")); err == nil || !strings.Contains(err.Error(), `engine[0] "comfyui": park_ttl -1m0s must be >= 0`) {
+		t.Errorf("a negative park_ttl: %v", err)
+	}
+}
