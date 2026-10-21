@@ -21,6 +21,12 @@
 - **API key.** Bearer token on every route; `berth key` prints it (created on first use, mode
   600). Loopback only; browser origins and non-loopback Host names are refused.
 
+The node key stays with the gateway: it is the client's credential for the gateway, and a proxied
+request to an engine carries that engine's own key when the engine has one (`api_key_env` or
+`api_key_file` on its entry) and none when it does not. An engine that checks a key is given its
+own, not the node's. A credential that will not resolve (an unset variable, an unreadable file)
+sends no `Authorization` and logs one WARN line naming the engine and the error, never the key.
+
 ## Switch engines by naming a model
 
 Two engines that each want the whole card can't run together, and most harnesses can't start an engine
@@ -75,8 +81,9 @@ request keeps waiting for its own engine. The primary's start is never cancelled
 requests that come later land on it. `fallback_model` names the model the fallback lists the request
 under when the two disagree, a non-streaming answer carries `X-Berth-Fallback: <fallback>`, and a
 streaming answer, whose headers went out with the keep-alive preamble, carries one
-`: berth: fallback <fallback>` comment before its data. The fallback gets the request without its
-`Authorization` header: the node's API key stays with the gateway. One hop, per engine, opt-in: `berth config check`
+`: berth: fallback <fallback>` comment before its data. The fallback gets the request without the
+node's `Authorization` header; when the fallback's entry has its own key (`api_key_env` or `api_key_file`),
+that is the one the request carries. One hop, per engine, opt-in: `berth config check`
 refuses chains and a fallback that is not an engine in the file.
 
 ```toml
