@@ -174,6 +174,7 @@ func Run(o Options) int {
 	}
 
 	cmd := command(o.Argv, o.Output)
+	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
 		return 127
@@ -223,7 +224,6 @@ func Run(o Options) int {
 	}
 	if o.ExitComfyUIIdle {
 		go func() {
-			var session comfySession
 			complete := false
 			for {
 				if !complete {
