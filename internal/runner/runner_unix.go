@@ -40,6 +40,12 @@ func scopeToChild(as string, argv []string, log *slog.Logger) []string {
 	if testing.Testing() {
 		return argv
 	}
+	if !scopeAllowed(os.Getenv) {
+		if log != nil {
+			log.Debug("inside a Type=notify service; the engine stays in its cgroup", "engine", as)
+		}
+		return argv
+	}
 	if !sysd.ScopeReady() {
 		if log != nil {
 			log.Debug("no systemd user manager; the engine runs in this run's cgroup", "engine", as)
@@ -47,6 +53,13 @@ func scopeToChild(as string, argv []string, log *slog.Logger) []string {
 		return argv
 	}
 	return sysd.ScopeArgv("berth-run", as, argv)
+}
+
+// scopeAllowed is false inside a Type=notify service (NOTIFY_SOCKET set):
+// systemd drops a readiness message sent from outside the service's
+// cgroup, so the unit would never leave "activating".
+func scopeAllowed(getenv func(string) string) bool {
+	return getenv("NOTIFY_SOCKET") == ""
 }
 
 func signalGroup(cmd *exec.Cmd, s os.Signal) {

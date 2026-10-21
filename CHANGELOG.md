@@ -26,8 +26,9 @@ has a matching GitHub release whose body comes from its section below.
   turns stuck naming it, `berth reclaim` lists it, and a whole-card request is never
   granted `contested` over it. A GPU process in a scope no live lease recorded is a
   stowaway as before, and a process outside every scope is never attributed to a
-  scopeless lease. Without a user manager, and on Windows, the run starts as before
-  and the window stands.
+  scopeless lease. Without a user manager, inside a `Type=notify` service (where
+  systemd only accepts readiness from the service's own cgroup), and on Windows, the run
+  starts as before and the window stands.
 
 ## [v0.3.3] - 2026-10-21
 
