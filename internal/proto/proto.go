@@ -270,6 +270,9 @@ type GPU struct {
 	Free      uint64  `json:"free"`
 	Baseline  uint64  `json:"baseline"`
 	Age       float64 `json:"age_seconds"`
+	// UnobservedPIDs are same-user processes whose DRM fdinfo is inaccessible.
+	// Their unknown allocation remains in Baseline; absence is not a release.
+	UnobservedPIDs []int `json:"unobserved_pids,omitempty"`
 
 	// Telemetry as the driver reports it; -1 = not reported.
 	Util       float64 `json:"util_pct"`

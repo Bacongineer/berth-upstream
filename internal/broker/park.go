@@ -130,7 +130,7 @@ func (b *Broker) parkingTick(key string, l *lease, now time.Time, read uint64) {
 	if l.parkedCall.IsZero() || read <= l.parkedRead {
 		return
 	}
-	if l.used() <= b.cfg.ParkResidualMax {
+	if l.used() <= b.cfg.ParkResidualMax && b.driverReleased(l) {
 		l.state = parked
 		l.parkedAt = now
 		l.parkedN = b.order()

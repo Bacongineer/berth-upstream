@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package gpu reads what the card reports: total, used and free memory, and
-// the compute processes holding it. It shells out to nvidia-smi, which talks
-// to NVML and never opens a CUDA context, so probing costs no VRAM.
+// the processes holding it. Probes observe the driver without opening an
+// inference context: NVIDIA through nvidia-smi, AMD through Linux sysfs/DRM.
 package gpu
 
 import (
@@ -22,9 +22,10 @@ const GiB = 1 << 30
 
 // Proc is one compute process holding memory on the card.
 type Proc struct {
-	PID  int
-	Name string
-	Used uint64 // bytes
+	PID   int
+	Name  string
+	Used  uint64 // bytes
+	Start uint64 // process start time, when sampled by the probe; 0 = broker resolves it
 }
 
 // Device is one card as the driver reports it. Telemetry the driver does
@@ -62,6 +63,15 @@ type Snapshot struct {
 	Free    uint64
 	Procs   []Proc
 	At      time.Time
+	// Guarded probes need fresh, successful observations for admission and
+	// card-wide confirmation of release: a /proc entry can disappear before
+	// the driver has reclaimed its buffers. NVIDIA retains its existing policy.
+	Guarded bool
+	MaxAge  time.Duration
+	// Unobserved names same-user PIDs whose fdinfo was inaccessible. They
+	// are not an empty process list: the broker retains prior ownership and
+	// uses card-wide counters to guard admissions and release confirmation.
+	Unobserved []int
 }
 
 // Baseline is memory in use that no compute process accounts for: the

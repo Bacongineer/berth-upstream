@@ -223,14 +223,15 @@ type lease struct {
 	// ("" when it runs outside one). A cgroup is inherited on fork, so
 	// every process under that path is the lease's, however its process
 	// tree is shaped.
-	scope     string
-	gpu       map[ident]gpu.Proc
-	desc      map[ident]struct{} // descendants recorded while the lease ran
-	contested uint64             // squatter bytes on the card when granted
-	peak      uint64             // most memory its processes were measured holding
-	arrived   time.Time
-	granted   time.Time
-	released  time.Time
+	scope           string
+	gpu             map[ident]gpu.Proc
+	desc            map[ident]struct{} // descendants recorded while the lease ran
+	contested       uint64             // squatter bytes on the card when granted
+	peak            uint64             // most memory its processes were measured holding
+	releaseBaseline uint64             // guarded probes: unattributed driver baseline before this lease loaded
+	arrived         time.Time
+	granted         time.Time
+	released        time.Time
 	// releasedRead and parkedRead are the card reads started when the lease
 	// was released or its park call was done: only a tick whose read is
 	// later frees it or marks it parked. Clock-free, so a coarse clock
@@ -609,6 +610,14 @@ func (b *Broker) Tick(ctx context.Context) {
 	defer func() { b.persistUsage(b.now(), false) }()
 	read := b.reads.Add(1)
 	snap, err := b.probe.Read(ctx)
+	if err == nil {
+		for _, p := range snap.Procs {
+			if start := b.tree.StartTime(p.PID); p.Start != 0 && start != 0 && start != p.Start {
+				err = fmt.Errorf("%w: pid %d changed identity after GPU scan", gpu.ErrUnsafeRead, p.PID)
+				break
+			}
+		}
+	}
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
 		rs = runs.List(b.cfg.RunsDir, b.tree.StartTime)
@@ -620,9 +629,12 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.runs = rs
 	b.accountUsage(now)
 	b.pruneVerdicts(now)
+	if err == nil && snap.Guarded && (snap.At.IsZero() || snap.MaxAge <= 0 || now.Sub(snap.At) > snap.MaxAge) {
+		err = fmt.Errorf("%w: GPU sample is stale", gpu.ErrUnsafeRead)
+	}
 	if err != nil {
 		if b.probeErr == nil {
-			b.log.Warn("gpu probe failed; scheduling on the lease table alone", "err", err)
+			b.log.Warn("gpu probe failed", "err", err, "admission_blocked", b.snap.Guarded || errors.Is(err, gpu.ErrUnsafeRead))
 			b.emit(proto.Event{Kind: proto.EvProbeFailed, Detail: err.Error()})
 		}
 		b.probeErr = err
@@ -640,8 +652,12 @@ func (b *Broker) Tick(ctx context.Context) {
 
 	present := map[ident]bool{}
 	claimed := map[ident]claimedProc{}
+	b.retainUnobserved(snap.Unobserved, present, claimed)
 	for _, p := range snap.Procs {
 		id := b.identify(p.PID)
+		if p.Start != 0 {
+			id = ident{pid: p.PID, start: p.Start}
+		}
 		present[id] = true
 		scope := b.scopeOf(p.PID)
 		if l := b.owner(id, b.containerOf(p.PID), scope); l != nil {
@@ -728,7 +744,7 @@ func (b *Broker) Tick(ctx context.Context) {
 			}
 		}
 		if l.state == releasing || l.state == stuck {
-			if len(l.gpu) == 0 && read > l.releasedRead {
+			if len(l.gpu) == 0 && read > l.releasedRead && b.driverReleased(l) {
 				// Only a tick whose card read started after the release frees
 				// the lease: an earlier read knows nothing about a process that
 				// appeared after it. Read order, not the clock, decides.
@@ -741,9 +757,9 @@ func (b *Broker) Tick(ctx context.Context) {
 				// Never grant on process exit alone: the lease keeps blocking
 				// until the card shows its memory gone, and waiters are told why.
 				l.state = stuck
-				b.log.Warn("lease stuck: released but its processes still hold memory", "lease", key, "engine", l.engine, "holding", holding(l))
+				b.log.Warn("lease stuck: memory release not confirmed", "lease", key, "engine", l.engine, "holding", b.guardedDetail(l))
 				b.counters.StuckCaught++
-				b.emit(proto.Event{Kind: proto.EvStuck, Lease: key, Engine: l.engine, Bytes: l.used(), Detail: holding(l)})
+				b.emit(proto.Event{Kind: proto.EvStuck, Lease: key, Engine: l.engine, Bytes: l.used(), Detail: b.guardedDetail(l)})
 			}
 			continue
 		}
@@ -887,6 +903,10 @@ func (b *Broker) allowed(name string) bool {
 // holders to drain for the first waiter that does not fit. Nobody behind a
 // blocked waiter jumps it, so a big request is not starved by small ones.
 func (b *Broker) schedule(now time.Time) {
+	if why := b.observationWait(now); why != "" {
+		b.notifyWait(b.queue, why)
+		return
+	}
 	sort.SliceStable(b.queue, func(i, j int) bool {
 		if b.queue[i].prio != b.queue[j].prio {
 			return b.queue[i].prio > b.queue[j].prio
@@ -909,6 +929,7 @@ func (b *Broker) schedule(now time.Time) {
 			w.state = active
 			w.granted = now
 			w.grantedN = b.order()
+			w.releaseBaseline = b.snap.Baseline()
 			w.contested = b.squatBytes()
 			b.leases[w.id] = w
 			beside := w.beside
@@ -1127,6 +1148,9 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 			return false, fmt.Sprintf("waiting for ComfyUI to free its models (%d MiB squatted)",
 				comfyBytes/gpu.MiB), nil
 		}
+		if b.snap.Guarded && w.needs > 0 && sat(b.snap.Free, b.cfg.Reserve) < w.needs {
+			return false, "waiting for driver-confirmed free VRAM", nil
+		}
 		return true, "", nil
 	}
 	exclusive := w.needs == 0 || b.snap.Total == 0
@@ -1215,6 +1239,9 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	squat := budget.squat
 	avail := budget.avail()
 	if avail >= w.needs {
+		if b.snap.Guarded && sat(b.snap.Free, b.cfg.Reserve) < w.needs {
+			return false, "waiting for driver-confirmed free VRAM", nil
+		}
 		return true, "", nil
 	}
 	var leaving uint64
@@ -1384,6 +1411,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	l.scope = scope
 	l.granted = now
 	l.grantedN = b.order()
+	l.releaseBaseline = b.snap.Baseline()
 	close(l.grantCh)
 	b.leases[l.id] = l
 	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)

@@ -153,8 +153,27 @@ line goes away.
 - Every reporting command takes `--format json|yaml`. All of them keep results on stdout and
   diagnostics on stderr, and exit 0, 1 or 2 by one rule.
 
-**Runs on** Linux with an NVIDIA GPU (supported) and Windows 10/11 with an NVIDIA GPU
-(experimental). Apache-2.0.
+**Runs on** Linux with an NVIDIA GPU (supported), Linux with a discrete AMD RDNA3/RDNA4
+GPU (experimental), and Windows 10/11 with an NVIDIA GPU (experimental). Apache-2.0.
+
+### AMD on Linux
+
+Select the AMD probe explicitly (or let `auto` select it on an AMD-only host):
+
+```sh
+berth daemon --gpu-backend amd --gpu 0
+# Or install the user service with that selection:
+berth service install --harbor --gpu-backend amd --gpu 0
+```
+
+For AMD, `--gpu N` means Linux DRM **cardN**, not a HIP/ROCm ordinal. The probe matches
+processes by PCI address, not PID alone. On mixed NVIDIA/AMD installations, choose
+`--gpu-backend` explicitly; auto refuses ambiguity. This selects what Berth observes,
+not where the engine loads: configure the engine's GPU placement separately.
+
+The AMD adapter reads kernel sysfs and DRM `fdinfo`; no ROCm installation, `amd-smi`,
+root privileges, or extra monitoring service is required. APUs/UMA and AMD on Windows
+are not supported. See [AMD scope, accounting limits and validation](contrib/amd/README.md).
 
 ## Quick start
 
@@ -1142,7 +1161,7 @@ more, run the bench with park on and add a row.
 |---|---|
 | Linux + NVIDIA | Supported |
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
-| AMD on Linux | Not supported yet; planned for v0.4 (a vendor-neutral probe, then amdgpu) |
+| AMD on Linux | Experimental: discrete RDNA3/RDNA4 through amdgpu sysfs/DRM. W7900 allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APUs/UMA excluded. [Scope and checks](contrib/amd/README.md). |
 | Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
 
@@ -1212,7 +1231,7 @@ Not started, and in no release yet: `berth fit` and scenes, so engines that fit 
 
 | Release | What it brings |
 |---|---|
-| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
+| v0.4 | Broader AMD Linux hardware validation beyond the experimental RDNA3/RDNA4 probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
 | v0.5 | Multi-GPU scheduling, including one lease across two cards for engines that split a model |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
@@ -1246,9 +1265,9 @@ turn, or a sized share with `--needs-mib`; it doesn't make a model fit that does
 added `contrib/chaos`, the swap bench and the [tested hardware](#tested-hardware) table so you can
 check it on yours.
 
-**AMD? Windows?** AMD on Linux and a full Windows node are planned for v0.4. Windows with NVIDIA
-works today as experimental, and `contrib/windows/check.ps1` checks it on your machine; see the
-[support matrix](#support-matrix).
+**AMD? Windows?** Linux discrete AMD RDNA3/RDNA4 support is experimental; APUs/UMA are deferred.
+Windows with NVIDIA is experimental too, and `contrib/windows/check.ps1` checks it on your
+machine; see the [support matrix](#support-matrix).
 
 **Can Berth handle ComfyUI on the host and vLLM in Docker?** Yes. Start each one under its own
 lease: `berth run --as comfyui -- python ...` for ComfyUI, and

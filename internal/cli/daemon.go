@@ -5,10 +5,8 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"sync/atomic"
@@ -34,6 +32,7 @@ func runDaemon(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "Unix socket to listen on ($BERTH_SOCKET)")
 	index := fs.Int("gpu", 0, "GPU index")
+	backend := fs.String("gpu-backend", "auto", "GPU probe: auto, nvidia or amd (AMD --gpu is the DRM cardN number)")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
 	headroomMib := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start, added to the park floor (the gateway's guard default)")
@@ -52,6 +51,9 @@ func runDaemon(c *Context) int {
 	}
 	if code, done := c.noArgs(); done {
 		return code
+	}
+	if err := gpu.ValidateSelection(*backend, *index); err != nil {
+		return c.fail(Failf("%v", err))
 	}
 
 	log := c.Log()
@@ -84,7 +86,10 @@ func runDaemon(c *Context) int {
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
 
-	probe := &gpu.Stream{Index: *index, Interval: *poll, Log: log}
+	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: *index, Interval: *poll, Log: log})
+	if err != nil {
+		return c.fail(Systemf("gpu backend: %v", err))
+	}
 	rep := server.Reporter{Notify: *notify, Webhook: *webhook, Log: log}
 	// The engine readers exist before the broker: a juggle asks them whether
 	// the holder is busy. They start reading below, once the card is known.
@@ -142,13 +147,20 @@ func runDaemon(c *Context) int {
 	// Inventory every card with its real limits before taking any lease, and
 	// refuse to schedule a card that does not exist.
 	snap, err := probe.Read(ctx)
-	if errors.Is(err, exec.ErrNotFound) {
-		return c.fail(Systemf("nvidia-smi not found: Berth needs an NVIDIA driver (Linux + NVIDIA is the supported platform)"))
-	} else if err != nil {
+	if err != nil {
 		return c.fail(Systemf("gpu inventory: %v", err))
 	}
 	for _, d := range snap.Devices {
-		log.Info("gpu found", "index", d.Index, "name", d.Name, "total_mib", d.Total/gpu.MiB, "scheduled", d.Index == *index)
+		log.Info("gpu found", "index", d.Index, "name", d.Name, "pci", d.BusID, "total_mib", d.Total/gpu.MiB, "scheduled", d.Index == *index)
+	}
+	if len(snap.Unobserved) > 0 {
+		log.Warn("some same-user GPU process data is inaccessible; unknown allocations remain in the driver baseline", "pids", snap.Unobserved)
+	}
+	// Seed the broker before accepting clients, not in a racing goroutine:
+	// guarded admission must never see an uninitialised lease-only snapshot.
+	b.Tick(ctx)
+	if st := b.Status(); st.ProbeErr != "" {
+		return c.fail(Systemf("gpu initial observation: %s", st.ProbeErr))
 	}
 
 	ln, err := server.Listen(*sock)
@@ -157,7 +169,9 @@ func runDaemon(c *Context) int {
 	}
 	defer os.Remove(*sock)
 	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *index)
-	go probe.Run(ctx)
+	if stream, ok := probe.(interface{ Run(context.Context) }); ok {
+		go stream.Run(ctx)
+	}
 	go b.Run(ctx)
 	// Claims: games and apps Berth does not run hold the card or have their
 	// memory named, from the process table. Validate already compiled them.

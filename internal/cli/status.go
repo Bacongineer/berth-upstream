@@ -37,6 +37,9 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 		c.Printf("gpu%d    %s: %s used of %s, %s free (%s, read %s ago)\n", g.Index, g.Name,
 			server.MiB(g.Used), server.MiB(g.Total), server.MiB(g.Free), role, age(g.Age))
+		if len(g.UnobservedPIDs) > 0 {
+			c.Printf("        process visibility limited for PIDs %v; unknown memory remains in baseline\n", g.UnobservedPIDs)
+		}
 	}
 	if st.ProbeErr != "" {
 		c.Printf("probe   %s\n", c.Style.Err("FAILING: "+st.ProbeErr))
