@@ -30,6 +30,23 @@ func (b *Broker) scopeLease(scope string) *lease {
 	return found
 }
 
+// refreshScopes reads each attached engine's scope while its PID plus
+// start time is still the engine: the engine enters its scope a moment
+// after it starts, so the read at attach would name the wrapper's
+// cgroup. Once the engine is gone the last scope read stays, which is
+// what names a child it left behind. Called with b.mu held.
+func (b *Broker) refreshScopes() {
+	for _, l := range b.leases {
+		if (l.state != active && l.state != draining && l.state != releasing) || l.pid <= 0 ||
+			b.tree.StartTime(l.pid) != l.pidStart {
+			continue
+		}
+		if s, ok := b.cfg.Scopes(l.pid); ok {
+			l.scope = s
+		}
+	}
+}
+
 // scopeOf is a process's Berth scope path, "" when it runs outside one.
 func (b *Broker) scopeOf(pid int) string {
 	s, ok := b.cfg.Scopes(pid)

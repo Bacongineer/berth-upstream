@@ -92,3 +92,33 @@ func TestSharedScopeNamesNeither(t *testing.T) {
 		t.Fatalf("squatters = %+v, want 112 reported as a stowaway", st.Squatters)
 	}
 }
+
+// systemd-run moves the engine into its scope only after a round trip to
+// the user manager, so at attach the engine still reads as outside any
+// scope. The lease must still learn the scope once the engine is in it.
+func TestScopeReadAfterAttach(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{100: 1, 102: 1}, Starts: map[int]uint64{100: 1, 102: 5}}
+	b, c, r := setup(t, tree)
+	moved := false
+	b.cfg.Scopes = func(pid int) (string, bool) {
+		if (pid == 100 && moved) || pid == 102 {
+			return runScopeA, true
+		}
+		return "", false
+	}
+
+	a := must(t, acquire(b, Request{Engine: "a"}))
+	a.Attach(100)
+	moved = true
+
+	c.set(gpu.Proc{PID: 102, Name: "python", Used: 8 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].Used != 8*GiB {
+		t.Fatalf("leases = %+v, want the scope's memory under a", st.Leases)
+	}
+	if len(st.Squatters) != 0 || strings.Join(r.seen, ",") != "" {
+		t.Fatalf("squatters = %+v, reports = %v, want no stowaway", st.Squatters, r.seen)
+	}
+}

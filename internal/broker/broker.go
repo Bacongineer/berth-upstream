@@ -636,6 +636,7 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.probeErr = nil
 	b.snap = snap
 	b.recordDescendants()
+	b.refreshScopes()
 
 	present := map[ident]bool{}
 	claimed := map[ident]claimedProc{}
@@ -1274,16 +1275,15 @@ func (l *Lease) Contested() uint64 {
 	return l.l.contested
 }
 
-// Attach records the engine holding the berth, by PID plus start time,
-// and the Berth scope that engine runs in (empty when it runs outside
-// one). The scope keeps every process the engine forks attributable
-// even after it escapes the process tree.
+// Attach records the engine holding the berth, by PID plus start time.
+// Its Berth scope is read on the next tick, not here: systemd-run moves
+// itself into the scope only after a round trip to the user manager, so
+// at attach the engine still sits in its wrapper's cgroup.
 func (l *Lease) Attach(pid int) {
 	start := l.b.tree.StartTime(pid)
-	scope, _ := l.b.cfg.Scopes(pid)
 	l.b.mu.Lock()
 	l.l.pid, l.l.pidStart = pid, start
-	l.l.scope = scope
+	l.l.scope = ""
 	l.b.mu.Unlock()
 }
 
