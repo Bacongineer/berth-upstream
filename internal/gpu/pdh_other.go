@@ -5,6 +5,8 @@
 
 package gpu
 
+import "log/slog"
+
 // withPDH is the identity off Windows: only the driver's own numbers are
 // read there.
-func withPDH(s Snapshot) Snapshot { return s }
+func withPDH(s Snapshot, _ *slog.Logger) Snapshot { return s }
