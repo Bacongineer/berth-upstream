@@ -91,6 +91,7 @@ export function kindWord(kind) {
     case "lease.granted": return "GRANTED";
     case "lease.draining": return "DRAINING";
     case "lease.released": return "RELEASED";
+    case "lease.orphaned": return "ORPHANED";
     case "lease.freed": return "FREED";
     case "lease.stuck": return "AGROUND";
     case "lease.refused": return "REFUSED";
@@ -164,6 +165,7 @@ const KIND_SI = {
   "lease.park_refused": "crit",
   "lease.park_evicted": "warn",
   "lease.released": "adrift",
+  "lease.orphaned": "adrift",
   "lease.freed": "adrift",
   "lease.stuck": "aground",
   "lease.juggle": "stale",
