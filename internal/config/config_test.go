@@ -725,7 +725,7 @@ func TestLibraryFloorDefaults(t *testing.T) {
 // and the size parses as given.
 func TestEngineKVSnapshotsParsedAndValidated(t *testing.T) {
 	abs := filepath.Join(t.TempDir(), "kv")
-	c, err := Load(write(t, "[[engine]]\nname = \"llama-server\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nkv_snapshots = \""+abs+"\"\nkv_snapshots_mib = 4096\n"))
+	c, err := Load(write(t, "[[engine]]\nname = \"llama-server\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nkv_snapshots = '"+abs+"'\nkv_snapshots_mib = 4096\n"))
 	if err != nil {
 		t.Fatalf("a valid kv_snapshots was refused: %v", err)
 	}
