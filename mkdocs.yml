@@ -27,6 +27,7 @@ nav:
   - Install: install.md
   - Engines: engines.md
   - Leasing, games and holds: leasing.md
+  - VFIO passthrough (experimental): vfio.md
   - Models: models.md
   - Gateway: gateway.md
   - The harbor and telemetry: harbor.md

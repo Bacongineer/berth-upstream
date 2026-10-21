@@ -8,6 +8,20 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth vfio status` and `berth vfio run` (experimental, Linux only): the user side of passing the governed
+  card to a virtual machine through VFIO. `status` reads the card's VFIO state (IOMMU on or off, the IOMMU
+  group and the driver bound to each function, the processes holding the card's device nodes, what berthd
+  reports about the card) and changes nothing. `run -- CMD` acquires the VFIO hold the way `berth hold` does
+  (a pinned lease at hold priority, group `vfio`, engine `vfio:<reason>`), refuses when IOMMU is off, when
+  the IOMMU group holds devices that are not the card's, or when a process other than berthd's own probe
+  still holds a device node of the card (named by PID and node, hold released, exit 1; Berth never stops a
+  process), and then runs the operator's own switch script with the terminal attached and
+  `BERTH_VFIO_DEVICES` set to the card's PCI functions, so its sudo prompt reaches the terminal and the
+  script hardcodes no address. When the script exits, the hold ends only when every function is off
+  `vfio-pci` and the card answers `nvidia-smi` again; until then the hold stays and Ctrl-C releases it only
+  once the card is back, so the next engine never loads onto a card that is out. Berth never binds or
+  unbinds a driver, never writes to sysfs, and never asks for a password; the script (sudo, virsh) owns the
+  switch and libvirt owns the VM. See docs/vfio.md.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
   needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
   default). A request that has waited that long for its own engine is proxied to the fallback when
