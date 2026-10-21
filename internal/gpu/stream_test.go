@@ -25,7 +25,7 @@ func fakeSMI(t *testing.T) (bin, dir string) {
 D=` + dir + `
 case "$*" in
 *compute-apps*) echo x >> $D/calls; cat $D/apps; exit 0 ;;
-*-lms*) while :; do echo "0, Fake 4090, 24564, $(cat $D/used), 100"; sleep 0.05; done ;;
+*-lms*) echo $$ >> $D/loops; while :; do echo "0, Fake 4090, 24564, $(cat $D/used), 100"; sleep 0.05; done ;;
 *) echo "0, Fake 4090, 24564, $(cat $D/used), 100" ;;
 esac
 `

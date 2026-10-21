@@ -562,6 +562,53 @@ same reference again repairs only what does not match.`,
 		Run:     runVersion,
 	},
 	{
+		Name:    "vfio",
+		Summary: "pass the card to a VM through VFIO: watch it, wrap the switch script",
+		Help: `Berth drains the engines, holds the card while your own script switches it to
+vfio-pci and runs the VM, and refuses to let the next engine load until the card
+is back on its host driver and answering nvidia-smi. Berth never switches a
+driver itself, never asks for a password, and never stops a process: your script
+(sudo, virsh) owns the switch and the VM. Experimental, Linux only;
+docs/vfio.md has the requirements and an example script.`,
+		Sub: []*Command{
+			{
+				Name:    "run",
+				Summary: "hold the card, run the switch script, wait for the card back",
+				Args:    "[--reason NAME] [--wait D] -- CMD [ARGS...]",
+				Help: `Acquire the VFIO hold the way berth hold does: engines drain at their
+boundaries and none starts. Then the script runs with the terminal attached, so
+its sudo prompt reaches you, and with BERTH_VFIO_DEVICES set to the card's PCI
+functions, so it hardcodes no address.
+
+Before the script starts, the openers are re-read: anyone but berthd's own
+probe holding /dev/nvidia* or the card's DRM nodes refuses the run, names every
+PID and node, releases the hold and exits 1. Berth never stops a process.
+
+When the script exits, the hold ends only when every function of the card is
+off vfio-pci and the card answers nvidia-smi again (up to a minute). Until
+then the hold stays, the message names the function that is out and what to do,
+and Ctrl-C rechecks: it releases only when the card is back, so the next engine
+never loads onto a card that is out.`,
+				Run: runVfioRun,
+			},
+			{
+				Name:    "status",
+				Summary: "the card's VFIO state: IOMMU, group, drivers, openers, berthd's view",
+				Args:    "[ADDR] [--socket P] [--format F]",
+				Help: `Print the card's VFIO state and change nothing: whether IOMMU is on, the card's
+IOMMU group and the driver each function in it is bound to (anything but the
+card's own functions blocks the passthrough), the processes holding the card's
+device nodes open, and what berthd reports about the card.
+
+ADDR is the card's PCI address, as in 0000:01:00.0. Without it the card berthd
+leases is used, which needs nvidia-smi to answer; nvidia-smi cannot see a card
+bound to vfio-pci, so pass the address while the VM runs.`,
+				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
+				Run:     runVfioStatus,
+			},
+		},
+	},
+	{
 		Name:    "wire",
 		Summary: "make another engine's whole roster run under berth",
 		Help: `An engine that loads its own models only waits for the card if its model

@@ -374,3 +374,44 @@ func TestVFIOHoldDrainsTheHolderFirst(t *testing.T) {
 		t.Fatalf("card state = %+v after the grant, want detaching", card)
 	}
 }
+
+// pausingProbe records what the broker asked of a probe that keeps a
+// process on the card between reads.
+type pausingProbe struct {
+	fakeProbe
+	mu     sync.Mutex
+	paused []bool
+}
+
+func (p *pausingProbe) Pause(v bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n := len(p.paused); n == 0 || p.paused[n-1] != v {
+		p.paused = append(p.paused, v)
+	}
+}
+
+func (p *pausingProbe) changes() []bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]bool(nil), p.paused...)
+}
+
+// A VFIO hold stops the probe's own process on the card for the whole hold,
+// and the probe starts again once the hold ends.
+func TestVFIOHoldPausesTheProbe(t *testing.T) {
+	skipNonLinux(t)
+	sysfsCard(t, "0000:01:00.0", "nvidia")
+	p := &pausingProbe{fakeProbe: fakeProbe{busID: "00000000:01:00.0"}}
+	b := vfioBroker(t, p)
+	b.Tick(context.Background())
+	hold := must(t, acquire(b, vfioRequest()))
+	b.Tick(context.Background())
+	hold.Release()
+	for i := 0; i < 3; i++ {
+		b.Tick(context.Background())
+	}
+	if got := p.changes(); len(got) != 3 || got[0] || !got[1] || got[2] {
+		t.Fatalf("pause calls = %v, want running, paused for the hold, running again", got)
+	}
+}

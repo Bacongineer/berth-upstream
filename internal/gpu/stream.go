@@ -35,6 +35,32 @@ type Stream struct {
 	procs    []Proc
 	procsAt  time.Time
 	procsFor uint64 // the scheduled card's used bytes when procs was read
+
+	// paused keeps nvidia-smi off the card (a VFIO switch): stop ends the
+	// running loop, and resume wakes Run when the pause ends.
+	paused bool
+	stop   context.CancelFunc
+	resume chan struct{}
+}
+
+// Pause stops the nvidia-smi loop at once and keeps it stopped until
+// Pause(false), so nothing of berthd's holds the card open while the
+// operator switches its driver. Calling it again with the same value does
+// nothing.
+func (s *Stream) Pause(p bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p == s.paused {
+		return
+	}
+	s.paused = p
+	if p && s.stop != nil {
+		s.stop()
+	}
+	if !p && s.resume != nil {
+		close(s.resume)
+		s.resume = nil
+	}
 }
 
 func (s *Stream) oneShot() NvidiaSMI { return NvidiaSMI{Index: s.Index, Bin: s.Bin, Log: s.Log} }
@@ -46,10 +72,26 @@ func (s *Stream) interval() time.Duration {
 	return s.Interval
 }
 
-// Run feeds the stream until ctx ends, restarting nvidia-smi if it exits.
+// Run feeds the stream until ctx ends, restarting nvidia-smi if it exits,
+// and starts none while paused.
 func (s *Stream) Run(ctx context.Context) {
 	for ctx.Err() == nil {
-		s.follow(ctx)
+		s.mu.Lock()
+		if s.paused {
+			wake := make(chan struct{})
+			s.resume = wake
+			s.mu.Unlock()
+			select {
+			case <-ctx.Done():
+			case <-wake:
+			}
+			continue
+		}
+		fctx, cancel := context.WithCancel(ctx)
+		s.stop = cancel
+		s.mu.Unlock()
+		s.follow(fctx)
+		cancel()
 		select {
 		case <-ctx.Done():
 		case <-time.After(2 * time.Second):

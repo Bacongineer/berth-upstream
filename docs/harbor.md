@@ -70,7 +70,7 @@ network you trust.
   `berth status` shows "passed through to a VM (vfio-pci)" in place of its memory figures, and the JSON
   has a `passthrough` object with the state and the bound driver. The state reads `detaching` while a
   switch is under way. `card.passthrough` and `card.returned` mark each change once in the event log.
-  While a VFIO hold is granted (`berth vfio run`), berthd does not open the card, because
+  While a VFIO hold is granted ([`berth vfio run`](vfio.md)), berthd does not open the card, because
   its own probe would block the driver switch; it reads the driver from sysfs instead. Nothing new is
   granted while the card is away, and each waiter's reason says so ("gpu0 is passed through to a VM
   (vfio-pci); it comes back when the VM's hold ends"). A card switched by hand, with no hold, shows the

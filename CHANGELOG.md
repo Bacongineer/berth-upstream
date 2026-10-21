@@ -12,6 +12,11 @@ has a matching GitHub release whose body comes from its section below.
   `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
   granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.
   `card.passthrough` and `card.returned` events mark each change.
+- `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to a
+  VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes holding
+  the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while any process holds it, runs your own switch
+  script with `BERTH_VFIO_DEVICES` set, and releases the hold only when the card is back on its host
+  driver. Berth never switches drivers or asks for passwords. See docs/vfio.md.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
   needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
   default). A request that has waited that long for its own engine is proxied to the fallback when

@@ -640,6 +640,10 @@ func command(o Options, out io.Writer) *exec.Cmd {
 	return cmd
 }
 
+// ExitCode is a wrapped command's exit status, 128 plus the signal number
+// when it was signalled. berth vfio run exits with its script's code.
+func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
+
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
 // to the engine's whole process group.
 func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
