@@ -13,7 +13,9 @@ After=berthd.service
 Wants=berthd.service
 
 [Service]
-ExecStart=%h/.local/bin/berth gateway --listen 127.0.0.1:9799
+# The address is [gateway] listen in ~/.config/berth/berth.toml (default
+# 127.0.0.1:9799), so a port change is a config edit and a restart here.
+ExecStart=%h/.local/bin/berth gateway
 Restart=on-failure
 RestartSec=2
 

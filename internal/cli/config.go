@@ -103,6 +103,7 @@ func reportWarnings(c *Context, ws []config.Warning) {
 func configBullets(c *Context, cfg config.Config) {
 	enginesBlock(c, cfg)
 	metricsBlock(c, cfg)
+	harborGatewayBlock(c, cfg)
 	if len(cfg.Priority.Order) > 0 || c.Verbose {
 		priorityBullet(c, cfg)
 	}
@@ -174,6 +175,24 @@ func metricsBlock(c *Context, cfg config.Config) {
 	c.Sub("Address: %s", address)
 	c.Sub("Path:    /metrics")
 	c.Sub("Enabled: %s", enabled)
+}
+
+// harborGatewayBlock prints the listen addresses `berth harbor` and
+// `berth gateway` take from berth.toml. A key the file does not name leaves
+// the built-in default, so it prints in verbose mode only.
+func harborGatewayBlock(c *Context, cfg config.Config) {
+	if !c.Verbose && cfg.Harbor.Listen == "" && cfg.Gateway.Listen == "" {
+		return
+	}
+	harbor, gateway := cfg.Harbor.Listen, cfg.Gateway.Listen
+	if harbor == "" {
+		harbor = "default " + DefaultHarborListen
+	}
+	if gateway == "" {
+		gateway = "default " + DefaultGatewayListen
+	}
+	c.Bullet("Harbor UI: %s", harbor)
+	c.Bullet("Gateway: %s", gateway)
 }
 
 func priorityBullet(c *Context, cfg config.Config) {

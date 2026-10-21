@@ -7,9 +7,12 @@ After=berthd.service
 Wants=berthd.service
 
 [Service]
-ExecStart=%h/.local/bin/berth harbor --listen 127.0.0.1:9798
+# The address is [harbor] listen in ~/.config/berth/berth.toml (default
+# 127.0.0.1:9798), so a port change is a config edit and a restart here, not a
+# new copy of this file. A --listen flag on ExecStart would win over the key.
+ExecStart=%h/.local/bin/berth harbor
 # Behind tailscale serve on this box: append  --allow-host <machine>.<tailnet>.ts.net
-# ExecStart=%h/.local/bin/berth harbor --listen 0.0.0.0:9798  # LAN exposure: explicit opt-in, warning at startup, no auth
+# ExecStart=%h/.local/bin/berth harbor --listen 0.0.0.0:9798  # flag over the key; LAN exposure: explicit opt-in, warning at startup, no auth
 Restart=on-failure
 RestartSec=2
 Nice=10

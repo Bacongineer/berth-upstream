@@ -18,13 +18,29 @@ import (
 	"github.com/T-Crypt/berth/internal/suite"
 )
 
+// DefaultGatewayListen is the address the gateway listens on when neither its
+// flag nor [gateway] listen in berth.toml names one.
+const DefaultGatewayListen = "127.0.0.1:9799"
+
+// resolveListen is the address a server runs on: the flag when the operator
+// typed one, else the berth.toml key, else the built-in default.
+func resolveListen(flag, key, def string) string {
+	if flag != "" {
+		return flag
+	}
+	if key != "" {
+		return key
+	}
+	return def
+}
+
 // runGateway serves one OpenAI-compatible port in front of the node's engines
 // (preview). It can load models, so until the API has authentication it listens
 // on loopback only.
 func runGateway(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "the node's berthd socket ($BERTH_SOCKET)")
-	listen := fs.String("listen", "127.0.0.1:9799", "listen address; loopback only in this release")
+	listen := fs.String("listen", "", "listen address, over [gateway] listen in berth.toml, itself 127.0.0.1:9799: loopback only in this release")
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines with start/serves can be started on demand ($BERTH_CONFIG)")
 	ready := fs.Duration("ready", 10*time.Minute, "how long a start may wait for a berth and then to answer")
 	headroomMiB := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start; a start leaving less available is refused")
@@ -39,17 +55,18 @@ func runGateway(c *Context) int {
 		return code
 	}
 	log := c.Log()
-	if err := config.Loopback(*listen); err != nil {
+	cfg, warns, err := suite.Merged(*cfgPath)
+	if err != nil {
+		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
+	}
+	addr := resolveListen(*listen, cfg.Gateway.Listen, DefaultGatewayListen)
+	if err := config.Loopback(addr); err != nil {
 		return c.fail(Systemf("gateway listens on loopback only until the API has authentication: %v", err))
 	}
 	if *guiListen != "" {
 		if err := config.Loopback(*guiListen); err != nil {
 			return c.fail(Systemf("the gui plane listens on loopback only: %v", err))
 		}
-	}
-	cfg, warns, err := suite.Merged(*cfgPath)
-	if err != nil {
-		return c.fail(Failf("config invalid: %s", *cfgPath).Detail("%v", err))
 	}
 	for _, w := range warns {
 		log.Warn(w.Key + ": " + w.Message)
@@ -63,7 +80,7 @@ func runGateway(c *Context) int {
 		AllowHosts: allow, StateFile: defaultStateFile("gateway-engines.json"), ConfigPath: *cfgPath}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv := &http.Server{Addr: *listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-ctx.Done(); _ = srv.Close() }()
 	if *guiListen != "" {
 		gui := &http.Server{Addr: *guiListen, Handler: g.GUIHandler(), ReadHeaderTimeout: 10 * time.Second}
@@ -76,7 +93,7 @@ func runGateway(c *Context) int {
 		}()
 		log.Info("gui plane up", "url", "http://"+*guiListen+"/gui/")
 	}
-	log.Info("gateway up", "listen", "http://"+*listen+"/v1", "startable", len(cfg.Engine), "key_file", *keyFile)
+	log.Info("gateway up", "listen", "http://"+addr+"/v1", "startable", len(cfg.Engine), "key_file", *keyFile)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return c.fail(Systemf("gateway: %v", err))
 	}

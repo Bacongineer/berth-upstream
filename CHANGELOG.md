@@ -13,6 +13,16 @@ has a matching GitHub release whose body comes from its section below.
   priority cannot drain it, only a hold can. A blocked waiter is told how much of the turn is
   left, and `berth status` shows it in the TURN column. When the turn ends the normal rules
   apply; a re-attach after a daemon restart starts a fresh turn.
+- `[harbor] listen` and `[gateway] listen` in berth.toml, read by `berth harbor` and
+  `berth gateway` when their `--listen` flags are not given, and validated by
+  `berth config check`: the gateway key is loopback only, the harbor key takes any
+  host:port, a LAN address being the explicit opt-in it already is. `berth service install`
+  no longer writes a hardcoded `--listen` into the units and tasks, so a port change needs
+  a restart, not a reinstall (#89).
+- On Windows, `berth service install` starts each task it creates with `schtasks /Run` and
+  reports it, keeps a task it replaces whose XML differs as a .bak in the state directory
+  like the systemd path keeps a differing unit, and each task appends its output to
+  `<state>\logs\berthd.log` and its siblings, which `berth service status` prints (#89).
 
 ### Fixed
 

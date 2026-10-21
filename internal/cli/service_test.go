@@ -38,29 +38,58 @@ func fakeOps(t *testing.T, dir string, respond func(argv) (string, error)) (serv
 
 func TestServiceUnits(t *testing.T) {
 	const exe = "/opt/berth/berth"
-	one := serviceUnits(exe, false, false)
-	if len(one) != 1 || one[0].Name != "berthd" {
-		t.Fatalf("the node is always in the list, got %+v", one)
+	// No unit carries --listen: the address is a berth.toml key the
+	// command reads at start, so a port change needs a restart.
+	cases := []struct {
+		gateway bool
+		harbor  bool
+		want    []Unit
+	}{
+		{
+			gateway: false, harbor: false,
+			want: []Unit{{
+				Name:        "berthd",
+				Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
+				Description: "berth - GPU lease broker (one card, many inference engines)",
+			}},
+		},
+		{
+			gateway: true, harbor: true,
+			want: []Unit{
+				{
+					Name:        "berthd",
+					Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
+					Description: "berth - GPU lease broker (one card, many inference engines)",
+				},
+				{
+					Name:        "berth-gateway",
+					Exec:        []string{exe, "gateway"},
+					After:       []string{"berthd"},
+					Description: "berth gateway - one port that starts engines on demand under a lease",
+				},
+				{
+					Name:        "berth-harbor",
+					Exec:        []string{exe, "harbor"},
+					After:       []string{"berthd"},
+					Description: "berth harbor - web UI for the local berthd",
+				},
+			},
+		},
 	}
-	if got := one[0].Exec; len(got) != 6 || got[0] != exe || got[1] != "daemon" {
-		t.Errorf("the node's command is the user's binary as daemon, got %v", got)
-	}
-
-	all := serviceUnits(exe, true, true)
-	if len(all) != 3 {
-		t.Fatalf("node, gateway and harbor, got %+v", all)
-	}
-	wantExec := map[string][]string{
-		"berthd":        {exe, "daemon", "--gpu", "0", "--poll", "2s"},
-		"berth-gateway": {exe, "gateway", "--listen", "127.0.0.1:9799"},
-		"berth-harbor":  {exe, "harbor", "--listen", "127.0.0.1:9798"},
-	}
-	for _, u := range all {
-		if want, ok := wantExec[u.Name]; !ok || !sameArgs(u.Exec, want) {
-			t.Errorf("Exec of %s = %v, want %v", u.Name, u.Exec, wantExec[u.Name])
+	for _, c := range cases {
+		got := serviceUnits(exe, c.gateway, c.harbor)
+		if len(got) != len(c.want) {
+			t.Errorf("serviceUnits(gateway %v, harbor %v) = %d units, want %d", c.gateway, c.harbor, len(got), len(c.want))
+			continue
 		}
-		if u.Name != "berthd" && !sameArgs(u.After, []string{"berthd"}) {
-			t.Errorf("%s comes up after the node, got %v", u.Name, u.After)
+		for i, want := range c.want {
+			if got[i].Name != want.Name || !sameArgs(got[i].Exec, want.Exec) || got[i].Description != want.Description {
+				t.Errorf("unit %d = %+v, want %+v", i, got[i], want)
+				continue
+			}
+			if want.Name != "berthd" && !sameArgs(got[i].After, []string{"berthd"}) {
+				t.Errorf("%s comes up after the node, got %v", want.Name, got[i].After)
+			}
 		}
 	}
 
@@ -69,6 +98,22 @@ func TestServiceUnits(t *testing.T) {
 	}
 	if u := serviceUnits(exe, false, true)[1]; u.Name != "berth-harbor" {
 		t.Errorf("--harbor selects the harbor, got %s", u.Name)
+	}
+}
+
+func TestResolveListen(t *testing.T) {
+	cases := []struct {
+		flag, key, def, want string
+	}{
+		{"", "", "127.0.0.1:9798", "127.0.0.1:9798"},                            // nothing set: the default
+		{"", "0.0.0.0:50980", "127.0.0.1:9798", "0.0.0.0:50980"},                // the key
+		{"127.0.0.1:8080", "0.0.0.0:50980", "127.0.0.1:9798", "127.0.0.1:8080"}, // the flag wins
+		{"127.0.0.1:8080", "", "127.0.0.1:9798", "127.0.0.1:8080"},
+	}
+	for _, c := range cases {
+		if got := resolveListen(c.flag, c.key, c.def); got != c.want {
+			t.Errorf("resolveListen(%q, %q, %q) = %q, want %q", c.flag, c.key, c.def, got, c.want)
+		}
 	}
 }
 

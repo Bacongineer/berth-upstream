@@ -248,6 +248,84 @@ start = ["x"]
 	}
 }
 
+// The listen keys: [harbor] listen takes any well-formed host:port (a LAN
+// address is the explicit opt-in), [gateway] listen is loopback only, both
+// before any command's flag is considered.
+func TestListenKeysValidated(t *testing.T) {
+	tests := []struct {
+		name    string
+		toml    string
+		wantErr []string // substrings the error must contain; empty = must load
+	}{
+		{
+			name: "harbor loopback",
+			toml: "[harbor]\nlisten = \"127.0.0.1:9798\"\n",
+		},
+		{
+			name: "harbor loopback v6",
+			toml: "[harbor]\nlisten = \"[::1]:9798\"\n",
+		},
+		{
+			name: "harbor LAN address is the explicit opt-in",
+			toml: "[harbor]\nlisten = \"0.0.0.0:50980\"\n",
+		},
+		{
+			name:    "harbor address needs a host",
+			toml:    "[harbor]\nlisten = \":9798\"\n",
+			wantErr: []string{`harbor.listen: ":9798" is not a host:port address`},
+		},
+		{
+			name:    "harbor address needs a port",
+			toml:    "[harbor]\nlisten = \"127.0.0.1\"\n",
+			wantErr: []string{"harbor.listen", "host:port"},
+		},
+		{
+			name: "gateway loopback",
+			toml: "[gateway]\nlisten = \"localhost:9799\"\n",
+		},
+		{
+			name:    "gateway on the LAN is refused",
+			toml:    "[gateway]\nlisten = \"0.0.0.0:9799\"\n",
+			wantErr: []string{"gateway.listen", "not a loopback"},
+		},
+		{
+			name:    "gateway address needs a port",
+			toml:    "[gateway]\nlisten = \"127.0.0.1\"\n",
+			wantErr: []string{`gateway.listen: address 127.0.0.1: missing port in address`},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(write(t, tc.toml))
+			if len(tc.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("load: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("invalid listen accepted")
+			}
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error lacks %q:\n%v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// The keys land in the config they name, for the commands to read.
+func TestListenKeysDecoded(t *testing.T) {
+	c, err := Load(write(t, "[harbor]\nlisten = \"0.0.0.0:50980\"\n\n[gateway]\nlisten = \"127.0.0.1:9799\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Harbor.Listen != "0.0.0.0:50980" || c.Gateway.Listen != "127.0.0.1:9799" {
+		t.Errorf("harbor/gateway listen = %q / %q", c.Harbor.Listen, c.Gateway.Listen)
+	}
+}
+
 func TestComfyUIKeysValidated(t *testing.T) {
 	// A ComfyUI engine may carry a start command with no serves: the
 	// gateway starts it for /prompt, not for a model name.

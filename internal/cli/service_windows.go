@@ -10,12 +10,48 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 )
 
 // taskName is one unit's task in the user's Task Scheduler: berth owns the
 // \Berth folder and one logon task per unit in it.
 func taskName(name string) string { return `\Berth\` + name }
+
+// unitLogPath is one unit's log file, under the state directory berth
+// already keeps its files in: each task appends its output there, since a
+// Task Scheduler task has no console to keep it.
+func unitLogPath(name string) string {
+	return filepath.Join(defaultStateDir(), "logs", name+".log")
+}
+
+// taskAction is one unit's command the way the task runs it: cmd executes
+// it and appends both of its streams to the unit's log file. The outer
+// quote pair is cmd's own: with /c, cmd strips the first and the last
+// quote and runs what is left, which is how a path with a space survives.
+func taskAction(u Unit) ([]string, error) {
+	if len(u.Exec) == 0 {
+		return nil, fmt.Errorf("no command for %s", u.Name)
+	}
+	inner := `"` + u.Exec[0] + `"`
+	if args := strings.Join(u.Exec[1:], " "); args != "" {
+		inner += " " + args
+	}
+	inner += ` >> "` + unitLogPath(u.Name) + `" 2>&1`
+	return []string{"cmd.exe", "/c", `"` + inner + `"`}, nil
+}
+
+// unitTaskXML is one unit's task XML: its action wrapped for the log by
+// taskAction.
+func unitTaskXML(u Unit, taskUser string) (string, error) {
+	action, err := taskAction(u)
+	if err != nil {
+		return "", err
+	}
+	wrapped := u
+	wrapped.Exec = action
+	return renderTaskXML(wrapped, taskUser)
+}
 
 // liveUnitDir is where the task XML files wait while schtasks reads them.
 func liveUnitDir() (string, error) { return os.TempDir(), nil }
@@ -101,24 +137,43 @@ func utf16le(s string) []byte {
 	return out
 }
 
-// serviceInstall creates one logon task per unit with schtasks. Each XML
-// file is written next to the temp directory, handed to schtasks, and
-// deleted again. With dryRun nothing is created.
+// serviceInstall creates one logon task per unit with schtasks, then starts
+// each task. Each XML file is written next to the temp directory, handed to
+// schtasks, and deleted again. A task already there whose XML differs from
+// what berth would write is kept in the state directory as .bak, like the
+// systemd path keeps a differing unit file beside the new one. With dryRun
+// nothing is created or started.
 func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRun bool) (*serviceDoc, *Error) {
 	doc := &serviceDoc{DryRun: dryRun, Units: make([]serviceUnit, 0, len(unitsList)), Commands: []string{}}
 	taskUser := currentUser()
-	for _, u := range unitsList {
+	rows := map[string]*serviceUnit{}
+	createOne := func(u Unit) (*serviceUnit, *Error) {
 		task := taskName(u.Name)
 		row := serviceUnit{Unit: u.Name, Target: task}
-		xml, err := renderTaskXML(u, taskUser)
+		xml, err := unitTaskXML(u, taskUser)
 		if err != nil {
 			return nil, Systemf("%s: %v", u.Name, err)
 		}
 		row.Content = xml
 		if dryRun {
-			row.Action = "would be created"
-			doc.Units = append(doc.Units, row)
-			continue
+			row.Action = "would be created and started"
+			return &row, nil
+		}
+		// The previous task, when it differs, is kept as .bak before /F
+		// replaces it.
+		out, err := ops.run(ctx, "schtasks.exe", "/Query", "/TN", task, "/XML")
+		if err != nil && !taskNotFound(out) {
+			return nil, Systemf("schtasks /Query /TN %s /XML failed:\n%s", task, strings.TrimSpace(out))
+		}
+		if err == nil && strings.TrimSpace(out) != strings.TrimSpace(xml) {
+			bak := filepath.Join(defaultStateDir(), u.Name+".xml.bak")
+			if err := os.MkdirAll(filepath.Dir(bak), 0o755); err != nil {
+				return nil, Systemf("keep the previous copy of %s: %v", task, err)
+			}
+			if err := os.WriteFile(bak, []byte(out), 0o644); err != nil {
+				return nil, Systemf("keep the previous copy of %s: %v", task, err)
+			}
+			row.BackedUp = bak
 		}
 		dir, err := ops.unitDir()
 		if err != nil {
@@ -145,8 +200,44 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 		}
 		os.Remove(path)
 		doc.Commands = append(doc.Commands, cmd)
+		// The log file the task appends to must exist as a directory
+		// before its first start: the redirection creates the file, not
+		// the path to it.
+		if err := os.MkdirAll(filepath.Dir(unitLogPath(u.Name)), 0o755); err != nil {
+			return nil, Systemf("create the log directory for %s: %v", u.Name, err)
+		}
 		row.Action = "created"
-		doc.Units = append(doc.Units, row)
+		return &row, nil
+	}
+	for _, u := range unitsList {
+		row, e := createOne(u)
+		if e != nil {
+			return nil, e
+		}
+		rows[row.Unit] = row
+	}
+	for _, u := range unitsList {
+		row := rows[u.Name]
+		if dryRun {
+			doc.Units = append(doc.Units, *row)
+			continue
+		}
+		task := taskName(u.Name)
+		cmd := "schtasks /Run /TN " + task
+		out, err := ops.run(ctx, "schtasks.exe", "/Run", "/TN", task)
+		if err != nil {
+			// The task is in place and starts at the next logon; the
+			// failed start is reported, not fatal.
+			row.Action = "created, not started (" + strings.TrimSpace(out) + ")"
+		} else {
+			doc.Commands = append(doc.Commands, cmd)
+			row.Action = "created, started"
+		}
+	}
+	if !dryRun {
+		for _, u := range unitsList {
+			doc.Units = append(doc.Units, *rows[u.Name])
+		}
 	}
 	return doc, nil
 }
@@ -190,7 +281,8 @@ func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dry
 }
 
 // serviceStatus asks schtasks for each task. A task schtasks cannot find
-// is not installed; any other failure of the query is a system failure.
+// is not installed; any other failure of the query is a system failure. An
+// installed task names the log file its output appends to.
 func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serviceDoc, *Error) {
 	doc := &serviceDoc{Units: make([]serviceUnit, 0, len(unitsList)), Commands: []string{}}
 	for _, u := range unitsList {
@@ -205,6 +297,7 @@ func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serv
 			continue
 		}
 		row.Installed = true
+		row.Log = unitLogPath(u.Name)
 		if fields, err := csvFields(out); err == nil && len(fields) >= 2 {
 			row.Running = fields[1] == "Running"
 		}
