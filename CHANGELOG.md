@@ -6,6 +6,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: a process the GPU counters report but nvidia-smi does not list, such as dwm.exe
+  holding the card's memory, now shows its name instead of a blank one.
+
 ## [v0.3.3] - 2026-10-21
 
 Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the
