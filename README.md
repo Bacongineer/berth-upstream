@@ -698,9 +698,11 @@ when the card showed free, and the engine's first answer. It times that pair for
 start it runs and keeps the last 20 times per engine and tier in a book
 (`~/.local/state/berth/swapcost.json`), so it can price the next switch without guessing.
 The wait for a free card belongs to the queue, not to the engine, so it is not part of the
-figure. A failed start records nothing.
+figure. A failed start records nothing, and so does an engine the gateway does not start itself
+(llama-swap's models load under llama-swap, so the gateway has nothing to time for them).
 
-`GET /v1/berth/cost?engine=NAME` answers one estimate per tier, hot first:
+`GET /v1/berth/cost?engine=NAME` answers one estimate per tier, hot first. On the reference machine,
+after five gateway starts of Strata from disk:
 
 ```bash
 curl -s "http://127.0.0.1:9799/v1/berth/cost?engine=strata" -H "Authorization: Bearer $(berth key)"
@@ -709,9 +711,9 @@ curl -s "http://127.0.0.1:9799/v1/berth/cost?engine=strata" -H "Authorization: B
 ```json
 {"engine":"strata","estimates":[
   {"tier":"hot","took_ms":0,"samples":0,"known":true},
-  {"tier":"warm","took_ms":1500,"samples":4,"known":true},
-  {"tier":"cool","took_ms":45000,"samples":3,"known":true},
-  {"tier":"cold","took_ms":110000,"samples":6,"known":true}]}
+  {"tier":"warm","took_ms":0,"samples":0,"known":false},
+  {"tier":"cool","took_ms":0,"samples":0,"known":false},
+  {"tier":"cold","took_ms":72400,"samples":5,"known":true}]}
 ```
 
 Hot, the engine already holding the card, is the free switch. Warm is a parked engine,
@@ -724,22 +726,22 @@ switch, each naming the engine and the tier to find it in:
 
 ```bash
 curl -s http://127.0.0.1:9799/v1/berth/plan -H "Authorization: Bearer $(berth key)" \
-  -d '{"chain":[{"engine":"strata","tier":"cold"},{"engine":"llama-swap","tier":"warm"},{"engine":"strata","tier":"cool"}]}'
+  -d '{"chain":[{"engine":"strata","tier":"cold"},{"engine":"comfyui","tier":"cold"},{"engine":"strata","tier":"cold"}]}'
 ```
 
 ```json
 {"steps":[
-  {"engine":"strata","tier":"cold","took_ms":110000,"samples":6,"known":true},
-  {"engine":"llama-swap","tier":"warm","took_ms":2000,"samples":12,"known":true},
-  {"engine":"strata","tier":"cool","took_ms":0,"samples":0,"known":false}],
- "total_ms":112000,
+  {"engine":"strata","tier":"cold","took_ms":72400,"samples":5,"known":true},
+  {"engine":"comfyui","tier":"cold","took_ms":0,"samples":0,"known":false},
+  {"engine":"strata","tier":"cold","took_ms":72400,"samples":5,"known":true}],
+ "total_ms":144800,
  "unmeasured":1,
- "prefetch":["llama-swap","strata",""],
+ "prefetch":["comfyui","strata",""],
  "keep_parked":["strata"]}
 ```
 
 `total_ms` sums the known steps only: with `unmeasured` above 0 it is a lower bound, read
-as "at least 112 s, 1 step unmeasured", never a promise. `prefetch` is per step, the engine
+as "at least 145 s, 1 step unmeasured", never a promise. `prefetch` is per step, the engine
 to warm while that step holds the card, and `keep_parked` lists the engines the chain comes
 back to, which are worth parking in RAM instead of stopping and reloading. An unknown tier
 or an engine `berth.toml` does not name is a 400 naming the step; a missing or wrong key
