@@ -66,9 +66,11 @@ bound to `vfio-pci`, because `nvidia-smi` cannot see the card then.
 Engines drain first. When the card is granted, berthd's probe is given a few
 seconds to go quiet, then the openers are read again: anyone else holding a
 device node refuses the run, names itself, and releases the hold. Berth never
-stops it. When the script exits, the hold ends only when the card is back;
-otherwise the hold stays and the message names the function that is still on
-`vfio-pci`.
+stops it. A process whose fd directory cannot be read is named as unreadable;
+it is a warning, not a refusal, and the unbind fails where it holds the card.
+When the script exits, the hold ends only when the card is back; otherwise the
+hold stays and the message names the function that is still on `vfio-pci`, and
+Ctrl-C rechecks and releases only once the card is back.
 
 The exit code is your script's exit code.
 
