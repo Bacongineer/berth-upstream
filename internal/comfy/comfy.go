@@ -28,6 +28,9 @@ func Queue(ctx context.Context, base string) (running, pending int, err error) {
 	if err := get(ctx, base, "/queue", &q); err != nil {
 		return 0, 0, err
 	}
+	if q.Running == nil || q.Pending == nil {
+		return 0, 0, errors.New("/queue: missing queue_running or queue_pending array")
+	}
 	return len(q.Running), len(q.Pending), nil
 }
 

@@ -317,7 +317,15 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
 	every := o.pollEvery()
 	last := ""
-	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
+	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax, refuse: o.FailClosed}
+	var unreadable time.Time
+	bound := o.DrainMax
+	if bound == 0 && o.FailClosed {
+		bound = 4 * o.Grace
+		if bound <= 0 {
+			bound = 2 * time.Minute
+		}
+	}
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		running, pending, err := comfy.Queue(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI)
@@ -327,10 +335,18 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 		case err != nil:
 			now = fmt.Sprintf("cannot read the ComfyUI queue (%v); waiting", err)
 			wait.note("queue unreadable", "queue unreadable")
+			if unreadable.IsZero() {
+				unreadable = time.Now()
+			}
+			if o.FailClosed && time.Since(unreadable) >= bound {
+				say("drain refused: no readable ComfyUI boundary; %s keeps its lease", o.Engine)
+				return false
+			}
 		case running == 0 && pending == 0:
 			say("ComfyUI queue empty; handing off")
 			return true
 		default:
+			unreadable = time.Time{}
 			now = fmt.Sprintf("waiting for ComfyUI to finish: %d running, %d queued", running, pending)
 			noun := "jobs"
 			if running == 1 {
@@ -344,7 +360,7 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 			last = now
 		}
 		if wait.tick(say) {
-			return true
+			return !o.FailClosed
 		}
 		select {
 		case <-done:
@@ -363,6 +379,7 @@ var drainProgressEvery = 60 * time.Second
 // started and what its reads showed. It says so once a minute and ends
 // the wait when a max has elapsed.
 type boundaryWait struct {
+	refuse   bool
 	engine   string
 	max      time.Duration // 0 = wait as long as it takes
 	start    time.Time     // zero until the first note
@@ -389,7 +406,11 @@ func (w *boundaryWait) tick(say func(string, ...any)) bool {
 		return false
 	}
 	if w.max > 0 && time.Since(w.start) >= w.max {
-		say("%s still busy after %s (%s); draining anyway", w.engine, w.max, w.stop)
+		if w.refuse {
+			say("drain refused: %s still busy after %s (%s); keeps its lease", w.engine, w.max, w.stop)
+		} else {
+			say("%s still busy after %s (%s); draining anyway", w.engine, w.max, w.stop)
+		}
 		return true
 	}
 	if time.Since(w.last) >= drainProgressEvery {
@@ -423,10 +444,21 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 	}
 	every := o.pollEvery()
 	url := base + "/slots"
-	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
+	max := o.DrainMax
+	if max == 0 && o.FailClosed {
+		max = 4 * o.Grace
+		if max <= 0 {
+			max = 2 * time.Minute
+		}
+	}
+	wait := &boundaryWait{engine: o.Engine, max: max, refuse: o.FailClosed}
 	n, err := slotsBusy(url, o.APIKey)
 	if err != nil {
 		if failOpen(err) {
+			if o.FailClosed {
+				say("drain refused: no readable slot boundary; %s keeps its lease", o.Engine)
+				return false
+			}
 			say("drain: no slot boundary at %s (%v); unloading anyway", url, err)
 			return true
 		}
@@ -447,6 +479,10 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 		n, err := slotsBusy(url, o.APIKey)
 		switch {
 		case err != nil:
+			if o.FailClosed && failOpen(err) {
+				say("drain refused: the slot boundary vanished; %s keeps its lease", o.Engine)
+				return false
+			}
 			say("drain: lost the slot boundary (%v); waiting", err)
 			wait.note("boundary unreadable", "boundary unreadable")
 		case n == 0:
@@ -456,7 +492,7 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 			wait.note(slotSummary(n, "busy"), slotSummary(n, "processing"))
 		}
 		if wait.tick(say) {
-			return true
+			return !o.FailClosed
 		}
 	}
 }
@@ -536,14 +572,20 @@ func slotsBusy(url, key string) (int, error) {
 	}
 	var slots []struct {
 		State        string `json:"state"`
-		IsProcessing bool   `json:"is_processing"`
+		IsProcessing *bool  `json:"is_processing"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&slots); err != nil {
 		return 0, &slotsErr{badBody: true, err: fmt.Errorf("/slots: %w", err)}
 	}
+	if slots == nil {
+		return 0, &slotsErr{badBody: true, err: errors.New("/slots: expected an array")}
+	}
 	n := 0
 	for _, s := range slots {
-		if engines.SlotBusy(s.State, s.IsProcessing) {
+		if s.IsProcessing == nil && s.State != "idle" && s.State != "processing" {
+			return 0, &slotsErr{badBody: true, err: errors.New("/slots: missing processing state")}
+		}
+		if engines.SlotBusy(s.State, s.IsProcessing != nil && *s.IsProcessing) {
 			n++
 		}
 	}

@@ -130,6 +130,9 @@ func runArgv(o runner.Options) []string {
 	if o.Grace != 0 {
 		args = append(args, "--grace", o.Grace.String())
 	}
+	if o.FailClosed {
+		args = append(args, "--fail-closed")
+	}
 	return args
 }
 

@@ -686,8 +686,15 @@ The wait is unbounded by default, so a long generation is never cut off.
 `drain_max` (or `berth run --drain-max DURATION`, which wins) sets a ceiling
 on it: while the boundary is busy the wrapper prints a line each minute
 naming the slots and how long they have been busy, and once the ceiling
-passes it runs the normal stop ladder anyway and says so. The same ceiling
+passes it runs the normal stop ladder anyway and says so. With `--fail-closed`,
+it refuses the drain and keeps the child and lease instead. The same ceiling
 applies to a ComfyUI queue that will not empty.
+
+Fail-closed also rejects missing or malformed slot states and unreadable queue states.
+Without an explicit `drain_max`, slot checks and continuously unreadable ComfyUI queues
+refuse after four times the run's grace interval. A readable busy ComfyUI queue still
+waits without a deadline. A later drain can retry after the boundary recovers.
+The default fail-open policy and native parking path remain unchanged.
 
 #### Park in RAM (warm switch)
 
