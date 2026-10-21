@@ -82,6 +82,7 @@ func (g *Gateway) followEngine(name, path string, from int64, stop <-chan struct
 		see: func(line string) {
 			if lease, ok := grantedLease(line); ok {
 				g.setLease(name, lease)
+				g.stampGrant(s)
 			}
 		}}
 	buf := make([]byte, 16<<10)

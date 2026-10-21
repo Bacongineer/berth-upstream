@@ -40,6 +40,7 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/server"
+	"github.com/T-Crypt/berth/internal/swapcost"
 )
 
 type Gateway struct {
@@ -67,6 +68,10 @@ type Gateway struct {
 	// processes, so the next gateway adopts the ones still running
 	// instead of starting them again. Empty disables the record.
 	StateFile string
+	// CostFile is where the gateway's book of measured switch times
+	// lives, so the times survive a restart of the gateway. Empty keeps
+	// the book in memory only.
+	CostFile string
 	// ConfigPath is the berth.toml the spawned runs read their entry's
 	// park settings from (the park hook is not a flag).
 	ConfigPath string
@@ -86,6 +91,10 @@ type Gateway struct {
 	logOnce sync.Once
 	logDir  string
 	logErr  error // one engineLogs() decision per gateway
+
+	costOnce sync.Once
+	costs    *swapcost.Book
+	costMu   sync.Mutex // one book access at a time: Record and Save together, Estimate undivided
 }
 
 type started struct {
@@ -95,6 +104,15 @@ type started struct {
 	output   *tailBuf   // the tail of the engine's own stdout and stderr
 	answered bool       // the engine answered at least once (under g.mu)
 	why      *startError
+
+	// The switch cost of a start this gateway ran: the engine's position
+	// when the start was decided, when its run printed its grant, and
+	// whether the sample went into the book. All three under g.mu; pos
+	// is set before the run spawns, so a grant the follower sees always
+	// has somewhere to land.
+	pos      *position
+	grantAt  time.Time
+	recorded bool
 }
 
 // failure is an engine whose start died before it answered. A start that
@@ -728,6 +746,7 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 		g.running = map[string]*started{}
 	}
 	s, ok := g.running[e.Name]
+	starting := false
 	if !ok {
 		if len(e.Start) == 0 {
 			g.mu.Unlock()
@@ -748,6 +767,19 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 		}
 		s = &started{exited: make(chan struct{}), stderr: &lockedBuf{}, output: &tailBuf{}}
 		g.running[e.Name] = s
+		starting = true
+	}
+	g.mu.Unlock()
+	if starting {
+		// This gateway runs the start, so its switch gets measured. The
+		// engine's position is read now, before its reads begin: the
+		// prefetch below warms the page cache as soon as it can, and a
+		// share taken after that would call an engine the start warmed
+		// one that started warm.
+		pos := g.readPosition(e)
+		g.mu.Lock()
+		s.pos = pos
+		g.mu.Unlock()
 		if len(e.Prefetch) > 0 {
 			// The run takes the lease and the drain starts; the disk is
 			// free while that happens, so the reads go first.
@@ -755,15 +787,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 		}
 		go g.run(e, s, ready)
 	}
-	g.mu.Unlock()
 
 	deadline := time.Now().Add(ready)
 	for {
 		if probe(ctx, e.URL) {
-			g.mu.Lock()
-			s.answered = true
-			delete(g.failed, e.Name)
-			g.mu.Unlock()
+			g.markAnswered(e, s)
 			return nil
 		}
 		select {
