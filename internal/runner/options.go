@@ -59,6 +59,24 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output, Log: o.Log,
 	}
+	// kv_snapshots: the drain's snapshot step. The slot calls go to the
+	// entry's drain_slots base when it names one, else the drain_post
+	// origin, else the engine URL; the budget takes the default when the
+	// entry left it open, and the save guard keeps the library floor.
+	if e.KVSnapshots != "" {
+		mib := e.KVSnapshotsMiB
+		if mib == 0 {
+			mib = config.DefaultKVSnapshotsMiB
+		}
+		base := e.DrainSlots
+		if base == "" {
+			base = drainPostBase(e.DrainPost)
+		}
+		if base == "" {
+			base = e.URL
+		}
+		opts.KVDir, opts.KVBudget, opts.KVBase, opts.KVFloor = e.KVSnapshots, int64(mib<<20), base, config.DefaultFreeFloor
+	}
 	// park = "hook" hands the drain the engine's own offload calls; when
 	// the entry carries no URLs either, the drain probes Berth's park
 	// protocol on the engine's URL instead. keep_comfyui_up is the same

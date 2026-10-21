@@ -68,6 +68,20 @@ type Engine struct {
 	DrainComfyUI string   `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
+	// KVSnapshots is the snapshot directory the engine's --slot-save-path
+	// points at. On a drain, Berth saves every idle slot's prompt cache
+	// into it; when this gateway later starts the engine again, the empty
+	// slots restore the newest snapshot for that model before the first
+	// request, so a long agent context is not prefilled again after every
+	// switch. Snapshots never cross models, and an engine that does not
+	// name exactly one model on /v1/models (llama-swap lists many) never
+	// snapshots. Absolute path: the gateway starts engines from its own
+	// working directory, and the drained engine writes through the same
+	// absolute name.
+	KVSnapshots string `toml:"kv_snapshots,omitempty" json:"kv_snapshots,omitempty" yaml:"kv_snapshots,omitempty"`
+	// KVSnapshotsMiB is how many MiB of snapshots the directory may hold
+	// before the least recently saved are removed. 0 = the default.
+	KVSnapshotsMiB uint64 `toml:"kv_snapshots_mib,omitzero" json:"kv_snapshots_mib,omitempty" yaml:"kv_snapshots_mib,omitempty"`
 	// DrainMax is berth run --drain-max: a ceiling on how long a drain may
 	// wait at a boundary (a processing slot, a running ComfyUI job) before
 	// it stops the engine anyway. 0 = unbounded, the default.
@@ -240,6 +254,10 @@ func (c *Config) ClaimRules() ([]claims.Rule, error) {
 type ModelsConfig struct {
 	Dirs []string `toml:"dirs,omitempty" json:"dirs,omitempty" yaml:"dirs,omitempty"`
 }
+
+// DefaultKVSnapshotsMiB is the snapshot budget an engine with kv_snapshots
+// and no kv_snapshots_mib gets.
+const DefaultKVSnapshotsMiB = 16384
 
 // DefaultFreeFloor is the share of a root's total space a pull must leave
 // free. A drive never fills: a pull that would go under it is refused.
@@ -573,6 +591,9 @@ func (c *Config) Validate() error {
 			if u, err := url.Parse(e.DrainSlots); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 				errs = append(errs, fmt.Errorf("%s: drain_slots %q must be the engine's http(s)://host:port", where, e.DrainSlots))
 			}
+		}
+		if e.KVSnapshots != "" && !filepath.IsAbs(e.KVSnapshots) {
+			errs = append(errs, fmt.Errorf("%s: kv_snapshots %q must be an absolute path: the gateway starts engines from its own working directory", where, e.KVSnapshots))
 		}
 		if e.DrainMax.Duration < 0 {
 			errs = append(errs, fmt.Errorf("%s: drain_max %s must be >= 0", where, e.DrainMax))

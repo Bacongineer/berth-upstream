@@ -603,6 +603,8 @@ start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "
 serves   = ["router-strata", "qwen3.8-flash-next-iq2_xs"]
 priority = "foreground"   # equal to the engine it replaces, so the last model you ask for wins
 prefetch = ["/models/strata"]   # read into the page cache while the holder drains
+# kv_snapshots    = "/home/you/.cache/berth/kv/strata"  # the --slot-save-path the saves and restores share
+# kv_snapshots_mib = 16384
 ```
 
 Run `berth gateway` (loopback `127.0.0.1:9799`; a user unit is in `contrib/berth-gateway.service`) and send
@@ -671,6 +673,28 @@ no RAM of its own, and a start that finds its files still cached reads them from
 larger than the RAM the machine can spare gains little: its pages are pushed out as they are read. A directory means
 its own files and not its subdirectories, and a file that cannot be asked for is one WARN line in the
 gateway's journal while the start goes on. `berth prefetch MODEL` makes the same ask by hand.
+
+**An agent context comes back without the prefill.** Give a llama-server engine `kv_snapshots`,
+the same directory its `--slot-save-path` points at. On a drain, once every slot is idle, Berth asks
+the engine to save each slot's prompt cache into that directory, records what each save wrote in a
+ledger there, skips slots whose cache is empty, and trims the directory to `kv_snapshots_mib`
+(16 GiB by default). When the gateway starts that engine again for the same model, it warms the
+snapshots into the page cache during the wait, and the engine's empty slots restore their newest
+snapshot once it answers, before the first request. A long agent conversation then switches and
+switches back without prefilling again.
+
+A warm cache is cached, never reserved: the pages sit in the kernel's page cache until the machine
+needs the RAM, and a restore afterwards reads its bytes from the SSD again. Snapshots never cross
+models: the restore takes only the files the ledger holds for the model the engine itself reports on
+`/v1/models`. An engine that lists no model, or more than one (llama-swap lists every model it can
+load), gets no snapshots, so a KV snapshot covers llama-swap's many-model entries only when
+llama-swap gains per-model slots. An engine started without `--slot-save-path` says so, the drain
+logs one line, and the switch is a plain one. The save step is bounded at 60 s and the restore at
+30 s, so a failure on either side leaves the switch exactly as it was before.
+
+A snapshot holds the slot's prompt tokens, so it is the conversation itself. Keep the directory
+private to the user the engine runs as (`mkdir -p DIR && chmod 700 DIR`); Berth writes its ledger
+there owner-only.
 
 Measured on the reference RTX 4090 with the [swap bench](contrib/bench/README.md) switching between
 NInfer (through llama-swap) and Strata (262K context), both on an NVMe SSD, 2026-10-20 (two runs,
@@ -1198,10 +1222,8 @@ engine's files during a drain (`prefetch`) and serves measured switch costs at `
 
 In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
 
-- KV snapshots wired into the drain and start paths, so a sequence of agents skips the prefill
-  after each switch.
 - Measured switch costs on the live daemon.
-- Gateway fallback routing, and models started on demand for a standalone llama-server.
+- Models started on demand for a standalone llama-server.
 - Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
   CUDA engines on Linux.
