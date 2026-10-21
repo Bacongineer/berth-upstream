@@ -6,7 +6,9 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -191,7 +193,9 @@ func TestDurationMarshalsAsString(t *testing.T) {
 // The engine's file list is `prefetch` in all three encodings, so a harbor
 // or script that reads the config sees the key the file uses.
 func TestPrefetchKeySpelledAlikeInEveryEncoding(t *testing.T) {
-	c, err := Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nprefetch = [\"/models/x\", \"/models/y\"]\n"))
+	dir := t.TempDir() // absolute on every platform, which validation requires
+	want := []string{filepath.Join(dir, "x"), filepath.Join(dir, "y")}
+	c, err := Load(write(t, fmt.Sprintf("[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nprefetch = ['%s', '%s']\n", want[0], want[1])))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,46 +203,45 @@ func TestPrefetchKeySpelledAlikeInEveryEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"prefetch":["/models/x","/models/y"]`) {
+	if !strings.Contains(string(b), `"prefetch":[`) {
 		t.Errorf("json = %s", b)
 	}
 	var fromJSON Config
 	if err := json.Unmarshal(b, &fromJSON); err != nil {
 		t.Fatal(err)
 	}
-	if got := fromJSON.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
-		t.Errorf("json round trip = %v", got)
+	if got := fromJSON.Engine[0].Prefetch; !slices.Equal(got, want) {
+		t.Errorf("json round trip = %v, want %v", got, want)
 	}
 
 	y, err := yaml.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(y), "prefetch:") || !strings.Contains(string(y), "- /models/x") {
+	if !strings.Contains(string(y), "prefetch:") {
 		t.Errorf("yaml has no prefetch list: %s", y)
 	}
 	var fromYAML Config
 	if err := yaml.Unmarshal(y, &fromYAML); err != nil {
 		t.Fatal(err)
 	}
-	if got := fromYAML.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
-		t.Errorf("yaml round trip = %v", got)
+	if got := fromYAML.Engine[0].Prefetch; !slices.Equal(got, want) {
+		t.Errorf("yaml round trip = %v, want %v", got, want)
 	}
 
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), `prefetch = ["/models/x", "/models/y"]`) {
+	if !strings.Contains(buf.String(), "prefetch = [") {
 		t.Errorf("toml = %s", buf.String())
 	}
 	var fromTOML Config
 	if _, err := toml.Decode(buf.String(), &fromTOML); err != nil {
 		t.Fatal(err)
-		return
 	}
-	if got := fromTOML.Engine[0].Prefetch; len(got) != 2 || got[1] != "/models/y" {
-		t.Errorf("toml round trip = %v", got)
+	if got := fromTOML.Engine[0].Prefetch; !slices.Equal(got, want) {
+		t.Errorf("toml round trip = %v, want %v", got, want)
 	}
 }
 
