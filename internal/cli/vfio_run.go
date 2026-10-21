@@ -236,20 +236,21 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 
 	// The script runs with the terminal attached, so its sudo prompt and
 	// the VM's console reach it, and with the card's PCI functions in
-	// BERTH_VFIO_DEVICES, so it hardcodes no address.
+	// BERTH_VFIO_DEVICES, so it hardcodes no address. It stays in this
+	// process group, unlike an engine under berth run: a child in its own
+	// group that reads the terminal is stopped by SIGTTIN, and sudo would
+	// hang at its password prompt. A Ctrl-C reaches the script from the
+	// terminal directly, so nothing is forwarded; signals meant for this
+	// run are drained once the script exits.
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	runner.Isolate(cmd)
 	devices := vfioFunctionList(funcs, card.Addr)
 	cmd.Env = append(os.Environ(), "BERTH_VFIO_DEVICES="+devices)
 	if err := cmd.Start(); err != nil {
 		return c.fail(Systemf("start %s: %v", argv[0], err))
 	}
 	say("running %s with %s", argv[0], devices)
-	done := make(chan struct{})
-	go runner.ForwardSignals(cmd, done)
 	waitErr := cmd.Wait()
-	close(done)
 	code := runner.ExitCode(cmd, waitErr)
 	if code != 0 {
 		say("%s exited with %d", argv[0], code)

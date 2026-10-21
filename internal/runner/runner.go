@@ -640,25 +640,8 @@ func command(o Options, out io.Writer) *exec.Cmd {
 	return cmd
 }
 
-// Isolate, SignalGroup, ForwardSignals and ExitCode are the wrapped-command
-// pieces the vfio wrapper reuses: like berth run, it starts the command in
-// its own process group with the terminal attached, forwards stop signals
-// to it, and exits with its code. The vfio flow itself (the hold, the
-// opener check, the driver wait) stays in the cli package.
-
-// Isolate puts the command in its own process group (a job object on
-// Windows), so a stop reaches everything it forked.
-func Isolate(cmd *exec.Cmd) { isolate(cmd) }
-
-// SignalGroup sends one stop signal to the command's process group.
-func SignalGroup(cmd *exec.Cmd, s os.Signal) { signalGroup(cmd, s) }
-
-// ForwardSignals passes stop signals to the command's process group until
-// done closes.
-func ForwardSignals(cmd *exec.Cmd, done <-chan struct{}) { forwardSignals(cmd, done) }
-
-// ExitCode is the command's exit status: 128 plus the signal number when it
-// was signalled.
+// ExitCode is a wrapped command's exit status, 128 plus the signal number
+// when it was signalled. berth vfio run exits with its script's code.
 func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
