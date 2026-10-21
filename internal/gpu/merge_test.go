@@ -122,17 +122,35 @@ func TestMergeProcs(t *testing.T) {
 		14: 64 * MiB,  // exactly at the floor does not
 		15: 63 * MiB,  // under it does not
 		16: 65 << 20,  // another over the floor, after 13 by PID
+		17: 70 << 20,  // a PDH-only PID the process table does not know
+	}
+	names := map[int]string{
+		11: "not-nfer-serve", // nvidia-smi's own name wins for a listed PID
+		13: "dwm.exe",        // a PDH-only PID takes the table's name
+		16: "explorer.exe",
 	}
 	want := []Proc{
 		{PID: 11, Name: "nfer-serve", Used: 10 << 20},
 		{PID: 12, Name: "nvidia-smi", Used: 3 * MiB},
-		{PID: 13, Used: 100 << 20},
-		{PID: 16, Used: 65 << 20},
+		{PID: 13, Name: "dwm.exe", Used: 100 << 20},
+		{PID: 16, Name: "explorer.exe", Used: 65 << 20},
+		{PID: 17, Used: 70 << 20}, // no table entry: the name stays empty
 	}
-	if got := mergeProcs(procs, dedicated); !reflect.DeepEqual(got, want) {
+	if got := mergeProcs(procs, dedicated, names); !reflect.DeepEqual(got, want) {
 		t.Fatalf("mergeProcs = %+v, want %+v", got, want)
 	}
-	if got := mergeProcs(procs, nil); !reflect.DeepEqual(got, procs) {
+	// A walk that found nothing (nil names) leaves every fresh PID nameless.
+	nameless := []Proc{
+		{PID: 11, Name: "nfer-serve", Used: 10 << 20},
+		{PID: 12, Name: "nvidia-smi", Used: 3 * MiB},
+		{PID: 13, Used: 100 << 20},
+		{PID: 16, Used: 65 << 20},
+		{PID: 17, Used: 70 << 20},
+	}
+	if got := mergeProcs(procs, dedicated, nil); !reflect.DeepEqual(got, nameless) {
+		t.Fatalf("mergeProcs with no process table = %+v, want %+v", got, nameless)
+	}
+	if got := mergeProcs(procs, nil, names); !reflect.DeepEqual(got, procs) {
 		t.Fatalf("mergeProcs with no PDH figures = %+v, want the list unchanged", got)
 	}
 }

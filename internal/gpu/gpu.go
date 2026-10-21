@@ -250,9 +250,11 @@ func capToTotal(dedicated map[int]uint64, total uint64) (map[int]uint64, []cappe
 // list. A listed process whose Used is 0 (WDDM reports [N/A]) takes the
 // PDH figure, and nvidia-smi's own number wins when it has one. A PID the
 // list lacks, a graphics client or a game, joins when its dedicated use
-// clears graphicsProcBytes; PDH does not say its name, so the Name stays
-// empty. Card totals still come from the driver.
-func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
+// clears graphicsProcBytes; PDH does not say its name, so the process
+// table does when it can (names, read once per probe read) and a PID the
+// table does not know keeps an empty Name. Card totals still come from the
+// driver.
+func mergeProcs(procs []Proc, dedicated map[int]uint64, names map[int]string) []Proc {
 	if len(dedicated) == 0 {
 		return procs
 	}
@@ -275,7 +277,7 @@ func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
 	}
 	sort.Ints(fresh)
 	for _, pid := range fresh {
-		out = append(out, Proc{PID: pid, Used: dedicated[pid]})
+		out = append(out, Proc{PID: pid, Name: names[pid], Used: dedicated[pid]})
 	}
 	return out
 }
