@@ -149,6 +149,22 @@ const (
 	// EvFootprint: a freed run measured far more VRAM than the engine's
 	// learned footprint, so the estimate a next run is offered grows.
 	EvFootprint = "engine.footprint"
+	// EvCardPassthrough: the governed card's PCI function is bound to
+	// vfio-pci, a VM holds the card. EvCardReturned: it is back on its
+	// host driver. Each fires once per transition.
+	EvCardPassthrough = "card.passthrough"
+	EvCardReturned    = "card.returned"
+)
+
+// Card states, the values Status.Passthrough.State takes. Normal is the
+// zero state: no Passthrough in the status at all.
+const (
+	// CardPassthrough: the card is in a VM, its PCI function is bound to
+	// vfio-pci.
+	CardPassthrough = "passthrough"
+	// CardDetaching: a VFIO hold is granted and the function is not bound
+	// to vfio-pci (yet or any more); the switch is in progress.
+	CardDetaching = "detaching"
 )
 
 // Counters are the collisions board. Every count is an event berthd can
@@ -207,6 +223,19 @@ type Status struct {
 	// RAM their warm copies are expected to hold. A reading, never a
 	// reservation.
 	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
+	// Passthrough is the governed card's VM state while it does not serve
+	// the node: bound to vfio-pci, or switching to or from that. Omitted
+	// when the card is normal.
+	Passthrough *Passthrough `json:"passthrough,omitempty"`
+}
+
+// Passthrough is the card's VM passthrough state.
+type Passthrough struct {
+	// State is CardPassthrough or CardDetaching.
+	State string `json:"state"`
+	// Driver is the kernel driver bound to the card's PCI function at the
+	// last look: vfio-pci, the host driver mid-switch, or "" unbound.
+	Driver string `json:"driver"`
 }
 
 // EngineFootprint is what the broker learned from one engine's leases: the
