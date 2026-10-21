@@ -12,6 +12,7 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -161,6 +162,87 @@ func (g *Gateway) cost(w http.ResponseWriter, r *http.Request) {
 			Tier: string(es.Tier), TookMs: es.Took.Milliseconds(), Samples: es.Samples, Known: es.Known})
 	}
 	g.costMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// planReply is swapcost.Plan as the gateway serves it: one step per
+// chain entry, and total_ms the sum of the known steps only. With
+// unmeasured above 0 the total is a lower bound, "at least this, N
+// steps unmeasured", never a promise. prefetch is per step: the engine
+// to warm while that step holds the card, empty where the next step is
+// the same engine or the chain ends; keep_parked lists the engines the
+// chain comes back to, so the caller parks them instead of paying a
+// reload.
+type planReply struct {
+	Steps      []stepReply `json:"steps"`
+	TotalMs    int64       `json:"total_ms"`
+	Unmeasured int         `json:"unmeasured"`
+	Prefetch   []string    `json:"prefetch"`
+	KeepParked []string    `json:"keep_parked"`
+}
+
+type stepReply struct {
+	Engine  string `json:"engine"`
+	Tier    string `json:"tier"`
+	TookMs  int64  `json:"took_ms"`
+	Samples int    `json:"samples"`
+	Known   bool   `json:"known"`
+}
+
+// plan works a declared chain out against the book: what each switch is
+// likely to take, what the total is a lower bound on, which engine to
+// prefetch at each step, and which engines to keep parked.
+func (g *Gateway) plan(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		apiError(w, http.StatusBadRequest, "read body: "+err.Error())
+		return
+	}
+	var req struct {
+		Chain []struct {
+			Engine string `json:"engine"`
+			Tier   string `json:"tier"`
+		} `json:"chain"`
+	}
+	if json.Unmarshal(body, &req) != nil {
+		apiError(w, http.StatusBadRequest, `the body must be JSON like {"chain":[{"engine":"NAME","tier":"cold"}]}`)
+		return
+	}
+	if len(req.Chain) == 0 {
+		apiError(w, http.StatusBadRequest, "the chain is empty: name at least one step")
+		return
+	}
+	steps := make([]swapcost.Step, 0, len(req.Chain))
+	for i, s := range req.Chain {
+		switch swapcost.Tier(s.Tier) {
+		case swapcost.Hot, swapcost.Warm, swapcost.Cool, swapcost.Cold:
+		default:
+			apiError(w, http.StatusBadRequest, fmt.Sprintf("chain step %d names tier %q: it must be hot, warm, cool or cold", i+1, s.Tier))
+			return
+		}
+		if g.engineByName(s.Engine) == nil {
+			apiError(w, http.StatusBadRequest, fmt.Sprintf("chain step %d names engine %q, which is not in the config", i+1, s.Engine))
+			return
+		}
+		steps = append(steps, swapcost.Step{Engine: s.Engine, Tier: swapcost.Tier(s.Tier)})
+	}
+	book := g.costBook()
+	g.costMu.Lock()
+	p := book.Plan(steps, time.Now())
+	g.costMu.Unlock()
+	out := planReply{
+		Steps:      make([]stepReply, 0, len(p.Steps)),
+		TotalMs:    p.Total.Milliseconds(),
+		Unmeasured: p.Unmeasured,
+		Prefetch:   p.Prefetch,
+		KeepParked: p.KeepParked,
+	}
+	for _, sc := range p.Steps {
+		out.Steps = append(out.Steps, stepReply{
+			Engine: sc.Step.Engine, Tier: string(sc.Step.Tier),
+			TookMs: sc.Estimate.Took.Milliseconds(), Samples: sc.Estimate.Samples, Known: sc.Estimate.Known})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
