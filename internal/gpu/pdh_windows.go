@@ -191,10 +191,10 @@ var (
 
 // d3dkmtAdapterInfo mirrors D3DKMT_ADAPTERINFO.
 type d3dkmtAdapterInfo struct {
-	hAdapter unsafe.Pointer // D3DKMT_HANDLE
-	luid     windows.LUID   // AdapterLuid
-	sources  uint32         // NumOfSources
-	precise  int32          // bPrecisePresentRegionsPreferred
+	hAdapter uint32       // D3DKMT_HANDLE, a UINT
+	luid     windows.LUID // AdapterLuid
+	sources  uint32       // NumOfSources
+	precise  int32        // bPrecisePresentRegionsPreferred
 }
 
 // d3dkmtEnumAdapters2 mirrors D3DKMT_ENUMADAPTERS2.
@@ -205,7 +205,7 @@ type d3dkmtEnumAdapters2 struct {
 
 // d3dkmtQueryAdapterInfo mirrors D3DKMT_QUERYADAPTERINFO.
 type d3dkmtQueryAdapterInfo struct {
-	hAdapter unsafe.Pointer
+	hAdapter uint32 // D3DKMT_HANDLE
 	kind     int32
 	data     unsafe.Pointer
 	dataSize uint32
@@ -223,9 +223,9 @@ type adapter struct {
 }
 
 // closeD3DKMTAdapter releases one adapter handle opened by enumeration.
-func closeD3DKMTAdapter(h unsafe.Pointer) {
+func closeD3DKMTAdapter(h uint32) {
 	var c struct {
-		hAdapter unsafe.Pointer
+		hAdapter uint32 // D3DKMT_HANDLE
 	}
 	c.hAdapter = h
 	_, _, _ = d3dkmtCloseAdapterFn.Call(uintptr(unsafe.Pointer(&c)))
