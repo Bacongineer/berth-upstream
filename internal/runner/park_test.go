@@ -215,6 +215,20 @@ func runPark(t *testing.T, sock, engine, stubURL string, hook bool) (chan int, *
 	return exited, log
 }
 
+// stopAtEnd kills an engine the test leaves running and waits for its
+// wrapper to exit before the temp dirs go. Run would otherwise see the
+// daemon stop at cleanup and write its unprotected-run record into a
+// directory being removed.
+func stopAtEnd(t *testing.T, pid int, exited <-chan int) {
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+		}
+	})
+}
+
 // attachAndMeasure waits for the run's lease to carry a PID and gives the
 // card its footprint, so a drain can be admitted.
 func attachAndMeasure(t *testing.T, b *broker.Broker, card *parkCard) int {
@@ -388,7 +402,7 @@ func TestRunParksThroughBerthProtocol(t *testing.T) {
 			Hook: true, ParkBase: srv.URL, ParkProbe: "/v1/models",
 			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: log})
 	}()
-	attachAndMeasure(t, b, card)
+	stopAtEnd(t, attachAndMeasure(t, b, card), exited)
 
 	holder := acquireIn(b, broker.Request{Engine: "game", Priority: broker.Foreground})
 	waitFor(t, "the protocol park", func() bool { return stub.count("park") == 1 })
@@ -436,16 +450,7 @@ func TestRunParksComfyUIKeepUp(t *testing.T) {
 			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: log})
 	}()
 	pid := attachAndMeasure(t, b, card)
-	// The parked engine is still up when the test ends: stop it and let
-	// the wrapper exit before the temp dirs go, or its unprotected-run
-	// record lands in a directory being removed.
-	t.Cleanup(func() {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
-		select {
-		case <-exited:
-		case <-time.After(5 * time.Second):
-		}
-	})
+	stopAtEnd(t, pid, exited)
 
 	holder := acquireIn(b, broker.Request{Engine: "game", Priority: broker.Foreground})
 	waitFor(t, "the park unload", func() bool {
