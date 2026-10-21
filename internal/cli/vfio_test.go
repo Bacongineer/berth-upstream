@@ -156,16 +156,6 @@ done
 `, tr.sysfs, tr.sysfs, to, tr.sysfs)
 }
 
-// driver reads one function's driver back from the fake tree.
-func (tr *vfioTree) driver(addr string) string {
-	tr.t.Helper()
-	t, err := os.Readlink(filepath.Join(tr.sysfs, "bus", "pci", "devices", addr, "driver"))
-	if err != nil {
-		return ""
-	}
-	return filepath.Base(t)
-}
-
 // bind puts a function back on its driver by hand, as the operator's script
 // or hand does between two checks.
 func (tr *vfioTree) bind(addr, driver string) {
