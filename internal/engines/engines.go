@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -306,6 +307,21 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 		err = fmt.Errorf("no reader for type %q", e.Type)
 	}
 	out.Up = err == nil
+	if !out.Up {
+		switch {
+		case isAuthStatus(err):
+			// A 401/403 is the engine's own answer: it is alive and
+			// refusing the credential. The answer proves liveness; the
+			// credential problem stays reported as the engine's error.
+			out.Up = true
+		case keyErr != nil:
+			// The credential never made it onto a request, so no answer
+			// arrived through the reader. Ask the engine's primary
+			// endpoint with no credential: any HTTP answer, whatever its
+			// status, proves the server is alive.
+			out.Up = w.answered(ctx, base+livenessPath(e))
+		}
+	}
 	if err != nil {
 		out.Error = err.Error()
 	}
@@ -314,6 +330,63 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 	}
 	out.Kind = kindOf(e.Type, e.Kind)
 	return out
+}
+
+// livenessPath is the endpoint that says whether an engine of this type is
+// answering: the one its reader asks first.
+func livenessPath(e config.Engine) string {
+	switch e.Type {
+	case "llamacpp", "ninfer":
+		return "/metrics"
+	case "custom":
+		switch {
+		case e.Health != "":
+			return e.Health
+		case e.Metrics != "" || len(e.Map) > 0:
+			if e.Metrics != "" {
+				return e.Metrics
+			}
+			return "/metrics"
+		case e.Models != "":
+			return e.Models
+		case e.Slots != "":
+			return e.Slots
+		}
+		return "/"
+	case "llama-swap":
+		return "/running"
+	case "ollama":
+		return "/api/ps"
+	case "strata":
+		return "/health"
+	case "vllm", "sglang", "localai", "openai":
+		return "/v1/models"
+	case "koboldcpp":
+		return "/api/v1/model"
+	case "tabbyapi":
+		return "/tabby/config"
+	case "lmstudio":
+		return "/api/v0/models"
+	case "unsloth":
+		return "/api/health"
+	case "freetoken":
+		return "/v1/stats"
+	case "comfyui":
+		return "/queue"
+	case "kokoro":
+		return "/health"
+	}
+	return "/"
+}
+
+// answered reports whether the endpoint returns an HTTP answer of any
+// status. A refusal is still an answer from a live server; only a
+// transport failure (nothing listening, timeout) means the server is not
+// answering.
+func (w *Watcher) answered(ctx context.Context, url string) bool {
+	_, err := w.get(ctx, url)
+	var status *httpStatusError
+	return err == nil || errors.As(err, &status)
 }
 
 // custom reads a config-described engine: health for up/down when set,
@@ -335,13 +408,18 @@ func (w *Watcher) custom(ctx context.Context, base string, e config.Engine, out 
 		}
 	}
 	gate := e.Health == ""
+	var authErr error // a credential refusal on an optional read, reported not fatal
 	if metricsPath != "" {
 		b, err := w.getKey(ctx, base+metricsPath, e.APIKeyEnv)
 		if err != nil && gate {
 			return err
 		}
 		gate = false
-		if err == nil {
+		if err != nil {
+			if isAuthStatus(err) {
+				authErr = err
+			}
+		} else {
 			vals := ParseProm(string(b))
 			f := func(field string) float64 { return vals[e.Map[field]] }
 			out.Metrics = proto.EngineMetrics{
@@ -357,13 +435,19 @@ func (w *Watcher) custom(ctx context.Context, base string, e config.Engine, out 
 			return err
 		}
 		gate = false
-		var r struct {
-			Data []openAIModel `json:"data"`
-		}
-		if err == nil && json.Unmarshal(b, &r) == nil {
-			for _, m := range r.Data {
-				out.Models = append(out.Models, proto.Model{Name: m.ID, State: "loaded", Window: m.window()})
-				out.Window = max(out.Window, m.window())
+		if err != nil {
+			if isAuthStatus(err) {
+				authErr = err
+			}
+		} else {
+			var r struct {
+				Data []openAIModel `json:"data"`
+			}
+			if json.Unmarshal(b, &r) == nil {
+				for _, m := range r.Data {
+					out.Models = append(out.Models, proto.Model{Name: m.ID, State: "loaded", Window: m.window()})
+					out.Window = max(out.Window, m.window())
+				}
 			}
 		}
 	}
@@ -372,9 +456,16 @@ func (w *Watcher) custom(ctx context.Context, base string, e config.Engine, out 
 		if err != nil && gate {
 			return err
 		}
-		if err == nil {
+		if err != nil {
+			if isAuthStatus(err) {
+				authErr = err
+			}
+		} else {
 			out.Slots = ss
 		}
+	}
+	if authErr != nil {
+		out.Error = authErr.Error()
 	}
 	return nil
 }
