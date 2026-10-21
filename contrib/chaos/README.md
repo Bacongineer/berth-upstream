@@ -60,5 +60,5 @@ Use the [drain report issue form](https://github.com/T-Crypt/berth/issues/new?te
 It collects: which scenario, pass / fail / other, the GPU and its VRAM, the
 driver version (`nvidia-smi` prints it), the OS, the engines on the card,
 the berth version (`berth version`) and the event log around the run
-(`berth events --json`). Capture the events output before you restart
+(`berth events --format json`). Capture the events output before you restart
 anything, and paste it whole.

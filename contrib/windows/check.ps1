@@ -27,7 +27,7 @@ function Note($text) {
 }
 
 Note "berth windows check - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-Note "machine: $env:COMPUTERNAME, user: $env:USERNAME, powershell: $PSVersionTable.PSVersion.ToString()"
+Note "machine: $env:COMPUTERNAME, user: $env:USERNAME, powershell: $($PSVersionTable.PSVersion.ToString())"
 
 # 1. The berth version and the node it talks to.
 Note ""
@@ -91,24 +91,33 @@ else {
     Note "PID      NAME                     BERTH(MiB)  DRIVER(MiB)"
     $berthPids = @{}
     $rows = @()
-    if ($null -ne $stat.holders) {
-        foreach ($h in $stat.holders) {
-            $berthPids[$h.pid] = $true
-            $d = "-"
-            if ($driverMiB.ContainsKey($h.pid)) { $d = "$($driverMiB[$h.pid])" }
-            $rows += ,@($h.pid, "holder " + $h.name, $h.used / 1MB, $d)
-        }
-    }
+    # The label and the MiB figure go into variables first: in PowerShell the
+    # comma binds tighter than + and /, so inside a @(...) list they split
+    # one element into two and shift every column after it.
     if ($null -ne $stat.squatters) {
         foreach ($s in $stat.squatters) {
             $berthPids[$s.pid] = $true
             $d = "-"
             if ($driverMiB.ContainsKey($s.pid)) { $d = "$($driverMiB[$s.pid])" }
-            $rows += ,@($s.pid, "stowaway " + $s.name, $s.used / 1MB, $d)
+            $label = "stowaway " + $s.name
+            $mib = [string][math]::Round([double]$s.used / 1MB)
+            $rows += ,@($s.pid, $label, $mib, $d)
+        }
+    }
+    # Unprotected runs: the daemon stopped keeping them, so status has no
+    # berth figure for them; the driver's counter is the check of the run.
+    if ($null -ne $stat.unprotected) {
+        foreach ($u in $stat.unprotected) {
+            if ($u.pid -le 0) { continue }
+            $berthPids[$u.pid] = $true
+            $d = "-"
+            if ($driverMiB.ContainsKey($u.pid)) { $d = "$($driverMiB[$u.pid])" }
+            $label = "unprotected " + $u.engine
+            $rows += ,@($u.pid, $label, "-", $d)
         }
     }
     foreach ($r in $rows) {
-        Note ("{0,-8}   {1,-24} {2,9}  {3,12}" -f $r[0], $r[1], [math]::Round($r[2]), $r[3])
+        Note ("{0,-8}   {1,-24} {2,9}  {3,12}" -f $r[0], $r[1], $r[2], $r[3])
     }
     if ($rows.Count -eq 0) {
         Note "(no process on the card that berth knows)"
@@ -146,15 +155,17 @@ if ($App -ne "") {
 # 6. The event log around the run, the form's last field. Capture it before
 # you restart anything.
 Note ""
-Note "== berth events --json (last 200 lines)"
-$events = & $Berth events --json 2>$null
+Note "== berth events --format json (last 200 lines)"
+# stderr rides along in the capture, so a berth that answers nothing still
+# leaves its error in the report instead of a silent "returned nothing".
+$events = & $Berth events --format json 2>&1
 if ($null -ne $events) {
     $events | Select-Object -Last 200 | ForEach-Object {
         if ($null -ne $_ -and "$_" -ne "") { Note $_ }
     }
 }
 else {
-    Note "berth events returned nothing"
+    Note "berth events wrote nothing (exit code $LASTEXITCODE)"
 }
 
 [System.IO.File]::WriteAllLines($Report, $lines, (New-Object System.Text.UTF8Encoding($false)))

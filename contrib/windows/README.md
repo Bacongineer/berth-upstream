@@ -19,7 +19,7 @@ collects, so a report takes one run instead of a dozen screenshots.
   unexpected one for a misbehaving engine.
 - When you give it a CUDA app, one run of it under `berth run --as hog`,
   its output and its exit code.
-- The event log around the run (`berth events --json`, the last 200 lines).
+- The event log around the run (`berth events --format json`, the last 200 lines).
   It is captured before you restart anything.
 
 ## What it needs

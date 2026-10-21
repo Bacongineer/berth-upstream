@@ -24,6 +24,14 @@ has a matching GitHub release whose body comes from its section below.
   one WARN line. A relative path fails `berth config check`, and `berth prefetch MODEL` makes the
   same ask by hand.
 
+### Fixed
+
+- The Windows check kit (`contrib/windows/check.ps1`): the per-process rows render again, the label and
+  the MiB figure computed before the row list, and the status reads the keys it actually has
+  (`squatters`, `unprotected`, `leases`; there is no `holders`). `berth events` is called with
+  `--format json`, and a berth that answers nothing leaves its stderr in the report instead of
+  a silent "returned nothing".
+
 ## [v0.3.2] - 2026-10-20
 
 Fixes from the first Windows testers, and four contributions. On Windows, the Epic Games
