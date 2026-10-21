@@ -786,7 +786,10 @@ function overallState() {
   const c = connState();
   if (c === "down") return "offline";
   const lv = alertLevels();
-  const latched = (state.status && state.status.engines || []).some((e) => e.state === "latched");
+  // While the card is in a VM no engine can hold it, so an engine stopped for
+  // the session is expected, not a fault.
+  const inVM = !!(state.status && state.status.passthrough);
+  const latched = !inVM && (state.status && state.status.engines || []).some((e) => e.state === "latched");
   if (Object.keys(lv).length > 0 || latched) return "degraded";
   if (c === "stale") return "degraded"; // no fresh status within 10 s: not provably live
   return "live";
