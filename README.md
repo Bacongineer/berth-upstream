@@ -691,6 +691,60 @@ needs the key. The gateway listens
 on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
 carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
+#### What a switch costs
+
+The gateway runs a start and sees both ends of it: the grant its run printed, which is
+when the card showed free, and the engine's first answer. It times that pair for every
+start it runs and keeps the last 20 times per engine and tier in a book
+(`~/.local/state/berth/swapcost.json`), so it can price the next switch without guessing.
+The wait for a free card belongs to the queue, not to the engine, so it is not part of the
+figure. A failed start records nothing.
+
+`GET /v1/berth/cost?engine=NAME` answers one estimate per tier, hot first:
+
+```bash
+curl -s "http://127.0.0.1:9799/v1/berth/cost?engine=strata" -H "Authorization: Bearer $(berth key)"
+```
+
+```json
+{"engine":"strata","estimates":[
+  {"tier":"hot","took_ms":0,"samples":0,"known":true},
+  {"tier":"warm","took_ms":1500,"samples":4,"known":true},
+  {"tier":"cool","took_ms":45000,"samples":3,"known":true},
+  {"tier":"cold","took_ms":110000,"samples":6,"known":true}]}
+```
+
+Hot, the engine already holding the card, is the free switch. Warm is a parked engine,
+its weights in host RAM. Cool and cold split at half of the engine's files still held by
+the kernel page cache. An estimate with `known:false` has no samples behind it, and its
+`took_ms: 0` is not a prediction: a figure the gateway gives is one it measured.
+
+`POST /v1/berth/plan` prices a chain an orchestrator declares ahead of time, one step per
+switch, each naming the engine and the tier to find it in:
+
+```bash
+curl -s http://127.0.0.1:9799/v1/berth/plan -H "Authorization: Bearer $(berth key)" \
+  -d '{"chain":[{"engine":"strata","tier":"cold"},{"engine":"llama-swap","tier":"warm"},{"engine":"strata","tier":"cool"}]}'
+```
+
+```json
+{"steps":[
+  {"engine":"strata","tier":"cold","took_ms":110000,"samples":6,"known":true},
+  {"engine":"llama-swap","tier":"warm","took_ms":2000,"samples":12,"known":true},
+  {"engine":"strata","tier":"cool","took_ms":0,"samples":0,"known":false}],
+ "total_ms":112000,
+ "unmeasured":1,
+ "prefetch":["llama-swap","strata",""],
+ "keep_parked":["strata"]}
+```
+
+`total_ms` sums the known steps only: with `unmeasured` above 0 it is a lower bound, read
+as "at least 112 s, 1 step unmeasured", never a promise. `prefetch` is per step, the engine
+to warm while that step holds the card, and `keep_parked` lists the engines the chain comes
+back to, which are worth parking in RAM instead of stopping and reloading. An unknown tier
+or an engine `berth.toml` does not name is a 400 naming the step; a missing or wrong key
+and any browser `Origin` are refused, as on every other route.
+
 #### Open a stopped engine's web UI
 
 A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a
@@ -1104,7 +1158,7 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
   whose parent exits within one 2 s tick).
 - KV snapshots wired into the drain and start paths, so a sequence of agents skips the prefill
   after each switch.
-- Measured switch costs on the live daemon and the gateway (`/v1/berth/cost`, `/v1/berth/plan`).
+- Measured switch costs on the live daemon.
 - Gateway fallback routing, and models started on demand for a standalone llama-server.
 - Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
