@@ -20,8 +20,10 @@ type Unit struct {
 }
 
 // serviceUnits is the list the flags select: the node always, the gateway
-// and the harbor when asked. The arguments are the ones the systemd units
-// in contrib/ carry.
+// and the harbor when asked. No unit carries --listen: the address is
+// [harbor] listen and [gateway] listen in berth.toml, so a port change
+// needs a restart of the service, not a reinstall, and the units in
+// contrib/ stay the source of the words.
 func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	units := []Unit{{
 		Name:        "berthd",
@@ -31,7 +33,7 @@ func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	if gateway {
 		units = append(units, Unit{
 			Name:        "berth-gateway",
-			Exec:        []string{exe, "gateway", "--listen", "127.0.0.1:9799"},
+			Exec:        []string{exe, "gateway"},
 			After:       []string{"berthd"},
 			Description: "berth gateway - one port that starts engines on demand under a lease",
 		})
@@ -39,7 +41,7 @@ func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	if harbor {
 		units = append(units, Unit{
 			Name:        "berth-harbor",
-			Exec:        []string{exe, "harbor", "--listen", "127.0.0.1:9798"},
+			Exec:        []string{exe, "harbor"},
 			After:       []string{"berthd"},
 			Description: "berth harbor - web UI for the local berthd",
 		})
@@ -55,13 +57,18 @@ func allUnits() []Unit { return serviceUnits("", true, true) }
 // documents. Content is the file the install writes, set on install rows so
 // a dry run shows it. Installed and Running are set by status only.
 type serviceUnit struct {
-	Unit      string `json:"unit" yaml:"unit"`
-	Target    string `json:"target" yaml:"target"`
-	Action    string `json:"action" yaml:"action"`
-	Content   string `json:"content,omitempty" yaml:"content,omitempty"`
-	BackedUp  string `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
-	Installed bool   `json:"installed,omitempty" yaml:"installed,omitempty"`
-	Running   bool   `json:"running,omitempty" yaml:"running,omitempty"`
+	Unit    string `json:"unit" yaml:"unit"`
+	Target  string `json:"target" yaml:"target"`
+	Action  string `json:"action" yaml:"action"`
+	Content string `json:"content,omitempty" yaml:"content,omitempty"`
+	// BackedUp is the .bak a replaced, differing copy was kept as.
+	BackedUp string `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
+	// Log is the file one of the services appends its output to, set on
+	// Windows.
+	Log string `json:"log,omitempty" yaml:"log,omitempty"`
+
+	Installed bool `json:"installed,omitempty" yaml:"installed,omitempty"`
+	Running   bool `json:"running,omitempty" yaml:"running,omitempty"`
 }
 
 // serviceDoc is what a service command reports: one row per unit and the
@@ -123,6 +130,9 @@ func (v serviceView) Human(c *Context, ok bool) error {
 		}
 		if u.BackedUp != "" {
 			line += " (previous copy kept as " + u.BackedUp + ")"
+		}
+		if u.Log != "" {
+			line += " (log: " + u.Log + ")"
 		}
 		c.Bullet("%s", line)
 		if v.doc.DryRun && u.Content != "" {

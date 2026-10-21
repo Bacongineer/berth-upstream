@@ -171,6 +171,13 @@ your GPU apps are. The harbor answers on http://127.0.0.1:9798/. `berth
 service status` shows them and `berth service uninstall` removes them; the
 manual steps in Install do the same by hand.
 
+The harbor and gateway take their addresses from berth.toml when their
+`--listen` flags are not given: `[harbor] listen` and `[gateway] listen`,
+so a port change is a config edit and a restart of the service, not a
+reinstall. On Windows, installing also starts the tasks it creates, and
+each task appends its output to a log file under the state directory,
+which `berth service status` prints.
+
 ## Preview
 
 The harbor UI (basic mode, served from the built-in demo fixture - every number on the screen
@@ -234,8 +241,8 @@ Linux machine, following its README and contrib/INTEGRATION.md. Steps:
    run: go install github.com/T-Crypt/berth/cmd/berth@latest.) Run `berth version`.
 3. Run `berth service install --harbor`. It writes the systemd user units
    (the files in contrib/) with your binary's path in place of the one they
-   name, and starts them; a unit file that already differs is kept as .bak.
-   Confirm with `berth status`.
+   name, and starts them; a unit file that already differs is kept as .bak
+   (on Windows: a task whose XML differs). Confirm with `berth status`.
 4. Find the inference engines on this machine (llama.cpp, llama-swap, Ollama, vLLM, SGLang,
    ComfyUI, LM Studio, KoboldCpp, TabbyAPI, LocalAI and so on): what runs them (systemd unit,
    llama-swap config, script) and on which port. Show me the list before changing anything.
@@ -301,6 +308,9 @@ Per-engine recipes (llama-swap, llama.cpp, Ollama, ComfyUI, vLLM, SGLang, custom
 ```toml
 [metrics]
 listen = "127.0.0.1:9797"      # Prometheus text, loopback only
+
+[harbor]
+# listen = "127.0.0.1:9798"    # where `berth harbor` listens; a LAN address exposes the web UI (no auth)
 
 [engines]
 # discover = true              # default: probe the well-known engine ports every minute
@@ -1052,7 +1062,9 @@ feature merged since v0.3.1:
   ([#81](https://github.com/T-Crypt/berth/issues/81)).
 - Per-process VRAM on Windows can read past the card's size, because Berth sums every adapter
   ([#82](https://github.com/T-Crypt/berth/issues/82)).
-- `berth service install` on Windows creates its tasks without starting them, and they write no log.
+- `berth service install` now starts the tasks it creates on Windows and each writes a log,
+  and the harbor and gateway take their listen addresses from berth.toml
+  ([#89](https://github.com/T-Crypt/berth/issues/89)).
 
 After it, in v0.3.x releases. Each item has its building blocks merged or a spec written:
 

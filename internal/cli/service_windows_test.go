@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -157,19 +158,28 @@ func TestTaskNotFound(t *testing.T) {
 
 func TestServiceInstallWindows(t *testing.T) {
 	dir := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	const exe = `C:\berth\berth.exe`
 	// Each /Create's XML is read while schtasks would read it: install
-	// removes the file once the task exists.
+	// removes the file once the task exists. A task is not there yet, so
+	// the /Query for a backup comes back not-found.
 	var xmlFiles []string
 	var xmlTexts []string
+	var runs []argv
 	ops, calls := fakeOps(t, dir, func(a argv) (string, error) {
-		if a.name == "schtasks.exe" && a.args[0] == "/Create" {
+		switch a.args[0] {
+		case "/Query":
+			return `ERROR: The system cannot find the file specified.`, errors.New("exit status 1")
+		case "/Create":
 			b, err := os.ReadFile(a.args[4])
 			if err != nil {
 				t.Errorf("the XML file schtasks was given: %v", err)
 			}
 			xmlFiles = append(xmlFiles, a.args[4])
 			xmlTexts = append(xmlTexts, utf16decode(b))
+		case "/Run":
+			runs = append(runs, a)
 		}
 		return "", nil
 	})
@@ -178,27 +188,46 @@ func TestServiceInstallWindows(t *testing.T) {
 	if e != nil {
 		t.Fatalf("install failed: %v", e)
 	}
-	if len(*calls) != 2 {
-		t.Fatalf("one schtasks call per unit, got %v", *calls)
+	if len(*calls) != 6 {
+		t.Fatalf("a query and a create per task, then a run per task, got %v", *calls)
+	}
+	if got := (*calls)[0].String(); got != `schtasks.exe /Query /TN \Berth\berthd /XML` {
+		t.Errorf("the differing task is asked for first, got %s", got)
+	}
+	if got := (*calls)[1].String(); got != "schtasks.exe /Create /TN \\Berth\\berthd /XML "+xmlFiles[0]+" /F" {
+		t.Errorf("the create command, got %s", got)
+	}
+	if got := (*calls)[4].String(); got != `schtasks.exe /Run /TN \Berth\berthd` {
+		t.Errorf("the task is started after creating, got %s", got)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("one run per task, got %v", runs)
 	}
 	if len(xmlFiles) != 2 {
 		t.Fatalf("one XML per task, got %v", xmlFiles)
 	}
-	if (*calls)[0].String() != "schtasks.exe /Create /TN \\Berth\\berthd /XML "+xmlFiles[0]+" /F" {
-		t.Errorf("the create command, got %s", (*calls)[0])
-	}
+	logPath := filepath.Join(state, "berth", "logs", "berthd.log")
 	text := xmlTexts[0]
-	if !strings.Contains(text, `<Command>C:\berth\berth.exe</Command>`) || !strings.Contains(text, `<Arguments>daemon --gpu 0 --poll 2s</Arguments>`) {
-		t.Errorf("the XML runs the user's binary:\n%s", text)
+	wantArgs := `<Arguments>/c &quot;&quot;` + exe + `&quot; daemon --gpu 0 --poll 2s &gt;&gt; &quot;` + logPath + `&quot; 2&gt;&amp;1&quot;</Arguments>`
+	for _, want := range []string{
+		`<Command>cmd.exe</Command>`,
+		wantArgs,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the task's action runs the user's binary with its output on the log:\n%s", text)
+		}
 	}
 	if strings.Contains(text, "berth-gateway") {
 		t.Errorf("each task names its own unit:\n%s", text)
 	}
+	if fi, err := os.Stat(filepath.Join(state, "berth", "logs")); err != nil || !fi.IsDir() {
+		t.Errorf("the log directory exists before the first start: %v", err)
+	}
 	if _, err := os.Stat(xmlFiles[0]); !os.IsNotExist(err) {
 		t.Errorf("the XML file is deleted after schtasks read it: %v", err)
 	}
-	if doc.Units[0].Action != "created" {
-		t.Errorf("the task is created, got %+v", doc.Units[0])
+	if doc.Units[0].Action != "created, started" {
+		t.Errorf("the task is created and started, got %+v", doc.Units[0])
 	}
 }
 
@@ -217,7 +246,108 @@ func TestServiceInstallWindowsCommandFails(t *testing.T) {
 	}
 }
 
+// A task already in the folder whose XML differs from what berth would
+// write is kept in the state directory as .bak before /F replaces it, like
+// the systemd path keeps a differing unit file; a task that matches what
+// berth writes is replaced with no copy.
+func TestServiceInstallWindowsBacksUpDifferingTask(t *testing.T) {
+	dir := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	const exe = `C:\berth\berth.exe`
+	unit := Unit{Name: "berthd", Exec: []string{exe, "daemon", "--gpu", "0", "--poll", "2s"}}
+	same, err := unitTaskXML(unit, currentUser())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const custom = `<?xml version="1.0"?><Task>a task the operator wrote</Task>`
+	ops, _ := fakeOps(t, dir, func(a argv) (string, error) {
+		if a.args[0] == "/Query" {
+			if a.args[2] == `\Berth\berthd` {
+				return same, nil
+			}
+			return custom, nil
+		}
+		return "", nil
+	})
+
+	doc, e := serviceInstall(context.Background(), ops, allUnits(), false)
+	if e != nil {
+		t.Fatalf("install failed: %v", e)
+	}
+	byName := map[string]serviceUnit{}
+	for _, u := range doc.Units {
+		byName[u.Unit] = u
+	}
+	if byName["berthd"].BackedUp != "" {
+		t.Errorf("a task berth would write the same is replaced with no copy, got %+v", byName["berthd"])
+	}
+	want := filepath.Join(state, "berth", "berth-harbor.xml.bak")
+	if byName["berth-harbor"].BackedUp != want {
+		t.Errorf("the replaced task is kept as .bak, got %+v", byName["berth-harbor"])
+	}
+	b, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("the previous copy is kept: %v", err)
+	}
+	if string(b) != custom {
+		t.Errorf("the copy is the task schtasks exported, got %q", b)
+	}
+}
+
+// A start the scheduler refuses is reported on the row it belongs to: the
+// task exists and starts at the next logon, so the install is not a
+// failure.
+func TestServiceInstallWindowsReportsAFailingStart(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	ops, _ := fakeOps(t, dir, func(a argv) (string, error) {
+		switch a.args[0] {
+		case "/Query":
+			return `ERROR: The system cannot find the file specified.`, errors.New("exit status 1")
+		case "/Run":
+			return "ERROR: (2,2):The system cannot find the file specified.", errors.New("exit status 2")
+		}
+		return "", nil
+	})
+
+	doc, e := serviceInstall(context.Background(), ops, serviceUnits(`C:\berth\berth.exe`, false, false), false)
+	if e != nil {
+		t.Fatalf("a refused start does not fail the install: %v", e)
+	}
+	for _, want := range []string{"created, not started", "The system cannot find the file specified"} {
+		if !strings.Contains(doc.Units[0].Action, want) {
+			t.Errorf("the failed start is on the row, got %q", doc.Units[0].Action)
+		}
+	}
+}
+
+func TestServiceInstallWindowsDryRun(t *testing.T) {
+	dir := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	ops, calls := fakeOps(t, dir, nil)
+
+	doc, e := serviceInstall(context.Background(), ops, serviceUnits(`C:\berth\berth.exe`, true, false), true)
+	if e != nil {
+		t.Fatalf("dry run failed: %v", e)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("a dry run runs no command, got %v", *calls)
+	}
+	for _, u := range doc.Units {
+		if u.Action != "would be created and started" || u.Content == "" {
+			t.Errorf("a dry run shows the task it would write, got %+v", u)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, "berth", "logs")); !os.IsNotExist(err) {
+		t.Errorf("a dry run creates no log directory: %v", err)
+	}
+}
+
 func TestServiceStatusWindows(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	ops, _ := fakeOps(t, t.TempDir(), func(a argv) (string, error) {
 		if a.args[0] == "/Query" {
 			switch a.args[2] {
@@ -243,8 +373,14 @@ func TestServiceStatusWindows(t *testing.T) {
 	if !byName["berthd"].Installed || !byName["berthd"].Running {
 		t.Errorf("berthd is installed and running, got %+v", byName["berthd"])
 	}
+	if want := filepath.Join(state, "berth", "logs", "berthd.log"); byName["berthd"].Log != want {
+		t.Errorf("status names the task's log file, got %+v", byName["berthd"])
+	}
 	if byName["berth-gateway"].Installed {
 		t.Errorf("a task schtasks cannot find is not installed, got %+v", byName["berth-gateway"])
+	}
+	if byName["berth-gateway"].Log != "" {
+		t.Errorf("a missing task names no log, got %+v", byName["berth-gateway"])
 	}
 	if !byName["berth-harbor"].Installed || byName["berth-harbor"].Running {
 		t.Errorf("berth-harbor is installed and ready, not running, got %+v", byName["berth-harbor"])

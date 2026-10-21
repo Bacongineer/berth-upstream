@@ -27,16 +27,24 @@ func defaultSocket() string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("berth-%d.sock", os.Getuid()))
 }
 
+// defaultStateDir is the directory defaultStateFile puts its files in:
+// $XDG_STATE_HOME/berth, falling back to ~/.local/state/berth. On Windows,
+// where no XDG variable is set, it is the per-user state path the service
+// logs live under too.
+func defaultStateDir() string {
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		return filepath.Join(d, "berth")
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, ".local", "state", "berth")
+	}
+	return filepath.Join(os.TempDir(), "berth")
+}
+
 // defaultStateFile is $XDG_STATE_HOME/berth/NAME, falling back to
 // ~/.local/state/berth/NAME: kept across reboots, unlike the runtime dir.
 func defaultStateFile(name string) string {
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "berth", name)
-	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".local", "state", "berth", name)
-	}
-	return filepath.Join(os.TempDir(), "berth", name)
+	return filepath.Join(defaultStateDir(), name)
 }
 
 // defaultHarborDB is the SQLite file `berth harbor` persists its history in.
