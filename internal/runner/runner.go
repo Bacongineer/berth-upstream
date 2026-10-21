@@ -57,6 +57,9 @@ type Options struct {
 	// has nothing running or pending before any stop step, so a job is
 	// never cut off. There is no time limit; a job ends when it ends.
 	DrainComfyUI string
+	// Session release is opt-in and uses the same drain ticket as daemon requests.
+	ExitComfyUIIdle      bool
+	ExitComfyUIIdleAfter time.Duration
 	// APIKeyEnv names the credential source; APIKey is resolved once by Run.
 	APIKeyEnv  string
 	APIKeyFile string
@@ -207,22 +210,46 @@ func Run(o Options) int {
 	// without a drain under way and comes back when it ends.
 	drainTicket := make(chan struct{}, 1)
 	drainTicket <- struct{}{}
+	startDrain := func(opts Options, reason string) {
+		select {
+		case <-drainTicket:
+		default:
+			return
+		}
+		go func() {
+			defer func() { drainTicket <- struct{}{} }()
+			drain(opts, cmd, line, done, reason, say)
+		}()
+	}
+	if o.ExitComfyUIIdle {
+		go func() {
+			var session comfySession
+			complete := false
+			for {
+				if !complete {
+					complete = session.wait(o, done, say)
+				}
+				if complete {
+					opts := o
+					// Completing a session ends it rather than parking its idle process.
+					opts.Park, opts.Hook = nil, false
+					startDrain(opts, "ComfyUI session complete")
+				}
+				select {
+				case <-done:
+					return
+				case <-time.After(o.pollEvery()):
+				}
+			}
+		}()
+	}
 
 	go func() {
 		for {
 			err := listen(conn, func(m proto.Msg) {
 				switch {
 				case m.Op == proto.OpDrain:
-					select {
-					case <-drainTicket:
-					default:
-						say("set aside drain %q; the previous one is under way", m.Reason)
-						return
-					}
-					go func() {
-						defer func() { drainTicket <- struct{}{} }()
-						drain(o, cmd, line, done, m.Reason, say)
-					}()
+					startDrain(o, m.Reason)
 				case m.Op == proto.OpParkOK || m.Op == proto.OpRefused:
 					line.note(m)
 				case m.Op == proto.OpGranted && m.Resume:
@@ -318,59 +345,8 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 // way: Berth has no proof a job is not running. A DrainMax ends the wait
 // and the drain goes on to the stop ladder.
 func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool {
-	every := o.pollEvery()
-	last := ""
-	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax, refuse: o.FailClosed}
-	var unreadable time.Time
-	bound := o.DrainMax
-	if bound == 0 && o.FailClosed {
-		bound = 4 * o.Grace
-		if bound <= 0 {
-			bound = 2 * time.Minute
-		}
-	}
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		running, pending, err := comfy.Queue(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI)
-		cancel()
-		var now string
-		switch {
-		case err != nil:
-			now = fmt.Sprintf("cannot read the ComfyUI queue (%v); waiting", err)
-			wait.note("queue unreadable", "queue unreadable")
-			if unreadable.IsZero() {
-				unreadable = time.Now()
-			}
-			if o.FailClosed && time.Since(unreadable) >= bound {
-				say("drain refused: no readable ComfyUI boundary; %s keeps its lease", o.Engine)
-				return false
-			}
-		case running == 0 && pending == 0:
-			say("ComfyUI queue empty; handing off")
-			return true
-		default:
-			unreadable = time.Time{}
-			now = fmt.Sprintf("waiting for ComfyUI to finish: %d running, %d queued", running, pending)
-			noun := "jobs"
-			if running == 1 {
-				noun = "job"
-			}
-			desc := fmt.Sprintf("%d %s running, %d queued", running, noun, pending)
-			wait.note(desc, desc)
-		}
-		if now != last {
-			say("%s", now)
-			last = now
-		}
-		if wait.tick(say) {
-			return !o.FailClosed
-		}
-		select {
-		case <-done:
-			return false
-		case <-time.After(every):
-		}
-	}
+	var session comfySession
+	return session.wait(o, done, say)
 }
 
 // drainProgressEvery is how often a drain boundary that is still busy
@@ -664,7 +640,9 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reason string, say func(string, ...any)) {
 	say("draining %s: %s", o.Engine, reason)
 	if o.DrainComfyUI != "" {
-		if !jobBoundary(o, done, say) {
+		boundary := o
+		boundary.ExitComfyUIIdle = false
+		if !jobBoundary(boundary, done, say) {
 			return
 		}
 		// A park hook does its own unload (with the RAM copy kept); only

@@ -53,6 +53,7 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
 		DrainMax: e.DrainMax.Duration, MinTurn: e.MinTurn.Duration, Container: e.Container, APIKeyEnv: e.APIKeyEnv, APIKeyFile: e.APIKeyFile,
+		ExitComfyUIIdle: e.ExitComfyUIIdle, ExitComfyUIIdleAfter: e.ExitComfyUIIdleAfter.Duration,
 		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output,
 	}

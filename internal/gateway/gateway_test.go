@@ -88,6 +88,8 @@ func testRun(argv []string) {
 	fs.String("api-key-file", "", "")
 	fs.Bool("pinned", false, "")
 	fs.Bool("fail-closed", false, "")
+	fs.Bool("exit-comfyui-idle", false, "")
+	fs.Duration("exit-comfyui-idle-after", 0, "")
 	if err := fs.Parse(argv); err != nil {
 		os.Exit(2)
 	}

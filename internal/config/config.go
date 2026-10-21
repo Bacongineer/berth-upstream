@@ -89,6 +89,9 @@ type Engine struct {
 	// the built-in adapter for its side.
 	ParkURL   string `toml:"park_url,omitempty" json:"park_url,omitempty" yaml:"park_url,omitempty"`
 	ResumeURL string `toml:"resume_url,omitempty" json:"resume_url,omitempty" yaml:"resume_url,omitempty"`
+	// ExitComfyUIIdle releases after a completed session; IdleAfter also bounds an unused session.
+	ExitComfyUIIdle      bool     `toml:"exit_comfyui_idle,omitempty" json:"exit_comfyui_idle,omitempty" yaml:"exit_comfyui_idle,omitempty"`
+	ExitComfyUIIdleAfter Duration `toml:"exit_comfyui_idle_after,omitzero" json:"exit_comfyui_idle_after,omitempty" yaml:"exit_comfyui_idle_after,omitempty"`
 	// GUI is the engine's web UI as a browser reaches it. With start set, the
 	// gateway's wake page (/gui/<name>) starts the engine on a visit and
 	// follows it there once it answers.
@@ -556,6 +559,12 @@ func (c *Config) Validate() error {
 		}
 		if e.Park == "hook" && !slices.Contains(park.BuiltInKinds(), e.Type) && (e.ParkURL == "") != (e.ResumeURL == "") {
 			errs = append(errs, fmt.Errorf("%s: park = \"hook\" for a %s engine needs both park_url and resume_url, or neither: with neither, Berth tries the Berth park protocol", where, e.Type))
+		}
+		if e.ExitComfyUIIdle && (e.DrainComfyUI == "" || e.KeepComfyUI) {
+			errs = append(errs, fmt.Errorf("%s: exit_comfyui_idle needs drain_comfyui and cannot use keep_comfyui_up", where))
+		}
+		if e.ExitComfyUIIdleAfter.Duration < 0 || (e.ExitComfyUIIdleAfter.Duration > 0 && !e.ExitComfyUIIdle) {
+			errs = append(errs, fmt.Errorf("%s: exit_comfyui_idle_after needs exit_comfyui_idle and must not be negative", where))
 		}
 		switch e.Priority {
 		case "", "batch", "interactive", "foreground":

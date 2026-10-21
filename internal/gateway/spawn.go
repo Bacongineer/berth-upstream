@@ -103,6 +103,12 @@ func runArgv(o runner.Options) []string {
 	if o.APIKeyEnv != "" {
 		args = append(args, "--api-key-env", o.APIKeyEnv)
 	}
+	if o.ExitComfyUIIdle {
+		args = append(args, "--exit-comfyui-idle")
+	}
+	if o.ExitComfyUIIdleAfter != 0 {
+		args = append(args, "--exit-comfyui-idle-after", o.ExitComfyUIIdleAfter.String())
+	}
 	if o.Priority != "" {
 		args = append(args, "--priority", o.Priority)
 	}
