@@ -29,6 +29,7 @@ func runRun(c *Context) int {
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
 	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine anyway; 0 = unbounded")
 	minTurn := fs.Duration("min-turn", 0, "minimum turn: after the grant the card stays this run's for this long; no request drains it meanwhile, only a hold does (a game, a call, berth hold); 0 = off")
+	keyEnv := fs.String("api-key-env", "", "environment variable holding the bearer token for engine drain requests")
 	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD when berthd is unreachable")
@@ -53,6 +54,9 @@ func runRun(c *Context) int {
 		e = *entry
 	}
 	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax, minTurn, container)
+	if c.Changed("api-key-env") {
+		e.APIKeyEnv = *keyEnv
+	}
 	e.Name = *engine
 	if _, err := broker.ParsePriority(e.Priority); err != nil {
 		return c.fail(Systemf("%v", err))

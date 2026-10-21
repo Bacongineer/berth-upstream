@@ -84,6 +84,7 @@ func testRun(argv []string) {
 	fs.Duration("drain-max", 0, "")
 	fs.Bool("keep-comfyui-up", false, "")
 	fs.String("config", "", "")
+	fs.String("api-key-env", "", "")
 	fs.Bool("pinned", false, "")
 	if err := fs.Parse(argv); err != nil {
 		os.Exit(2)

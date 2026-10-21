@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/httpauth"
 )
 
 // The Berth park protocol: the three endpoints any engine can serve on its
@@ -75,6 +77,7 @@ func Probe(ctx context.Context, base string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	httpauth.Apply(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("ask %s: %w", base, err)

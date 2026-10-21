@@ -24,6 +24,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/comfy"
 	"github.com/T-Crypt/berth/internal/engines"
+	"github.com/T-Crypt/berth/internal/httpauth"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -55,6 +56,9 @@ type Options struct {
 	// has nothing running or pending before any stop step, so a job is
 	// never cut off. There is no time limit; a job ends when it ends.
 	DrainComfyUI string
+	// APIKeyEnv names the credential source; APIKey is resolved once by Run.
+	APIKeyEnv string
+	APIKey    string
 	// DrainMax is a ceiling on how long a drain may wait at a boundary (a
 	// processing slot, a running ComfyUI job) before it runs the normal
 	// stop ladder anyway: a wedged engine that keeps reporting busy holds
@@ -118,6 +122,13 @@ func (o Options) pollEvery() time.Duration {
 
 func Run(o Options) int {
 	say := func(format string, a ...any) { fmt.Fprintf(o.Stderr, "berth: "+format+"\n", a...) }
+	if o.APIKeyEnv != "" {
+		o.APIKey = os.Getenv(o.APIKeyEnv)
+		if strings.TrimSpace(o.APIKey) == "" {
+			say("credential environment variable %s is empty; not starting %s", o.APIKeyEnv, o.Engine)
+			return ExitRefused
+		}
+	}
 
 	conn, raw, err := server.Dial(o.Socket)
 	if err != nil {
@@ -309,7 +320,7 @@ func jobBoundary(o Options, done <-chan struct{}, say func(string, ...any)) bool
 	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		running, pending, err := comfy.Queue(ctx, o.DrainComfyUI)
+		running, pending, err := comfy.Queue(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI)
 		cancel()
 		var now string
 		switch {
@@ -413,7 +424,7 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 	every := o.pollEvery()
 	url := base + "/slots"
 	wait := &boundaryWait{engine: o.Engine, max: o.DrainMax}
-	n, err := slotsBusy(url)
+	n, err := slotsBusy(url, o.APIKey)
 	if err != nil {
 		if failOpen(err) {
 			say("drain: no slot boundary at %s (%v); unloading anyway", url, err)
@@ -433,7 +444,7 @@ func slotBoundaryAt(o Options, base string, done <-chan struct{}, say func(strin
 			return false
 		case <-time.After(every):
 		}
-		n, err := slotsBusy(url)
+		n, err := slotsBusy(url, o.APIKey)
 		switch {
 		case err != nil:
 			say("drain: lost the slot boundary (%v); waiting", err)
@@ -505,12 +516,15 @@ func slotsTimeout(err error) bool {
 // counting rule is engines.SlotBusy, the same one the engine reader uses.
 // Failures come back as a *slotsErr so the caller can tell "no boundary"
 // from "sick boundary" (see failOpen).
-func slotsBusy(url string) (int, error) {
+func slotsBusy(url, key string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, &slotsErr{err: err}
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -612,7 +626,7 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 		// an engine without one unloads-and-stops here.
 		if o.Park == nil && !o.Hook {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := comfy.Free(ctx, o.DrainComfyUI, true)
+			err := comfy.Free(httpauth.WithBearer(ctx, o.APIKey), o.DrainComfyUI, true)
 			cancel()
 			if err != nil {
 				say("ComfyUI unload (%v); stopping the server instead", err)
@@ -649,6 +663,9 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 	if o.DrainPost != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, o.DrainPost, strings.NewReader(""))
+		if o.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+o.APIKey)
+		}
 		resp, err := http.DefaultClient.Do(req)
 		cancel()
 		if err != nil {

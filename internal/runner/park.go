@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/httpauth"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -132,7 +133,7 @@ func (l *leaseLine) adapter(o Options, say func(string, ...any)) (park.Adapter, 
 	l.mu.Unlock()
 	if probed == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		adapter, ok := park.Protocol(ctx, o.ParkBase)
+		adapter, ok := park.Protocol(httpauth.WithBearer(ctx, o.APIKey), o.ParkBase)
 		cancel()
 		probed = &parkVerdict{adapter: adapter, ok: ok}
 		l.mu.Lock()
@@ -179,7 +180,7 @@ func (l *leaseLine) park(o Options, say func(string, ...any)) bool {
 	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), parkCallTimeout)
-	err := adapter.Park(ctx, o.ParkBase)
+	err := adapter.Park(httpauth.WithBearer(ctx, o.APIKey), o.ParkBase)
 	cancel()
 	if err != nil {
 		say("park call failed (%v); draining the usual way", err)
@@ -219,7 +220,7 @@ func (l *leaseLine) resume(o Options, cmd *exec.Cmd, done <-chan struct{}, say f
 	if hasWake && adapter.Resume != nil {
 		say("resuming %s", o.Engine)
 		ctx, cancel := context.WithTimeout(context.Background(), wakeCallTimeout)
-		err := adapter.Resume(ctx, o.ParkBase)
+		err := adapter.Resume(httpauth.WithBearer(ctx, o.APIKey), o.ParkBase)
 		cancel()
 		if err != nil {
 			say("resuming %s failed (%v); stopping it", o.Engine, err)
@@ -245,7 +246,7 @@ func (o Options) parkReady() bool {
 	deadline := time.Now().Add(wakeCallTimeout)
 	url := strings.TrimRight(o.ParkBase, "/") + o.ParkProbe
 	for {
-		if askReady(url) {
+		if askReady(url, o.APIKey) {
 			return true
 		}
 		if time.Now().After(deadline) {
@@ -255,12 +256,15 @@ func (o Options) parkReady() bool {
 	}
 }
 
-func askReady(url string) bool {
+func askReady(url, key string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
