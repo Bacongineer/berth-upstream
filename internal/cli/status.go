@@ -28,9 +28,17 @@ func (v statusView) Human(c *Context, ok bool) error {
 	c.Printf("%s\n", c.Style.Dim(fmt.Sprintf("berthd %s on %s (api %d)", st.Version, v.sock, st.API)))
 
 	if len(st.GPUs) == 0 {
-		c.Printf("gpu     no reading yet\n")
+		if p := st.Passthrough; p != nil {
+			c.Printf("gpu0    %s\n", cardLine(p))
+		} else {
+			c.Printf("gpu     no reading yet\n")
+		}
 	}
 	for _, g := range st.GPUs {
+		if g.Scheduled && st.Passthrough != nil {
+			c.Printf("gpu%d    %s: %s, memory read %s ago\n", g.Index, g.Name, cardLine(st.Passthrough), age(g.Age))
+			continue
+		}
 		role := "inventory only"
 		if g.Scheduled {
 			role = "leased by berth, baseline " + server.MiB(g.Baseline)
@@ -198,6 +206,18 @@ func (v statusView) Human(c *Context, ok bool) error {
 		c.Printf("no leases, nobody waiting, no squatters\n")
 	}
 	return nil
+}
+
+// cardLine is what the scheduled card's gpu line shows instead of memory
+// figures while the card is in a VM or switching to or from one.
+func cardLine(p *proto.Passthrough) string {
+	if p.State == proto.CardDetaching {
+		if p.Driver == "" {
+			return "being passed through to a VM"
+		}
+		return "being passed through to a VM (driver " + p.Driver + ")"
+	}
+	return "passed through to a VM (" + p.Driver + ")"
 }
 
 // leaseState paints the one word a reader looks for, and keeps the contested
