@@ -333,8 +333,13 @@ wrapped. History lives in `~/.local/state/berth/`.
 | Anything else | `custom` | never | your health, models, metrics and slots paths; `kind = "tts"`, `"stt"`, `"image"` or `"other"` tracks a voice or image server as one |
 
 Every reader takes any URL, so any port and any host works. Engines that need a key name the
-environment variable that holds it (`api_key_env`); the key never goes in the file. An
-engine's figures are its own claims and are shown apart from what the driver measures.
+environment variable that holds it (`api_key_env`); the key never goes in the config.
+On Unix, `api_key_file` instead names an absolute, owner-private regular file containing
+one token. Symlinks and files accessible to other users are rejected. The two sources
+are mutually exclusive. `berth run --api-key-file` uses the same source for drain requests;
+detached gateway launches pass the source reference, never its contents. Other platforms
+use `api_key_env` and explicitly reject file credentials. An engine's figures are its
+own claims and are shown apart from what the driver measures.
 
 ### ComfyUI as a suite
 
