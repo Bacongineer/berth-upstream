@@ -167,6 +167,9 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 		}
 		if err == nil && strings.TrimSpace(out) != strings.TrimSpace(xml) {
 			bak := filepath.Join(defaultStateDir(), u.Name+".xml.bak")
+			if err := os.MkdirAll(filepath.Dir(bak), 0o755); err != nil {
+				return nil, Systemf("keep the previous copy of %s: %v", task, err)
+			}
 			if err := os.WriteFile(bak, []byte(out), 0o644); err != nil {
 				return nil, Systemf("keep the previous copy of %s: %v", task, err)
 			}
