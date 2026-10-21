@@ -79,11 +79,11 @@ func TestBusID(t *testing.T) {
 			{Index: 1, Name: "B", BusID: "00000000:02:00.0"},
 		},
 	}
-	if got := busID(s); got != "00000000:02:00.0" {
-		t.Fatalf("busID = %q, want the governed card's id", got)
+	if got := BusID(s); got != "00000000:02:00.0" {
+		t.Fatalf("BusID = %q, want the governed card's id", got)
 	}
-	if got := busID(Snapshot{Index: 9}); got != "" {
-		t.Fatalf("busID for a missing card = %q, want empty", got)
+	if got := BusID(Snapshot{Index: 9}); got != "" {
+		t.Fatalf("BusID for a missing card = %q, want empty", got)
 	}
 }
 

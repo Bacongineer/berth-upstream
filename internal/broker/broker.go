@@ -331,6 +331,14 @@ type Broker struct {
 	mu       sync.Mutex
 	snap     gpu.Snapshot
 	probeErr error
+	// cardAddr is the governed card's PCI function in sysfs form
+	// ("0000:01:00.0"), remembered from the last successful snapshot and
+	// found by scan when the probe fails and no reading ever came.
+	// cardState is "" normal, CardPassthrough or CardDetaching, and
+	// cardDriver is the driver bound at the last look.
+	cardAddr   string
+	cardState  string
+	cardDriver string
 	// squatClamped is whether the squatter total was last capped at the
 	// card's used figure (boundSquat); a change of that state logs once.
 	squatClamped bool
@@ -613,7 +621,16 @@ func (b *Broker) Tick(ctx context.Context) {
 	defer b.persistFootprints()
 	defer func() { b.persistUsage(b.now(), false) }()
 	read := b.reads.Add(1)
-	snap, err := b.probe.Read(ctx)
+	b.mu.Lock()
+	held := b.vfioHold()
+	b.mu.Unlock()
+	var snap gpu.Snapshot
+	var err error
+	if held == nil {
+		// While a VFIO hold is granted the operator is switching the card,
+		// and the probe opens the device; it does not run at all.
+		snap, err = b.probe.Read(ctx)
+	}
 	var rs []runs.Record
 	if b.cfg.RunsDir != "" {
 		rs = runs.List(b.cfg.RunsDir, b.tree.StartTime)
@@ -625,7 +642,20 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.runs = rs
 	b.accountUsage(now)
 	b.pruneVerdicts(now)
+	if held != nil {
+		// The switch is berthd's to watch, not to touch: read the driver
+		// from sysfs, grant nothing, keep the hold HOT.
+		b.holdTick()
+		return
+	}
 	if err != nil {
+		if d := b.vfioBound(); d != "" {
+			// The card is in a VM, switched by hand: no probe-failed
+			// warning, the card state says it instead.
+			b.setCard(proto.CardPassthrough, d)
+			b.schedule(now)
+			return
+		}
 		if b.probeErr == nil {
 			b.log.Warn("gpu probe failed; scheduling on the lease table alone", "err", err)
 			b.emit(proto.Event{Kind: proto.EvProbeFailed, Detail: err.Error()})
@@ -639,6 +669,14 @@ func (b *Broker) Tick(ctx context.Context) {
 		b.emit(proto.Event{Kind: proto.EvProbeRecovered})
 	}
 	b.probeErr = nil
+	if a := gpu.SysfsAddr(gpu.BusID(snap)); a != "" {
+		b.cardAddr = a
+	}
+	if b.cardState != "" {
+		// The probe answers again, so the card is back; the driver it reads
+		// now is the one the returned event names.
+		b.setCard("", gpu.DriverFor(b.cardAddr))
+	}
 	b.snap = snap
 	b.recordDescendants()
 	b.refreshScopes()
@@ -892,6 +930,13 @@ func (b *Broker) allowed(name string) bool {
 // holders to drain for the first waiter that does not fit. Nobody behind a
 // blocked waiter jumps it, so a big request is not starved by small ones.
 func (b *Broker) schedule(now time.Time) {
+	if b.cardState != "" {
+		// The card does not serve the node, so nothing new is granted, and
+		// every waiter reads the same reason. The VFIO hold itself keeps
+		// the card.
+		b.notifyWait(b.queue, b.cardWhy())
+		return
+	}
 	sort.SliceStable(b.queue, func(i, j int) bool {
 		if b.queue[i].prio != b.queue[j].prio {
 			return b.queue[i].prio > b.queue[j].prio
