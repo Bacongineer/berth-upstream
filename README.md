@@ -691,6 +691,62 @@ needs the key. The gateway listens
 on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
 carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
+#### What a switch costs
+
+The gateway runs a start and sees both ends of it: the grant its run printed, which is
+when the card showed free, and the engine's first answer. It times that pair for every
+start it runs and keeps the last 20 times per engine and tier in a book
+(`~/.local/state/berth/swapcost.json`), so it can price the next switch without guessing.
+The wait for a free card belongs to the queue, not to the engine, so it is not part of the
+figure. A failed start records nothing, and so does an engine the gateway does not start itself
+(llama-swap's models load under llama-swap, so the gateway has nothing to time for them).
+
+`GET /v1/berth/cost?engine=NAME` answers one estimate per tier, hot first. On the reference machine,
+after five gateway starts of Strata from disk:
+
+```bash
+curl -s "http://127.0.0.1:9799/v1/berth/cost?engine=strata" -H "Authorization: Bearer $(berth key)"
+```
+
+```json
+{"engine":"strata","estimates":[
+  {"tier":"hot","took_ms":0,"samples":0,"known":true},
+  {"tier":"warm","took_ms":0,"samples":0,"known":false},
+  {"tier":"cool","took_ms":0,"samples":0,"known":false},
+  {"tier":"cold","took_ms":72400,"samples":5,"known":true}]}
+```
+
+Hot, the engine already holding the card, is the free switch. Warm is a parked engine,
+its weights in host RAM. Cool and cold split at half of the engine's files still held by
+the kernel page cache. An estimate with `known:false` has no samples behind it, and its
+`took_ms: 0` is not a prediction: a figure the gateway gives is one it measured.
+
+`POST /v1/berth/plan` prices a chain an orchestrator declares ahead of time, one step per
+switch, each naming the engine and the tier to find it in:
+
+```bash
+curl -s http://127.0.0.1:9799/v1/berth/plan -H "Authorization: Bearer $(berth key)" \
+  -d '{"chain":[{"engine":"strata","tier":"cold"},{"engine":"comfyui","tier":"cold"},{"engine":"strata","tier":"cold"}]}'
+```
+
+```json
+{"steps":[
+  {"engine":"strata","tier":"cold","took_ms":72400,"samples":5,"known":true},
+  {"engine":"comfyui","tier":"cold","took_ms":0,"samples":0,"known":false},
+  {"engine":"strata","tier":"cold","took_ms":72400,"samples":5,"known":true}],
+ "total_ms":144800,
+ "unmeasured":1,
+ "prefetch":["comfyui","strata",""],
+ "keep_parked":["strata"]}
+```
+
+`total_ms` sums the known steps only: with `unmeasured` above 0 it is a lower bound, read
+as "at least 145 s, 1 step unmeasured", never a promise. `prefetch` is per step, the engine
+to warm while that step holds the card, and `keep_parked` lists the engines the chain comes
+back to, which are worth parking in RAM instead of stopping and reloading. An unknown tier
+or an engine `berth.toml` does not name is a 400 naming the step; a missing or wrong key
+and any browser `Origin` are refused, as on every other route.
+
 #### Open a stopped engine's web UI
 
 A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a
@@ -1104,7 +1160,7 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
   whose parent exits within one 2 s tick).
 - KV snapshots wired into the drain and start paths, so a sequence of agents skips the prefill
   after each switch.
-- Measured switch costs on the live daemon and the gateway (`/v1/berth/cost`, `/v1/berth/plan`).
+- Measured switch costs on the live daemon.
 - Gateway fallback routing, and models started on demand for a standalone llama-server.
 - Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified

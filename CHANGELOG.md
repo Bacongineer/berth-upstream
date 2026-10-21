@@ -8,6 +8,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Measured switch costs on the gateway: it times every start it runs, from the lease
+  grant to the engine answering, and keeps the last 20 times per engine and tier in
+  `~/.local/state/berth/swapcost.json`. `GET /v1/berth/cost?engine=NAME` answers one
+  estimate per tier from those times (an estimate with `known:false` has no samples
+  behind it), and `POST /v1/berth/plan` prices a declared chain: the per-step estimate, a
+  lower-bound total with its unmeasured count, the engine to prefetch at each step, and
+  the engines the chain comes back to. A failed start records nothing, and every route
+  takes the node's key like the rest of the gateway.
 - `prefetch` on an `[[engine]]` entry: absolute file and directory paths the gateway asks the
   kernel to read into the page cache the moment it decides to start that engine, so the disk
   reads overlap the drain of the engine it replaces (when the machine has the RAM to keep them). A directory means its own files,
