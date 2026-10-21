@@ -7,6 +7,7 @@ package runner
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sync"
@@ -29,6 +30,10 @@ var jobs sync.Map // pid -> windows.Handle
 func isolate(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 }
+
+// scopeToChild has no user manager to answer to on this platform; Job
+// objects and the attribution they allow come in a later ticket.
+func scopeToChild(as string, argv []string, log *slog.Logger) []string { return argv }
 
 // afterStart puts the engine in a job object. A child it spawns in the first
 // instant before this lands escapes the job; the drain still reaches the

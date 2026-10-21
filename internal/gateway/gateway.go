@@ -511,20 +511,35 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	preamble := false
+	var fb *config.Engine
+	var waited time.Duration
 	if !t.live {
 		if req.Stream {
 			preamble = true
 			ssePreamble(w)
-			if err := g.keepAlive(w, r, t.engine); err != nil {
+			var err error
+			fb, waited, err = g.waitPrimary(r.Context(), t.engine, w)
+			if err != nil {
 				g.sseFailure(w, t.engine.Name, req.Model, err)
 				return
 			}
-		} else if err := g.ensure(r.Context(), t.engine); err != nil {
-			g.startFailed(w, t.engine.Name, req.Model, err)
-			return
+		} else {
+			var err error
+			fb, waited, err = g.waitPrimary(r.Context(), t.engine, nil)
+			if err != nil {
+				g.startFailed(w, t.engine.Name, req.Model, err)
+				return
+			}
 		}
 	}
-	u, err := url.Parse(t.url)
+	base := t.url
+	if fb != nil {
+		base, body = g.tookFallback(w, preamble, t.engine, fb, waited, body)
+		// The node key is the client's credential for this gateway; a
+		// fallback may run on another box and never gets it.
+		r.Header.Del("Authorization")
+	}
+	u, err := url.Parse(base)
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, "engine url: "+err.Error())
 		return
@@ -552,29 +567,6 @@ func ssePreamble(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	_ = http.NewResponseController(w).Flush()
-}
-
-// keepAlive runs ensure for a streaming request, writing an SSE comment
-// every keepAliveEvery with the seconds gone, so proxies and clients hold
-// the connection and a reader sees the wait moving.
-func (g *Gateway) keepAlive(w http.ResponseWriter, r *http.Request, e *config.Engine) error {
-	type outcome struct{ err error }
-	ch := make(chan outcome, 1)
-	go func() { ch <- outcome{g.ensure(r.Context(), e)} }()
-	start := time.Now()
-	tick := time.NewTicker(keepAliveEvery)
-	defer tick.Stop()
-	for {
-		select {
-		case o := <-ch:
-			return o.err
-		case <-r.Context().Done():
-			return r.Context().Err()
-		case <-tick.C:
-			fmt.Fprintf(w, ": berth: loading %s, %d s\n\n", e.Name, int64(time.Since(start).Seconds()))
-			_ = http.NewResponseController(w).Flush()
-		}
-	}
 }
 
 // sseFailure answers a streaming request whose engine would not come up:
@@ -787,6 +779,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 			// free while that happens, so the reads go first.
 			go g.prefetch(e)
 		}
+		if e.KVSnapshots != "" {
+			// The same wait warms the engine's saved prompt caches, so the
+			// restore below reads the page cache where it can.
+			go g.kvWarm(e, ready)
+		}
 		go g.run(e, s, ready)
 	}
 
@@ -794,6 +791,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	for {
 		if probe(ctx, e.URL) {
 			g.markAnswered(e, s)
+			if starting && e.KVSnapshots != "" {
+				// Only the start this gateway ran restores: its slots are
+				// empty, and the restore lands before the first request.
+				g.kvRestore(e)
+			}
 			return nil
 		}
 		select {

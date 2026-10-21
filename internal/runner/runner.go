@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -70,6 +71,21 @@ type Options struct {
 	// the card without it. 0 = unbounded, the default, so a long
 	// generation is never cut off.
 	DrainMax time.Duration
+	// KV snapshots (config kv_snapshots). On a drain, after the slot
+	// boundary and before the park step or anything stops the engine, the
+	// runner saves every idle slot's prompt cache into KVDir through the
+	// engine's own slot actions and asks the engine to trim nothing: the
+	// runner itself removes the least recently saved snapshots past
+	// KVBudget. Empty KVDir or KVBase disables the whole step.
+	KVDir string
+	// KVBudget is the snapshot directory's budget in bytes.
+	KVBudget int64
+	// KVBase is the engine base the slot calls go to: the entry's
+	// drain_slots, else the origin of its drain_post, else the engine URL.
+	KVBase string
+	// KVFloor is the [library] free_floor fraction the save guard keeps on
+	// the snapshot directory's root; 0 turns the guard off.
+	KVFloor float64
 	// Park, when set, is the engine's park adapter: on a drain, after the
 	// boundary and before the stop ladder, the runner asks the broker to
 	// admit the lease into RAM parking and the adapter moves the weights
@@ -111,6 +127,10 @@ type Options struct {
 	// (the terminal still gets them too). The gateway keeps its tail, so a
 	// start that dies says why in the engine's words, not berth's.
 	Output io.Writer
+	// Log is the run's debug log (nil = silent). It records the one
+	// product decision the run makes without asking: whether the engine
+	// child starts in its own systemd scope.
+	Log *slog.Logger
 }
 
 // ExitRefused is EX_TEMPFAIL: no berth was granted.
@@ -173,7 +193,8 @@ func Run(o Options) int {
 		}
 	}
 
-	cmd := command(o.Argv, o.Output)
+	cmd := command(o, o.Output)
+	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
 		return 127
@@ -223,7 +244,6 @@ func Run(o Options) int {
 	}
 	if o.ExitComfyUIIdle {
 		go func() {
-			var session comfySession
 			complete := false
 			for {
 				if !complete {
@@ -572,7 +592,7 @@ func slotsBusy(url, key string) (int, error) {
 }
 
 func runUnleased(o Options, reason string) int {
-	cmd := command(o.Argv, o.Output)
+	cmd := command(o, o.Output)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(o.Stderr, "berth: start %s: %v\n", o.Argv[0], err)
 		return 127
@@ -603,7 +623,8 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 	return remove
 }
 
-func command(argv []string, out io.Writer) *exec.Cmd {
+func command(o Options, out io.Writer) *exec.Cmd {
+	argv := scopeToChild(o.Engine, o.Argv, o.Log)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if out != nil {
@@ -675,6 +696,10 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			return
 		}
 	}
+	// KV snapshots ride the boundary: with nothing generating, the idle
+	// slots save their prompt caches, before the park step or anything
+	// stops the engine. A failure here never changes the stop ladder.
+	kvSave(o, done, say)
 	// The park step sits after the boundary, before anything stops the
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.

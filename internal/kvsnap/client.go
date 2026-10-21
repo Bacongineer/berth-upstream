@@ -15,12 +15,19 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/engines"
+	"github.com/T-Crypt/berth/internal/httpauth"
 )
 
 // ErrUnsupported means the engine cannot save or restore a slot cache: it
 // started without --slot-save-path, or its build has no slot actions. The
 // snapshot flow degrades to a plain swap; the engine keeps serving.
 var ErrUnsupported = errors.New("slot saving is not supported by this engine")
+
+// ErrNoModel means the engine's /v1/models does not name exactly one model,
+// so there is no identity to key a snapshot with. llama-swap lists every
+// model it can load; an engine still loading answers nothing yet. The
+// caller skips snapshots for such an engine and never guesses the model.
+var ErrNoModel = errors.New("the engine names no single model on /v1/models")
 
 // Slot is one entry of an engine's /slots list.
 type Slot struct {
@@ -64,6 +71,30 @@ func Slots(ctx context.Context, base string) ([]Slot, error) {
 		out = append(out, Slot{ID: s.ID, Tokens: s.NPromptTokens, Busy: engines.SlotBusy(s.State, s.IsProcessing)})
 	}
 	return out, nil
+}
+
+// Model is the one model identity the engine at base lists on /v1/models.
+// An engine that lists none, or several (llama-swap), has no snapshot
+// identity: the error wraps ErrNoModel with the count, and the caller skips
+// snapshots rather than guess which model a save belongs to.
+func Model(ctx context.Context, base string) (string, error) {
+	url := host(base) + "/v1/models"
+	b, err := get(ctx, url)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return "", fmt.Errorf("GET %s: %w", url, err)
+	}
+	if n := len(r.Data); n != 1 {
+		return "", fmt.Errorf("%w: /v1/models lists %d models", ErrNoModel, n)
+	}
+	return r.Data[0].ID, nil
 }
 
 // Save asks the engine to write slot's prompt cache into its snapshot
@@ -174,6 +205,7 @@ func get(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	httpauth.Apply(req)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", url, err)
@@ -195,6 +227,7 @@ func post(ctx context.Context, url string, body []byte) (*http.Response, error) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	httpauth.Apply(req)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
