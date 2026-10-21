@@ -30,6 +30,8 @@ func runRun(c *Context) int {
 	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine, or refuses with --fail-closed; 0 = unbounded except fail-closed safety checks")
 	minTurn := fs.Duration("min-turn", 0, "minimum turn: after the grant the card stays this run's for this long; no request drains it meanwhile, only a hold does (a game, a call, berth hold); 0 = off")
 	keyFile := fs.String("api-key-file", "", "absolute owner-private Unix file holding the bearer token; exclusive with --api-key-env")
+	idle := fs.Bool("exit-comfyui-idle", false, "release a ComfyUI session after its first completed job; with it set, --drain-max no longer bounds the wait: a session with no completed job holds the card")
+	after := fs.Duration("exit-comfyui-idle-after", 0, "with --exit-comfyui-idle: release an unused session after this interval; 0 = no deadline")
 	keyEnv := fs.String("api-key-env", "", "environment variable holding the bearer token for engine drain requests")
 	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
@@ -63,6 +65,18 @@ func runRun(c *Context) int {
 	}
 	if e.APIKeyEnv != "" && e.APIKeyFile != "" {
 		return c.fail(Systemf("api_key_env and api_key_file are mutually exclusive"))
+	}
+	if c.Changed("exit-comfyui-idle") {
+		e.ExitComfyUIIdle = *idle
+	}
+	if c.Changed("exit-comfyui-idle-after") {
+		e.ExitComfyUIIdleAfter.Duration = *after
+	}
+	if e.ExitComfyUIIdle && (e.DrainComfyUI == "" || e.KeepComfyUI) {
+		return c.fail(Systemf("exit_comfyui_idle needs drain_comfyui and cannot use keep_comfyui_up"))
+	}
+	if e.ExitComfyUIIdleAfter.Duration < 0 || (e.ExitComfyUIIdleAfter.Duration > 0 && !e.ExitComfyUIIdle) {
+		return c.fail(Systemf("exit_comfyui_idle_after needs exit_comfyui_idle and must not be negative"))
 	}
 	e.Name = *engine
 	if _, err := broker.ParsePriority(e.Priority); err != nil {

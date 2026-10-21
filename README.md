@@ -701,6 +701,21 @@ refuse after four times the run's grace interval. A readable busy ComfyUI queue 
 waits without a deadline. A later drain can retry after the boundary recovers.
 The default fail-open policy and native parking path remain unchanged.
 
+#### End a ComfyUI session
+
+`exit_comfyui_idle = true` (or `--exit-comfyui-idle`) releases a run after
+its first completed job. Existing history does not count as new work.
+`exit_comfyui_idle_after` (or `--exit-comfyui-idle-after`) also releases a
+session that receives no work; zero leaves that wait without a deadline.
+These options require `drain_comfyui` and cannot combine with `keep_comfyui_up`.
+
+The session detector and daemon drains share one drain ticket. A refusal retains
+the original session deadline and work evidence, then retries after recovery.
+A readable busy queue is never treated as idle because history is unavailable.
+Completed-session release ends the process; daemon-requested parking and resume
+keep their native protocol and lease routing. Without these options, behavior
+is unchanged.
+
 #### Park in RAM (warm switch)
 
 A drain today ends with the engine's weights on disk, and the next request
