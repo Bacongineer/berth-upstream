@@ -74,7 +74,11 @@ network you trust.
   its own probe would block the driver switch; it reads the driver from sysfs instead. Nothing new is
   granted while the card is away, and each waiter's reason says so ("gpu0 is passed through to a VM
   (vfio-pci); it comes back when the VM's hold ends"). A card switched by hand, with no hold, shows the
-  same state instead of a probe-failed warning.
+  same state instead of a probe-failed warning. The harbor shows it too: the scheduled card's panel reads
+  the passthrough state in place of its memory figures, its last reading greyed beside it and labelled as
+  its age, the header carries a GPU IN VM tag beside the state pill on every tab, the departures board
+  reads the hold's row IN VM, the log renders `card.passthrough` and `card.returned` in plain words, and
+  the tide shows the session as a gap in the data rather than a flat line at the last reading.
 - **Alerts:** one threshold table in `berth.toml` (`[alerts]`): warn and crit per key
   (`queue`, `ttft`, `tpot`, `p95`, `cache`, `reingest`, `vram`, `temp`, `power`, `kv`).
   The node evaluates it on its 5 s sample cycle, fires a desktop notification and webhook
