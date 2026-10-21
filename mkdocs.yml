@@ -1,0 +1,48 @@
+site_name: Berth
+site_description: Decides who gets your GPU. Engines, games and GPU apps lease the card in turn.
+site_url: https://t-crypt.github.io/berth/
+repo_url: https://github.com/T-Crypt/berth
+repo_name: T-Crypt/berth
+edit_uri: edit/main/docs/
+copyright: Copyright 2026 Trevin Tindall (T-Crypt). Apache-2.0.
+
+theme:
+  name: material
+  # System fonts: the default loads Google Fonts, which hands every visitor's address to Google.
+  font: false
+  palette:
+    scheme: slate
+    primary: black
+    accent: light blue
+  features:
+    - navigation.instant
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+nav:
+  - Overview: README.md
+  - Install: install.md
+  - Engines: engines.md
+  - Leasing, games and holds: leasing.md
+  - Models: models.md
+  - Gateway: gateway.md
+  - The harbor and telemetry: harbor.md
+  - Interfaces: interfaces.md
+  - Benchmarks: benchmarks.md
+  - Roadmap: roadmap.md
+  - FAQ: faq.md
+
+markdown_extensions:
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+validation:
+  links:
+    anchors: warn
