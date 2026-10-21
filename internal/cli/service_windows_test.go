@@ -255,8 +255,8 @@ func TestServiceInstallWindowsBacksUpDifferingTask(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	const exe = `C:\berth\berth.exe`
-	unit := Unit{Name: "berthd", Exec: []string{exe, "daemon", "--gpu", "0", "--poll", "2s"}}
-	same, err := unitTaskXML(unit, currentUser())
+	units := serviceUnits(exe, true, true)
+	same, err := unitTaskXML(units[0], currentUser())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestServiceInstallWindowsBacksUpDifferingTask(t *testing.T) {
 		return "", nil
 	})
 
-	doc, e := serviceInstall(context.Background(), ops, allUnits(), false)
+	doc, e := serviceInstall(context.Background(), ops, units, false)
 	if e != nil {
 		t.Fatalf("install failed: %v", e)
 	}
