@@ -309,12 +309,15 @@ type Broker struct {
 	// reads counts the card reads started, bumped before each probe read.
 	reads atomic.Uint64
 
-	mu        sync.Mutex
-	snap      gpu.Snapshot
-	probeErr  error
-	leases    map[string]*lease // granted: active, draining, releasing
-	queue     []*lease
-	squatters map[ident]*squatter
+	mu       sync.Mutex
+	snap     gpu.Snapshot
+	probeErr error
+	// squatClamped is whether the squatter total was last capped at the
+	// card's used figure (boundSquat); a change of that state logs once.
+	squatClamped bool
+	leases       map[string]*lease // granted: active, draining, releasing
+	queue        []*lease
+	squatters    map[ident]*squatter
 	// containerNames caches container id -> runtime name ("" while unknown
 	// or resolving); containerAsked marks the ids already sent to resolve.
 	containerNames map[string]string
@@ -979,10 +982,50 @@ func describe(ls []*lease) string {
 	return strings.Join(names, ", ")
 }
 
+// squatBytes is the squatter total admission counts: the sum of the
+// per-process readings, capped by what the card can really hand squatters
+// (boundSquat). The per-squatter entries in status and events keep the raw
+// readings; only the total that drives decisions is bounded.
 func (b *Broker) squatBytes() uint64 {
 	var n uint64
 	for _, s := range b.squatters {
 		n += s.proc.Used
+	}
+	return b.boundSquat(n)
+}
+
+// boundSquat caps the squatter sum at the card's used figure. Per-process
+// readings can overcount: on Windows the counter reports a process's
+// committed reservation, which the driver can list far above what the card
+// actually uses, so the SUM can exceed the card's used memory (issue #103)
+// and block every sized admission forever. Used memory minus the baseline
+// and the bytes the card's processes under leases and claims really hold
+// is all any squatter can hold, so the sum is capped there. A zero used
+// figure is unknown: the raw sum stands, as before.
+func (b *Broker) boundSquat(sum uint64) uint64 {
+	if b.snap.Used == 0 {
+		return sum
+	}
+	bound := sat(b.snap.Used, b.snap.Baseline()+b.leaseBytes()+b.claimedBytes())
+	if sum <= bound {
+		b.squatClamped = false
+		return sum
+	}
+	if !b.squatClamped {
+		b.squatClamped = true
+		b.log.Info("squatter readings exceed the card's used memory; counting the card's figure",
+			"sum_mib", sum/gpu.MiB, "bound_mib", bound/gpu.MiB)
+	}
+	return bound
+}
+
+// leaseBytes is the card memory the processes under leases really hold:
+// each lease's per-process readings, not its needs budget, so the cap keeps
+// real lease memory out of a squatter's possible share of the card.
+func (b *Broker) leaseBytes() uint64 {
+	var n uint64
+	for _, l := range b.leases {
+		n += l.used()
 	}
 	return n
 }
