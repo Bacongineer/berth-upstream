@@ -957,10 +957,19 @@ func (t *tailBuf) String() string {
 	return string(t.b)
 }
 
+// ansiCSI matches a terminal escape sequence such as a color code.
+var ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// lastLine is the engine output's last line as a terminal would show it:
+// color codes dropped, and a line redrawn with \r (a progress bar) read
+// from its last redraw.
 func lastLine(s string) string {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(ansiCSI.ReplaceAllString(s, ""))
 	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
-		return s[i+1:]
+		s = s[i+1:]
+	}
+	if i := strings.LastIndexByte(s, '\r'); i >= 0 {
+		s = s[i+1:]
 	}
 	return s
 }
