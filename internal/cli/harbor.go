@@ -17,10 +17,14 @@ import (
 	"github.com/T-Crypt/berth/internal/store"
 )
 
+// DefaultHarborListen is the address the harbor listens on when neither its
+// flag nor [harbor] listen in berth.toml names one.
+const DefaultHarborListen = "127.0.0.1:9798"
+
 func runHarbor(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "the node's berthd socket ($BERTH_SOCKET)")
-	listen := fs.String("listen", "127.0.0.1:9798", "web UI listen address: loopback (default) or a LAN address, which exposes the harbor (warning at startup)")
+	listen := fs.String("listen", "", "web UI listen address, over [harbor] listen in berth.toml, itself 127.0.0.1:9798: a LAN address exposes the harbor (warning at startup)")
 	db := fs.String("db", defaultHarborDB(), "SQLite file the harbor persists the node's history in")
 	retention := fs.Duration("retention", 720*time.Hour, "how long the store keeps samples and requests")
 	var allow hostList
@@ -51,6 +55,7 @@ func runHarbor(c *Context) int {
 			shelves = append(shelves, models.RootShelf{Path: r.Path, Shelf: models.Shelf(r.Shelf)})
 		}
 	}
+	addr := resolveListen(*listen, cfg.Harbor.Listen, DefaultHarborListen)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	st, err := store.Open(*db, *retention)
@@ -63,7 +68,7 @@ func runHarbor(c *Context) int {
 		Dirs: cfg.Models.Dirs, Shelves: shelves}
 	h.RunCollector(ctx)
 	h.RunUpdate(ctx)
-	if err := h.Serve(ctx, *listen); err != nil {
+	if err := h.Serve(ctx, addr); err != nil {
 		return c.fail(Systemf("harbor: %v", err))
 	}
 	return ExitOK

@@ -329,6 +329,54 @@ func TestConfigShowTOMLRoundTrips(t *testing.T) {
 	}
 }
 
+// [harbor] listen and [gateway] listen pass the check and print in show:
+// they are the keys `berth service install` relies on the commands reading.
+func TestConfigListenKeys(t *testing.T) {
+	isolate(t)
+	path := writeConfig(t, "[harbor]\nlisten = \"0.0.0.0:50980\"\n\n[gateway]\nlisten = \"127.0.0.1:9799\"\n")
+	code, out, errOut := runCLI(t, "config", "check", "--config", path)
+	if code != ExitOK || errOut != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, errOut)
+	}
+	for _, want := range []string{"Harbor UI: 0.0.0.0:50980", "Gateway: 127.0.0.1:9799"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout %q lacks %q", out, want)
+		}
+	}
+
+	code, out, _ = runCLI(t, "config", "show", "--config", path, "--format", "json")
+	if code != ExitOK {
+		t.Fatalf("show exit = %d", code)
+	}
+	var doc struct {
+		Config struct {
+			Harbor struct {
+				Listen string `json:"listen"`
+			} `json:"harbor"`
+			Gateway struct {
+				Listen string `json:"listen"`
+			} `json:"gateway"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("json %q: %v", out, err)
+	}
+	if doc.Config.Harbor.Listen != "0.0.0.0:50980" || doc.Config.Gateway.Listen != "127.0.0.1:9799" {
+		t.Errorf("show = %+v", doc.Config)
+	}
+
+	// A LAN gateway key is refused by the check, as the command would
+	// refuse it.
+	bad := writeConfig(t, "[gateway]\nlisten = \"0.0.0.0:9799\"\n")
+	code, _, errOut = runCLI(t, "config", "check", "--config", bad)
+	if code != ExitFail {
+		t.Fatalf("exit = %d, want %d", code, ExitFail)
+	}
+	if !strings.Contains(errOut, "gateway.listen") {
+		t.Errorf("stderr = %q", errOut)
+	}
+}
+
 func TestConfigShowHuman(t *testing.T) {
 	isolate(t)
 	path := writeConfig(t, validConfig)

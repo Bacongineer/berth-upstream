@@ -114,6 +114,19 @@ type Config struct {
 		// empty = off.
 		Listen string `toml:"listen" json:"listen,omitempty" yaml:"listen,omitempty"`
 	} `toml:"metrics,omitempty" json:"metrics" yaml:"metrics"`
+	Harbor struct {
+		// Listen is where the harbor web UI listens when its command has no
+		// --listen: a loopback address by default, or any host:port, which
+		// exposes the harbor (a LAN address is the operator's explicit
+		// opt-in, warned about at startup). Empty = the built-in default.
+		Listen string `toml:"listen" json:"listen,omitempty" yaml:"listen,omitempty"`
+	} `toml:"harbor,omitempty" json:"harbor" yaml:"harbor"`
+	Gateway struct {
+		// Listen is where the gateway listens when its command has no
+		// --listen. Loopback only until the API has authentication.
+		// Empty = the built-in default.
+		Listen string `toml:"listen" json:"listen,omitempty" yaml:"listen,omitempty"`
+	} `toml:"gateway,omitempty" json:"gateway" yaml:"gateway"`
 	Engines struct {
 		Every Duration `toml:"every" json:"every" yaml:"every"` // how often engines are read; default 5 s
 		// Discover probes the well-known engine ports on this machine (and
@@ -413,6 +426,19 @@ func (c *Config) Validate() error {
 	if c.Metrics.Listen != "" {
 		if err := Loopback(c.Metrics.Listen); err != nil {
 			errs = append(errs, fmt.Errorf("metrics.listen: %w", err))
+		}
+	}
+	if c.Harbor.Listen != "" {
+		// The harbor takes a loopback address by default and treats any
+		// other well-formed host:port as the explicit LAN opt-in, so only
+		// the shape is checked here.
+		if host, _, err := net.SplitHostPort(c.Harbor.Listen); err != nil || host == "" {
+			errs = append(errs, fmt.Errorf("harbor.listen: %q is not a host:port address", c.Harbor.Listen))
+		}
+	}
+	if c.Gateway.Listen != "" {
+		if err := Loopback(c.Gateway.Listen); err != nil {
+			errs = append(errs, fmt.Errorf("gateway.listen: %w", err))
 		}
 	}
 	if _, err := c.ClaimRules(); err != nil {
