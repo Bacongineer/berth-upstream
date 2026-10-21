@@ -626,14 +626,21 @@ than `--ready` (10 minutes); if the holder has not left by then, the request fai
 dropped, so it cannot take the card hours later. Asking llama-swap for one of its
 models later drains the gateway's engine the same way, so either side can take the card back.
 
-Measured on the reference RTX 4090 with an agent harness switching models between NInfer (through
-llama-swap) and Strata (262K context):
+Measured on the reference RTX 4090 with the [swap bench](contrib/bench/README.md) switching between
+NInfer (through llama-swap) and Strata (262K context), both on an NVMe SSD, 2026-10-20 (two runs,
+five switches each way):
 
 | Switch | Drain of the holder | Request answered after |
 |---|---|---|
-| Strata on an empty card | none | 106 s (Strata's own cold load) |
-| Strata to NInfer | Strata released in 2 s | 41 s |
-| NInfer to Strata | NInfer released in 0.6 s | 110 s |
+| NInfer on an empty card | none | 12.2 s |
+| Strata to NInfer | Strata released in 2.2 to 4.6 s | 15.4 to 17.5 s |
+| NInfer to Strata, NInfer idle | NInfer released in 2.7 s | 74.8 s |
+| NInfer to Strata, inside the juggle window | NInfer released in 1.5 to 3.1 s, after about 5 min | 71 to 85 s after the grant (Strata's own load) |
+
+The bench asks for the other model the moment an answer ends, inside the 15 s juggle window, so
+most switches to Strata also waited about 5 minutes behind the guard until llama-swap unloaded
+NInfer on its own (374 to 388 s end to end). The one switch that came after NInfer sat idle
+drained it at once.
 
 At no point did the two engines hold the card at the same time.
 
@@ -646,7 +653,8 @@ gateway holds, so a gateway that stops cannot break an engine's writes. While th
 the log to its own journal as well.
 When the gateway comes back it reads that file and adopts every engine whose process is still the same
 one, answering or still loading: the next request is proxied, not started again. Records for processes
-that left are dropped. Restarting during a 40-110 s cold start costs nothing but the restart itself.
+that left are dropped. Restarting during a cold start (up to 85 s for Strata) costs nothing but the
+restart itself.
 
 **Stopping the gateway keeps its engines too.** Each engine runs outside the gateway's cgroup (above),
 so stopping the gateway service does not stop the engines: they stay on the card under their own leases
@@ -656,8 +664,8 @@ lease frees only after a card read shows the engine's memory gone. `berth stop E
 the daemon's event log until the leases are freed (exit 0) or stuck (exit 2, pointing at `berth reclaim`
 for the stuck ones).
 
-**Long waits and idle clients.** Cold starts take 41-110 s (table above), longer than many OpenAI
-clients wait before giving up. Streaming requests get the answer early: the gateway sends its SSE
+**Long waits and idle clients.** Cold starts take 12-85 s (table above), and minutes when the juggle
+guard holds a switch back: longer than many OpenAI clients wait before giving up. Streaming requests get the answer early: the gateway sends its SSE
 headers (`Content-Type: text/event-stream`, `Cache-Control: no-cache`) right away and writes an SSE
 comment every 10 s while the start runs, `: berth: loading strata, 34 s`, so proxies and clients keep
 the connection and a reader sees the wait moving. Once the engine answers, its body streams on; a
@@ -996,17 +1004,33 @@ and the table credits you here.
 ## Swap numbers
 
 `contrib/bench/swap` through the gateway on the RTX 4090 workstation (driver 615.78.08, PCIe 4.0
-x16), 2026-10-20: an opening request to A, then two cycles of B and A, a fixed prompt, greedy.
+x16, 62.5 GiB RAM, models on a PCIe NVMe SSD), 2026-10-20: an opening request to A, then three
+cycles of B and A, a fixed prompt, greedy.
 
-| Engine | Cold first token | Warm first token (median) | Output identical |
+| Engine | Cold first token | Warm first token (median) | Engine's own load |
 |---|---|---|---|
-| NInfer-Qwen3.8-27B (llama-swap) | 12.1 s | 16.1 s | yes |
-| Strata, Qwen3.8-Flash-Next UD-IQ4_XS | about 80 s to load | about 80 s to load | yes |
+| NInfer-Qwen3.8-27B (llama-swap) | 12.2 s | 16.6 s | part of the first token |
+| Strata, Qwen3.8-Flash-Next UD-IQ4_XS | 387.5 s | 379.2 s | 85 s cold, 71 to 75 s after |
 
-Switching on every request is the ping-pong Berth's juggle guard exists to hold back: the switches
-to Strata waited behind the guard for llama-swap and measured 377-382 s end to end, of which the
-engine's own load (its log) was about 80 s. Park was off for both engines; parked resume numbers
-and `cuda-checkpoint` follow in v0.3.x. Run the bench on your card and add a row.
+Switching on every request is the ping-pong Berth's juggle guard exists to hold back: each switch
+to Strata waited about 5 minutes behind the guard until llama-swap unloaded NInfer, and the
+engine's own load (from the lease grant to its ready line) is the last column. The bench's
+"output identical" check is left out: both models think before they answer, the 32 tokens it asks
+for end inside the thinking, and it compared empty answers.
+
+**Where Strata's load goes.** The model file is 87.2 GiB and Strata page-locks 40 GiB of RAM
+while it runs, so on this 62.5 GiB machine its file never stays in the page cache (7% cached after
+the run) and every start reads it from disk. Moving the file from a SATA SSD to the NVMe SSD cut
+the load from 142 to 160 s to 54 to 85 s. Of today's 71 to 85 s, reading the weights and filling
+the GPU's expert cache took about 18 s; the rest is Strata's own start-up after it reports
+"almost ready", which no disk or cache speeds up.
+
+**Machines with RAM to spare.** Neither engine here can park, so these are cold reloads, not the
+warm tier. On a machine with enough RAM to keep a model's file in the page cache (`berth models`
+shows it as COOL, `berth prefetch` warms it), the disk part of a reload comes from RAM instead;
+an engine that parks ([park in RAM](#park-in-ram-warm-switch)) skips the reload. Neither number
+is measured yet: the reference machine has no RAM to spare beside Strata. If you run 128 GB or
+more, run the bench with park on and add a row.
 
 ---
 
