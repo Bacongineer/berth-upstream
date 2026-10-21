@@ -20,6 +20,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/runner"
+	"github.com/T-Crypt/berth/internal/sysd"
 )
 
 // spawnRun starts the run process for one engine, records it, and waits
@@ -46,7 +47,7 @@ func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, erro
 	}
 	full = append(full, "--")
 	full = append(full, o.Argv...)
-	full = scopeArgv(name, full)
+	full = sysd.ScopeArgv("berth-engine", name, full)
 	cmd := exec.Command(full[0], full[1:]...)
 	detach(cmd)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
@@ -66,28 +67,6 @@ func (g *Gateway) spawnRun(name string, s *started, o runner.Options) (int, erro
 	<-done // the tail has the run's last lines before anything reads it
 	g.dropRecord(name)
 	return code, nil
-}
-
-// unitName maps an engine name onto what a systemd unit name may carry
-// (ASCII letters, digits, and . - _ :), replacing every other byte with
-// _ and capping the length so a long name still leaves room for the
-// suffix. Without this, a name like "qwen3.8/27b" makes systemd-run fail
-// and the start fail for the oddest reason.
-func unitName(name string) string {
-	const max = 64
-	b := []byte(name)
-	if len(b) > max {
-		b = b[:max]
-	}
-	for i, c := range b {
-		switch {
-		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9',
-			c == '.', c == '_', c == '-', c == ':':
-		default:
-			b[i] = '_'
-		}
-	}
-	return string(b)
 }
 
 // runArgv renders the options as `berth run`'s own flags; the engine's

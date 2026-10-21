@@ -118,3 +118,41 @@ func hex64(s string) bool {
 	}
 	return true
 }
+
+// scopeID parses a cgroups file and returns the path of the nearest
+// ancestor cgroup named berth-*.scope, the scope up to and including
+// that segment, "" when there is none. Only the cgroup v2 unified line
+// ("0::/path") counts: Berth creates scopes on v2 and reads them on v2.
+func scopeID(r io.Reader) (string, bool) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 4096), 64*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "0::") {
+			continue
+		}
+		if p, ok := scopePath(strings.TrimPrefix(line, "0::")); ok {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// scopePath reads one v2 cgroup path: the prefix up to and including
+// the deepest berth-*.scope segment, so every process nested further
+// under the same scope answers with the same path.
+func scopePath(path string) (string, bool) {
+	segs := strings.Split(strings.TrimSpace(path), "/")
+	for i := len(segs) - 1; i >= 0; i-- {
+		if berthScope(segs[i]) {
+			return strings.Join(segs[:i+1], "/"), true
+		}
+	}
+	return "", false
+}
+
+// berthScope is a Berth scope unit name: berth-, something, .scope.
+func berthScope(seg string) bool {
+	return strings.HasPrefix(seg, "berth-") && strings.HasSuffix(seg, ".scope") &&
+		len(seg) > len("berth-.scope")
+}

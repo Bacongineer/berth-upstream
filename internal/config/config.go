@@ -115,6 +115,19 @@ type Engine struct {
 	// gateway's wake page (/gui/<name>) starts the engine on a visit and
 	// follows it there once it answers.
 	GUI string `toml:"gui,omitempty" json:"gui,omitempty" yaml:"gui,omitempty"`
+	// Fallback is the name of another engine in this file: while a request
+	// waits for this engine to come up, past FallbackAfter, the gateway
+	// sends it to the fallback instead, if the fallback answers its probe
+	// at that moment. The gateway never starts the fallback, and the start
+	// of this engine is never cancelled: later requests land on it. No
+	// chains: a fallback has no fallback of its own.
+	Fallback string `toml:"fallback,omitempty" json:"fallback,omitempty" yaml:"fallback,omitempty"`
+	// FallbackAfter is how long a request waits for this engine before it
+	// may go to the fallback. 0 = 10 s when Fallback is set.
+	FallbackAfter Duration `toml:"fallback_after,omitzero" json:"fallback_after,omitempty" yaml:"fallback_after,omitempty"`
+	// FallbackModel is the model name sent to the fallback; unset keeps
+	// the request's model name.
+	FallbackModel string `toml:"fallback_model,omitempty" json:"fallback_model,omitempty" yaml:"fallback_model,omitempty"`
 }
 
 // Types are the engine readers that exist.
@@ -632,6 +645,32 @@ func (c *Config) Validate() error {
 			if !slices.Contains(MapFields, k) {
 				errs = append(errs, fmt.Errorf("%s: map field %q is not one of %v", where, k, MapFields))
 			}
+		}
+	}
+	// A fallback is resolved by name after every engine is known, so it is
+	// checked in a second pass. An error names both engines.
+	byName := map[string]int{}
+	for i, e := range c.Engine {
+		if e.Name != "" {
+			byName[e.Name] = i
+		}
+	}
+	for i, e := range c.Engine {
+		if e.Fallback == "" {
+			continue
+		}
+		where := fmt.Sprintf("engine[%d] %q", i, e.Name)
+		if e.FallbackAfter.Duration < 0 {
+			errs = append(errs, fmt.Errorf("%s: fallback_after %s must be >= 0", where, e.FallbackAfter))
+		}
+		j, ok := byName[e.Fallback]
+		switch {
+		case !ok:
+			errs = append(errs, fmt.Errorf("%s: fallback %q is not an engine in this file", where, e.Fallback))
+		case j == i:
+			errs = append(errs, fmt.Errorf("%s: fallback names the engine itself", where))
+		case c.Engine[j].Fallback != "":
+			errs = append(errs, fmt.Errorf("%s: fallback %q has a fallback of its own; no chains", where, e.Fallback))
 		}
 	}
 	for _, p := range c.Engines.Ports {

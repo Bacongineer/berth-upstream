@@ -420,9 +420,12 @@ startup, so a change to the roots applies on the next restart.
   ones, SIGTERM first and SIGKILL to the survivors after `--grace`, re-checking each
   PID and start time immediately before every signal.
 - **Process identity is PID plus start time**, so a reused PID never inherits a lease.
-- **Children stay on the lease.** Berth records every descendant of an engine's wrapper each
-  tick, so a child that escapes its process group and reparents keeps the lease stuck under its
-  own name instead of turning into a stowaway.
+- **Children stay on the lease.** On Linux with a systemd user manager, `berth run`
+  gives the engine its own cgroup scope, which every child inherits on fork: a child
+  that escapes its process group and reparents keeps the lease stuck under its own
+  name instead of turning into a stowaway. Without a user manager, and on Windows,
+  Berth records every descendant of the wrapper each tick, which covers everything
+  except a fork whose parent exits inside one tick.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine
   but records it as an *unprotected run* that status shows (`--fail-closed` refuses).
@@ -628,6 +631,39 @@ start the broker refuses comes back as a 503 with the broker's reason. A start w
 than `--ready` (10 minutes); if the holder has not left by then, the request fails and the start is
 dropped, so it cannot take the card hours later. Asking llama-swap for one of its
 models later drains the gateway's engine the same way, so either side can take the card back.
+
+**A slow engine can name a fallback.** An interactive client should not sit through a 90 s cold start
+when an engine that needs no card can answer now. Give an engine a `fallback` (another engine in the
+same file, such as a CPU llama-server) and a request that has waited `fallback_after` (10 s by
+default) goes there instead, when the fallback answers its probe at that moment. The fallback is
+never started, leased or drained by the gateway: one that is not answering means no fallback, and the
+request keeps waiting for its own engine. The primary's start is never cancelled either way, so
+requests that come later land on it. `fallback_model` names the model the fallback lists the request
+under when the two disagree, a non-streaming answer carries `X-Berth-Fallback: <fallback>`, and a
+streaming answer, whose headers went out with the keep-alive preamble, carries one
+`: berth: fallback <fallback>` comment before its data. The fallback gets the request without its
+`Authorization` header: the node's API key stays with the gateway. One hop, per engine, opt-in: `berth config check`
+refuses chains and a fallback that is not an engine in the file.
+
+```toml
+[[engine]]
+name     = "strata"
+type     = "llamacpp"
+url      = "http://127.0.0.1:8080"
+start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata", "--port", "8080"]
+serves   = ["qwen3.8-flash-next-iq2_xs"]
+priority = "interactive"
+fallback       = "strata-cpu"
+fallback_after = "10s"
+fallback_model = "qwen3.8-cpu"   # what the CPU server lists the model as
+
+[[engine]]
+name  = "strata-cpu"
+type  = "llamacpp"
+url   = "http://127.0.0.1:8010"
+start = ["llama-server", "-m", "/models/qwen3.8-cpu.gguf", "--port", "8010"]   # no GPU
+serves = ["qwen3.8-cpu"]
+```
 
 **A start reads the engine's files into the page cache while the holder drains.** Give an engine a
 `prefetch` list of absolute files and directories, and the gateway asks the kernel to read them the
@@ -1186,10 +1222,8 @@ engine's files during a drain (`prefetch`) and serves measured switch costs at `
 
 In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
 
-- Cgroup attribution, which closes the one known stowaway window (chaos scenario 3: a child
-  whose parent exits within one 2 s tick).
 - Measured switch costs on the live daemon.
-- Gateway fallback routing, and models started on demand for a standalone llama-server.
+- Models started on demand for a standalone llama-server.
 - Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
   CUDA engines on Linux.

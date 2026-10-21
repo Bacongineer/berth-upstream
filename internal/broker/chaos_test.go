@@ -177,3 +177,122 @@ func TestChaosScenario4Stowaway(t *testing.T) {
 		t.Fatalf("reports = %q, want a single appearance", got)
 	}
 }
+
+// Scenario 3, escaped child, on a machine with a systemd user manager:
+// `berth run` execs the engine into a berth-run scope, the engine's
+// child forks a grandchild that takes the memory and exits itself
+// before any tick records a descendant. A cgroup is inherited on fork,
+// so the grandchild is still in the scope the lease recorded: it
+// belongs to the lease from its first sighting, the lease turns stuck
+// after the release grace naming the grandchild, reclaim lists it
+// under the lease, and a whole-card requester waits, never granted
+// contested.
+func TestChaosScenario3EscapedChildInScope(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{100: 1, 102: 1}, Starts: map[int]uint64{100: 1, 102: 5}}
+	b, c, r := setup(t, tree)
+	b.cfg.ReleaseGrace = time.Millisecond
+	table := []procs.Proc{
+		{PID: 100, Parent: 1, Start: 1, Name: "berth"},
+		{PID: 102, Parent: 1, Start: 5, Name: "python"},
+	}
+	b.cfg.ProcTable = func() []procs.Proc { return table }
+	b.cfg.Scopes = func(pid int) (string, bool) {
+		if pid == 100 || pid == 102 {
+			return runScopeA, true
+		}
+		return "", false
+	}
+
+	a := must(t, acquire(b, Request{Engine: "a"}))
+	a.Attach(100)
+	_, live, stop := b.Events(0, true)
+	defer stop()
+
+	// The intermediate child is gone before the first tick; the
+	// grandchild takes the card with the process tree already escaped.
+	c.set(gpu.Proc{PID: 102, Name: "python", Used: 8 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].Used != 8*GiB {
+		t.Fatalf("leases = %+v, want the scope's memory under a", st.Leases)
+	}
+	if len(st.Squatters) != 0 || strings.Join(r.seen, ",") != "" {
+		t.Fatalf("squatters = %+v, reports = %v, want no stowaway", st.Squatters, r.seen)
+	}
+
+	// a lets the lease go; the grandchild keeps holding, so the lease
+	// turns stuck after the grace and names it in the event.
+	a.Release()
+	b.Tick(context.Background())
+	time.Sleep(5 * time.Millisecond)
+	b.Tick(context.Background())
+
+	st = b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].State != "stuck" || st.Leases[0].Used != 8*GiB {
+		t.Fatalf("leases = %+v, want a stuck lease holding the escaped grandchild", st.Leases)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		select {
+		case e := <-live:
+			if e.Kind == proto.EvStuck {
+				if !strings.Contains(e.Detail, "pid 102 (python)") {
+					t.Fatalf("stuck event %q does not name the grandchild", e.Detail)
+				}
+				goto listed
+			}
+		case <-time.After(time.Until(deadline)):
+			t.Fatal("no stuck event arrived")
+		}
+	}
+listed:
+	hs, err := b.Reclaim(a.ID())
+	if err != nil {
+		t.Fatalf("reclaim: %v", err)
+	}
+	if len(hs) != 1 || hs[0].PID != 102 || hs[0].Lease != a.ID() || hs[0].Name != "python" {
+		t.Fatalf("holders = %+v, want the grandchild under a's lease", hs)
+	}
+
+	// A whole-card requester waits: the stuck lease holds memory, so
+	// nothing is granted, contested or otherwise.
+	breq := acquire(b, Request{Engine: "b", Priority: Foreground})
+	pending(t, breq)
+	if st := b.Status(); len(st.Leases) != 1 {
+		t.Fatalf("leases = %+v, want only the stuck lease", st.Leases)
+	}
+}
+
+// Scenario 3 without a user manager (no scope to record): the same
+// escaped grandchild is a stowaway as today, and once a's wrapper lets
+// the lease go a whole-card requester is granted contested. Nothing
+// matches an empty scope, so a scopeless process is never silently
+// attributed to the lease that also has no scope.
+func TestChaosScenario3EscapedChildWithoutScope(t *testing.T) {
+	tree := procs.Fake{Parents: map[int]int{100: 1, 102: 1}, Starts: map[int]uint64{100: 1, 102: 5}}
+	b, c, r := setup(t, tree)
+	b.cfg.ProcTable = func() []procs.Proc { return []procs.Proc{{PID: 100, Parent: 1, Start: 1, Name: "berth"}} }
+	b.cfg.Scopes = func(int) (string, bool) { return "", false }
+
+	a := must(t, acquire(b, Request{Engine: "a"}))
+	a.Attach(100)
+	c.set(gpu.Proc{PID: 102, Name: "python", Used: 8 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Squatters) != 1 || st.Squatters[0].PID != 102 {
+		t.Fatalf("squatters = %+v, want the escaped grandchild listed", st.Squatters)
+	}
+	if got := strings.Join(r.seen, ","); got != "appeared:python" {
+		t.Fatalf("reports = %q, want a single appearance", got)
+	}
+
+	a.Release()
+	b.Tick(context.Background())
+
+	whole := must(t, acquire(b, Request{Engine: "b", Priority: Foreground}))
+	if whole.Contested() != 8*GiB {
+		t.Fatalf("contested = %d, want the stowaway counted", whole.Contested())
+	}
+}
