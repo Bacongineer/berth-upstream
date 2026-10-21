@@ -420,9 +420,12 @@ startup, so a change to the roots applies on the next restart.
   ones, SIGTERM first and SIGKILL to the survivors after `--grace`, re-checking each
   PID and start time immediately before every signal.
 - **Process identity is PID plus start time**, so a reused PID never inherits a lease.
-- **Children stay on the lease.** Berth records every descendant of an engine's wrapper each
-  tick, so a child that escapes its process group and reparents keeps the lease stuck under its
-  own name instead of turning into a stowaway.
+- **Children stay on the lease.** On Linux with a systemd user manager, `berth run`
+  gives the engine its own cgroup scope, which every child inherits on fork: a child
+  that escapes its process group and reparents keeps the lease stuck under its own
+  name instead of turning into a stowaway. Without a user manager, and on Windows,
+  Berth records every descendant of the wrapper each tick, which covers everything
+  except a fork whose parent exits inside one tick.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine
   but records it as an *unprotected run* that status shows (`--fail-closed` refuses).
@@ -1195,8 +1198,6 @@ engine's files during a drain (`prefetch`) and serves measured switch costs at `
 
 In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
 
-- Cgroup attribution, which closes the one known stowaway window (chaos scenario 3: a child
-  whose parent exits within one 2 s tick).
 - KV snapshots wired into the drain and start paths, so a sequence of agents skips the prefill
   after each switch.
 - Measured switch costs on the live daemon.

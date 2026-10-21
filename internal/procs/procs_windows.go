@@ -93,3 +93,7 @@ func List() []Proc { return nil }
 // Container has no cgroups on Windows, so no process is ever in a container:
 // engines run on the host.
 func Container(int) (string, bool) { return "", false }
+
+// Scope has no cgroups on Windows, so no process runs in a Berth scope
+// (Job objects come in a later ticket).
+func Scope(int) (string, bool) { return "", false }
