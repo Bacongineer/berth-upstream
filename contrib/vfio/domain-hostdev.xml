@@ -1,0 +1,22 @@
+<!--
+  The GPU part of a libvirt domain for berth vfio run. An example to adapt.
+
+  Put these inside <devices> of your domain (virsh edit DOMAIN). Use the
+  addresses `berth vfio status` lists for your card: here the GPU is
+  0000:01:00.0 and its audio function 0000:01:00.1.
+
+  managed='yes' makes libvirt move each function to vfio-pci when the VM starts
+  and back to its host driver when the VM stops, so your session script only
+  starts the VM and waits for it. Pass every function in the card's IOMMU
+  group, and nothing else from that group.
+-->
+<hostdev mode='subsystem' type='pci' managed='yes'>
+  <source>
+    <address domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  </source>
+</hostdev>
+<hostdev mode='subsystem' type='pci' managed='yes'>
+  <source>
+    <address domain='0x0000' bus='0x01' slot='0x00' function='0x1'/>
+  </source>
+</hostdev>
