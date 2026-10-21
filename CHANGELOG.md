@@ -6,6 +6,19 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- Cgroup attribution closes the one known stowaway window (chaos scenario 3: a child
+  whose parent exits within one 2 s tick). On Linux with a systemd user manager,
+  `berth run` execs the engine in its own transient cgroup scope (`systemd-run --user
+  --scope`, unit `berth-run-<name>-<rand>`), which every child inherits on fork: a
+  child that escapes its process group and reparents stays the lease's, the lease
+  turns stuck naming it, `berth reclaim` lists it, and a whole-card request is never
+  granted `contested` over it. A GPU process in a scope no live lease recorded is a
+  stowaway as before, and a process outside every scope is never attributed to a
+  scopeless lease. Without a user manager, and on Windows, the run starts as before
+  and the window stands.
+
 ## [v0.3.3] - 2026-10-21
 
 Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the
