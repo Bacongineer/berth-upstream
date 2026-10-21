@@ -46,25 +46,40 @@ group and the driver bound to each function, the processes holding the card's de
 berthd reports. While the card is bound to `vfio-pci`, `nvidia-smi` cannot see it, so pass the card's
 address yourself (`berth vfio status 0000:01:00.0`).
 
-`berth vfio run [--reason NAME] -- CMD` holds the card and runs your script:
+`berth vfio run [--reason NAME] [--before CMD] [--after CMD] -- CMD` holds the card and runs your
+script:
 
 ```sh
-berth vfio run --reason galaxy -- ~/bin/gpu-to-galaxy
+berth vfio run --reason galaxy \
+  --before "systemctl --user stop llama-swap.service" \
+  --after "systemctl --user start llama-swap.service" \
+  -- ~/bin/gpu-to-galaxy
 ```
 
-Engines drain first. Once the card is granted, berthd stops its probe, and after a few seconds Berth
-reads the device holders. If any process still holds the card, Berth names it, releases the hold and
-exits 1. A process whose open files Berth cannot read (another user's, usually
+Engines drain first. Once the card is granted, Berth runs `--before`, if you gave one. Use it to stop
+your own services that keep the card open without a lease, such as a monitor that runs `nvidia-smi` in
+a loop. berthd stops its own probe for the hold. After a few seconds Berth reads the device holders. If
+any process still holds the card, Berth names it, releases the hold and exits 1. A process whose open files Berth cannot read (another user's, usually
 root's) gets a warning instead, because Berth cannot prove it clear. Such a process can block the unbind.
 
 When your script exits, Berth releases the hold only if the card is back. Otherwise it keeps the hold,
 names the function still on `vfio-pci`, and waits. Each Ctrl-C checks again and releases only once the
 card is back. `berth vfio run` exits with your script's exit code.
 
+`--after` runs once the hold has ended, whenever `--before` ran. That covers the card coming back, a
+refusal and a failed `--before`. What `--before` stopped always comes back, and never while the card
+is still in the VM. Both run with `sh -c`, the terminal attached and `BERTH_VFIO_DEVICES` set.
+
 While the hold is granted, berthd stops opening the card and `berth status` shows it as passed through
 to a VM. Waiting requests are told why.
 
-## An example script to adapt
+## Examples to adapt
+
+[contrib/vfio](https://github.com/T-Crypt/berth/tree/main/contrib/vfio) has a complete launcher for a
+libvirt VM (`vm-session.sh`) and the GPU part of the domain (`domain-hostdev.xml`). With managed host
+devices, libvirt switches the drivers, and the launcher only starts the VM and waits for it.
+
+Without libvirt's managed devices, your script switches the drivers itself, as below.
 
 This is an example, not something Berth installs. It moves every function the generic way
 (`driver_override`), so it works for the card's audio function too, and it reads the addresses from

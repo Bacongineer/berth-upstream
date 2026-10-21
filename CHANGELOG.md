@@ -15,16 +15,14 @@ has a matching GitHub release whose body comes from its section below.
 - The harbor shows a card passed through to a VM (experimental): a GPU IN VM tag on every tab, the
   card's panel and the departures board marked, the change named in the log, and the session left as a
   gap in the tide.
-- `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to a
-  VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes holding
-  the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while any process holds it, runs your own switch
-  script with `BERTH_VFIO_DEVICES` set, and releases the hold only when the card is back on its host
-  driver. Berth never switches drivers or asks for passwords. See docs/vfio.md.
-- The harbor shows a card passed through to a VM (experimental). The scheduled card's panel reads the
-  passthrough state in place of its memory figures with the last reading greyed and labelled as its age,
-  the header carries a GPU IN VM tag on every tab, the departures board calls the hold's row IN VM, the
-  log and the tide render `card.passthrough` and `card.returned` in plain words, and the tide shows the
-  session as a gap in the data, never as zero.
+- `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to
+  a VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes
+  holding the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while
+  any process holds it, runs your own switch script with `BERTH_VFIO_DEVICES` set, and releases the
+  hold only when the card is back on its host driver. `--before` and `--after` run your own commands
+  around the session, for example to stop a service that holds the card and start it again once the
+  card is back. Berth never switches drivers or asks for passwords. See docs/vfio.md; `contrib/vfio`
+  has an example launcher and the libvirt device entries.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
   needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
   default). A request that has waited that long for its own engine is proxied to the fallback when
