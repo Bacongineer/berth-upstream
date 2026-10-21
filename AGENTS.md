@@ -39,7 +39,7 @@ local proof command green before opening a PR; CI must end green at merge.
 - `internal/config` — TOML config (`~/.config/berth/berth.toml`), its defaults and its
   warnings; `berth config check` and `berth config show`.
 - `internal/comfy` — the ComfyUI HTTP calls Berth makes (queue, free, system stats), once.
-- `internal/engines` — engine readers (every engine in the README's table, `custom`),
+- `internal/engines` — engine readers (every engine in docs/engines.md's table, `custom`),
   port discovery by response fingerprint, and the 24 h request log.
 - `internal/export` — the store's rows as CSV or JSON for the `berth export` command.
 - `internal/fsx` — the one atomic file write (fsync the file and its directory).

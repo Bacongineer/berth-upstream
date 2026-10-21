@@ -119,4 +119,4 @@ project wants to hear about it. Collect, then offer:
   are shown there as commands to copy.
 - Windows: the node runs natively (per-process VRAM from the same counter Task Manager reads);
   `contrib/windows/check.ps1` checks a box and writes a report for the drain report form.
-- Docs: https://github.com/T-Crypt/berth (README, contrib/INTEGRATION.md)
+- Docs: https://github.com/T-Crypt/berth (README, docs/, contrib/INTEGRATION.md)

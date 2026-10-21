@@ -41,6 +41,12 @@ has a matching GitHub release whose body comes from its section below.
   before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
   for a private directory.
 
+### Changed
+
+- The README keeps the overview, quick start and screenshots, and the reference moved to pages under
+  `docs/`: install, engines, leasing, models, gateway, the harbor, interfaces, benchmarks, roadmap and
+  FAQ. The README's old Tested hardware, Swap numbers and Roadmap headings link to their new pages.
+
 ### Fixed
 
 - The wake page and start errors show an engine's last log line without terminal color codes
