@@ -544,3 +544,91 @@ func (w errWriter) Write(p []byte) (int, error) {
 	defer w.mu.Unlock()
 	return w.b.Write(p)
 }
+
+// TestVfioRunBeforeStopsAHolderAndAfterStartsItAgain: --before runs once the
+// engines are off the card, so it can stop a service that holds the card;
+// the check then passes, the script runs, and --after runs once the hold
+// has ended.
+func TestVfioRunBeforeStopsAHolderAndAfterStartsItAgain(t *testing.T) {
+	isolate(t)
+	sock, b := startVfioDaemon(t)
+	tr := newVfioTree(t)
+	tr.function(vfioAddr, "nvidia")
+	tr.group()
+	tr.opener(100, "monitor", 1, "/dev/nvidia0")
+	smi := tr.smi()
+	marks := t.TempDir()
+	before := "rm -rf " + filepath.Join(tr.proc, "100") + " && touch " + filepath.Join(marks, "before")
+	after := "touch " + filepath.Join(marks, "after")
+	cmd := tr.script("switch", tr.flip("vfio-pci")+tr.flip("nvidia"))
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond, poll: 5 * time.Millisecond},
+		"--socket", sock, "--before", before, "--after", after, "--", cmd)
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	for _, m := range []string{"before", "after"} {
+		if _, err := os.Stat(filepath.Join(marks, m)); err != nil {
+			t.Errorf("--%s did not run: %v", m, err)
+		}
+	}
+	waitUntil(t, none(b))
+}
+
+// TestVfioRunAfterRunsWhenTheCheckRefuses: --before ran and stopped something,
+// the check still found a holder, so the run is refused; --after puts back
+// what --before stopped.
+func TestVfioRunAfterRunsWhenTheCheckRefuses(t *testing.T) {
+	isolate(t)
+	sock, b := startVfioDaemon(t)
+	tr := newVfioTree(t)
+	tr.function(vfioAddr, "nvidia")
+	tr.group()
+	tr.opener(100, "qemu", 1, "/dev/nvidia0")
+	smi := tr.smi()
+	marks := t.TempDir()
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond},
+		"--socket", sock, "--before", "true", "--after", "touch "+filepath.Join(marks, "after"), "--", "/bin/true")
+	if code != ExitFail || !strings.Contains(errOut, "pid 100 qemu holds /dev/nvidia0") {
+		t.Fatalf("exit = %d, want the opener refusal (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(marks, "after")); err != nil {
+		t.Errorf("--after did not run after the refusal: %v", err)
+	}
+	waitUntil(t, none(b))
+}
+
+// TestVfioRunBeforeFailureReleases: a --before that fails ends the run with
+// the card still on the host, and the hold is released.
+func TestVfioRunBeforeFailureReleases(t *testing.T) {
+	isolate(t)
+	sock, b := startVfioDaemon(t)
+	tr := newVfioTree(t)
+	tr.function(vfioAddr, "nvidia")
+	tr.group()
+	smi := tr.smi()
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond},
+		"--socket", sock, "--before", "exit 4", "--", "/bin/true")
+	if code != ExitFail || !strings.Contains(errOut, "--before did not finish cleanly (exit 4") {
+		t.Fatalf("exit = %d, want the --before refusal (stderr %q)", code, errOut)
+	}
+	waitUntil(t, none(b))
+}
+
+// TestVfioRunScriptExit127StillWaitsForTheCard: a script that ran and exited
+// 127 (a typo inside it) may still have moved the card; the run keeps the
+// hold until the card is back, as for any other exit code.
+func TestVfioRunScriptExit127StillWaitsForTheCard(t *testing.T) {
+	isolate(t)
+	sock, b := startVfioDaemon(t)
+	tr := newVfioTree(t)
+	tr.function(vfioAddr, "nvidia")
+	tr.group()
+	smi := tr.smi()
+	cmd := tr.script("switch", tr.flip("vfio-pci")+tr.flip("nvidia")+"exit 127\n")
+	code, _, errOut := runVfioRunIn(t, tr, smi, vfioRunOpts{settle: time.Millisecond, poll: 5 * time.Millisecond},
+		"--socket", sock, "--", cmd)
+	if code != 127 || !strings.Contains(errOut, "the card is back; hold released") {
+		t.Fatalf("exit = %d, want 127 after the card-back check (stderr %q)", code, errOut)
+	}
+	waitUntil(t, none(b))
+}

@@ -112,6 +112,8 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 	sock := fs.String("socket", defaultSocket(), "berthd socket ($BERTH_SOCKET)")
 	reason := fs.String("reason", "", "shown on the lease, e.g. galaxy (default: passthrough)")
 	wait := fs.Duration("wait", 10*time.Minute, "how long to wait for engines to drain; 0 = berthd's default; negative = no deadline")
+	before := fs.String("before", "", "shell command run once the engines are off the card, before the check that nothing holds it (stop your own services here)")
+	after := fs.String("after", "", "shell command run once the hold has ended, whenever --before ran (start those services again)")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
@@ -205,6 +207,29 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 	}
 
 	say("card held as %s (%s); engines are off the card", lease, name)
+	devices := vfioFunctionList(funcs, card.Addr)
+
+	// --before stops what the operator runs beside the engines (a monitor
+	// loop, a desktop shell) while the hold keeps the engines off; --after
+	// starts it again once the hold has ended, whatever happened between.
+	// The hold is closed first: a deferred --after must not run while the
+	// card is still held.
+	if *before != "" {
+		defer func() {
+			raw.Close()
+			if *after == "" {
+				return
+			}
+			say("running --after: %s", *after)
+			if code, err := vfioExec([]string{"/bin/sh", "-c", *after}, devices); err != nil || code != 0 {
+				c.Warnf("--after did not finish cleanly (exit %d, %v)", code, err)
+			}
+		}()
+		say("running --before: %s", *before)
+		if code, err := vfioExec([]string{"/bin/sh", "-c", *before}, devices); err != nil || code != 0 {
+			return c.fail(Failf("--before did not finish cleanly (exit %d, %v); not holding %s", code, err, card.Addr))
+		}
+	}
 
 	// berthd's probe opens the card's device every tick. Give it the settle
 	// time to go quiet (V1 pauses it for a vfio hold), then decide on one
@@ -236,24 +261,12 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 		return c.fail(e)
 	}
 
-	// The script runs with the terminal attached, so its sudo prompt and
-	// the VM's console reach it, and with the card's PCI functions in
-	// BERTH_VFIO_DEVICES, so it hardcodes no address. It stays in this
-	// process group, unlike an engine under berth run: a child in its own
-	// group that reads the terminal is stopped by SIGTTIN, and sudo would
-	// hang at its password prompt. A Ctrl-C reaches the script from the
-	// terminal directly, so nothing is forwarded; signals meant for this
-	// run are drained once the script exits.
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	devices := vfioFunctionList(funcs, card.Addr)
-	cmd.Env = append(os.Environ(), "BERTH_VFIO_DEVICES="+devices)
-	if err := cmd.Start(); err != nil {
+	say("running %s with %s", argv[0], devices)
+	code, err := vfioExec(argv, devices)
+	if err != nil {
+		// It never started, so the card never left: nothing to wait for.
 		return c.fail(Systemf("start %s: %v", argv[0], err))
 	}
-	say("running %s with %s", argv[0], devices)
-	waitErr := cmd.Wait()
-	code := runner.ExitCode(cmd, waitErr)
 	if code != 0 {
 		say("%s exited with %d", argv[0], code)
 	}
@@ -414,4 +427,22 @@ func vfioFunctionList(funcs []vfio.Function, card string) string {
 		}
 	}
 	return strings.Join(out, " ")
+}
+
+// vfioExec runs one of the operator's commands with the terminal attached,
+// so a sudo prompt and a VM console reach it, and with the card's PCI
+// functions in BERTH_VFIO_DEVICES, so it hardcodes no address. It stays in
+// this process group, unlike an engine under berth run: a child in its own
+// group that reads the terminal is stopped by SIGTTIN, and sudo would hang
+// at its password prompt. A Ctrl-C reaches it from the terminal directly,
+// so nothing is forwarded. err is set only when the command did not start;
+// a command that ran reports its exit code, whatever it is.
+func vfioExec(argv []string, devices string) (int, error) {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), "BERTH_VFIO_DEVICES="+devices)
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	return runner.ExitCode(cmd, cmd.Wait()), nil
 }

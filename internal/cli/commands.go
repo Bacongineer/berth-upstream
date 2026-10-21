@@ -574,15 +574,20 @@ docs/vfio.md has the requirements and an example script.`,
 			{
 				Name:    "run",
 				Summary: "hold the card, run the switch script, wait for the card back",
-				Args:    "[--reason NAME] [--wait D] -- CMD [ARGS...]",
+				Args:    "[--reason NAME] [--wait D] [--before CMD] [--after CMD] -- CMD [ARGS...]",
 				Help: `Acquire the VFIO hold the way berth hold does: engines drain at their
 boundaries and none starts. Then the script runs with the terminal attached, so
 its sudo prompt reaches you, and with BERTH_VFIO_DEVICES set to the card's PCI
 functions, so it hardcodes no address.
 
-Before the script starts, the openers are re-read: anyone but berthd's own
-probe holding /dev/nvidia* or the card's DRM nodes refuses the run, names every
-PID and node, releases the hold and exits 1. Berth never stops a process.
+--before runs once the engines are off the card: stop your own services that
+hold it there. --after runs once the hold has ended, whenever --before ran,
+so what --before stopped always comes back, never while the card is out.
+
+Before the script starts, berthd stops its own probe and the openers are
+re-read: any process holding /dev/nvidia* or the card's DRM nodes refuses the
+run, names every PID and node, releases the hold and exits 1. Berth never stops
+a process.
 
 When the script exits, the hold ends only when every function of the card is
 off vfio-pci and the card answers nvidia-smi again (up to a minute). Until
