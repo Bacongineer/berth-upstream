@@ -232,7 +232,9 @@ func (x *Index) write(ss []Snapshot) error {
 	if err != nil {
 		return err
 	}
-	return fsx.WriteFile(x.ledgerPath(), append(b, '\n'), 0o644)
+	// Owner-only: the ledger names the engine, model and slot of every
+	// saved conversation.
+	return fsx.WriteFile(x.ledgerPath(), append(b, '\n'), 0o600)
 }
 
 // listedBytes is the on-disk total of the files the ledger lists, with

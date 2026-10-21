@@ -29,6 +29,17 @@ has a matching GitHub release whose body comes from its section below.
   scopeless lease. Without a user manager, inside a `Type=notify` service (where
   systemd only accepts readiness from the service's own cgroup), and on Windows, the run
   starts as before and the window stands.
+- `kv_snapshots` and `kv_snapshots_mib` on an `[[engine]]` entry: the drain saves an idle slot's
+  prompt cache into the engine's `--slot-save-path` directory once the boundary is reached, keeps
+  the directory within its budget (16 GiB by default, above the library free floor), and the
+  gateway restores the newest snapshot of the engine's model into its empty slots before the first
+  request, so a sequence of agents skips the prefill after each switch. The snapshots are keyed by
+  the model the engine itself names on `/v1/models`, so an engine that lists none or many
+  (llama-swap) never snapshots, and nothing crosses models. The restore also warms the files into
+  the page cache during the start's wait: cached, never reserved. A save is bounded at 60 s and a
+  restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
+  before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
+  for a private directory.
 
 ## [v0.3.3] - 2026-10-21
 

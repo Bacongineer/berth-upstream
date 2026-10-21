@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/httpauth"
 )
 
 // engine returns a server that answers every request with status and body,
@@ -24,6 +26,7 @@ func engine(t *testing.T, status int, body string) (*httptest.Server, *captured)
 		c.path = r.URL.Path
 		c.query = r.URL.RawQuery
 		c.body, _ = io.ReadAll(r.Body)
+		c.auth = r.Header.Get("Authorization")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -34,6 +37,7 @@ func engine(t *testing.T, status int, body string) (*httptest.Server, *captured)
 type captured struct {
 	path, query string
 	body        []byte
+	auth        string
 }
 
 func TestSlots(t *testing.T) {
@@ -110,6 +114,100 @@ func TestSlotsTrailingSlash(t *testing.T) {
 	srv, _ := engine(t, 200, `[{"id":0,"state":"idle"}]`)
 	if _, err := Slots(context.Background(), srv.URL+"/"); err != nil {
 		t.Fatalf("Slots with a trailing slash: %v", err)
+	}
+}
+
+func TestModel(t *testing.T) {
+	cases := []struct {
+		name        string
+		status      int
+		body        string
+		want        string
+		wantNoModel bool
+		wantErr     string
+	}{
+		{
+			name:   "one model",
+			status: 200,
+			body:   `{"object":"list","data":[{"id":"/models/qwen3-8b.gguf"}]}`,
+			want:   "/models/qwen3-8b.gguf",
+		},
+		{
+			name:        "no model, an engine before its load",
+			status:      200,
+			body:        `{"object":"list","data":[]}`,
+			wantNoModel: true,
+		},
+		{
+			name:        "several models, like llama-swap",
+			status:      200,
+			body:        `{"object":"list","data":[{"id":"a"},{"id":"b"},{"id":"c"}]}`,
+			wantNoModel: true,
+		},
+		{
+			name:    "garbage is a plain error",
+			status:  200,
+			body:    `<html>no</html>`,
+			wantErr: "/v1/models",
+		},
+		{
+			name:    "a missing endpoint is a plain error, not ErrUnsupported",
+			status:  404,
+			body:    `nope`,
+			wantErr: "GET",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := engine(t, tc.status, tc.body)
+			got, err := Model(context.Background(), srv.URL)
+			if c.path != "/v1/models" {
+				t.Errorf("requested %s, want /v1/models", c.path)
+			}
+			switch {
+			case tc.wantNoModel:
+				if !errors.Is(err, ErrNoModel) {
+					t.Fatalf("err = %v, want ErrNoModel", err)
+				}
+			case tc.wantErr != "":
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want one naming %s", err, tc.wantErr)
+				}
+				if errors.Is(err, ErrNoModel) {
+					t.Errorf("a plain failure must not be ErrNoModel: %v", err)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("Model: %v", err)
+				}
+				if got != tc.want {
+					t.Errorf("model = %q, want %q", got, tc.want)
+				}
+			}
+		})
+	}
+	srv, c := engine(t, 200, `{"object":"list","data":[{"id":"m"}]}`)
+	if _, err := Model(httpauth.WithBearer(context.Background(), "sekret"), srv.URL); err != nil {
+		t.Fatalf("Model with a bearer: %v", err)
+	}
+	if got := c.auth; got == "" {
+		t.Error("a bearer context sent no Authorization header")
+	}
+}
+
+func TestSaveSendsTheBearer(t *testing.T) {
+	srv, c := engine(t, 200, `{"id_slot":0,"n_saved":10,"n_written":64}`)
+	if _, err := Save(httpauth.WithBearer(context.Background(), "sekret"), srv.URL, 0, "f"); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := c.auth; got == "" {
+		t.Error("a bearer context sent no Authorization header")
+	}
+	if _, err := Save(context.Background(), srv.URL, 0, "f"); err != nil {
+		t.Fatalf("Save without a bearer: %v", err)
+	}
+	if got := c.auth; got != "" {
+		t.Errorf("a bare context sent %q", got)
 	}
 }
 
