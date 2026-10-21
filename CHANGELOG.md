@@ -32,7 +32,8 @@ has a matching GitHub release whose body comes from its section below.
   (llama-swap) never snapshots, and nothing crosses models. The restore also warms the files into
   the page cache during the start's wait: cached, never reserved. A save is bounded at 60 s and a
   restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
-  before.
+  before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
+  for a private directory.
 
 ### Fixed
 

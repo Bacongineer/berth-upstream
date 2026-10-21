@@ -600,7 +600,7 @@ start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "
 serves   = ["router-strata", "qwen3.8-flash-next-iq2_xs"]
 priority = "foreground"   # equal to the engine it replaces, so the last model you ask for wins
 prefetch = ["/models/strata"]   # read into the page cache while the holder drains
-# kv_snapshots    = "/var/cache/berth/kv/strata"  # the --slot-save-path the saves and restores share
+# kv_snapshots    = "/home/you/.cache/berth/kv/strata"  # the --slot-save-path the saves and restores share
 # kv_snapshots_mib = 16384
 ```
 
@@ -655,6 +655,10 @@ load), gets no snapshots, so a KV snapshot covers llama-swap's many-model entrie
 llama-swap gains per-model slots. An engine started without `--slot-save-path` says so, the drain
 logs one line, and the switch is a plain one. The save step is bounded at 60 s and the restore at
 30 s, so a failure on either side leaves the switch exactly as it was before.
+
+A snapshot holds the slot's prompt tokens, so it is the conversation itself. Keep the directory
+private to the user the engine runs as (`mkdir -p DIR && chmod 700 DIR`); Berth writes its ledger
+there owner-only.
 
 Measured on the reference RTX 4090 with the [swap bench](contrib/bench/README.md) switching between
 NInfer (through llama-swap) and Strata (262K context), both on an NVMe SSD, 2026-10-20 (two runs,
