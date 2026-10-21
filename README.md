@@ -826,11 +826,13 @@ Point the bookmark (or a home-page tile) at `http://127.0.0.1:9796/gui/comfyui` 
 
 - **ComfyUI answers:** the browser goes straight to its UI.
 - **ComfyUI is stopped:** the page says so and lists what holds the card (`llama-swap (NInfer-27B)  active`), with a
-  **Start** button. Opening the page takes nothing; only Start asks for the card.
-- **After Start:** the page says what the start waits for, in the broker's terms: "Waiting for strata release:
+  **Launch comfyui** button. Opening the page takes nothing; only Launch asks for the card.
+- **After Launch:** the page says what the start waits for, in the broker's terms: "Waiting for strata release:
   finishing its current request", "Waiting for llama-swap (NInfer-27B) release: freeing its memory", then
   "loading comfyui". It opens the UI once ComfyUI answers. A failed start shows its reason code and a retry button.
 - `/gui/` lists every engine with a wake page.
+
+<p align="center"><img src="assets/preview-wake.png" alt="The gateway's wake page for comfyui: comfyui is offline and the card is free, with a Launch comfyui button" width="560"></p>
 
 A start never runs two engines on the card at once. Berth drains the holder only at its boundary: llama-swap once its
 slots are idle (`drain_post`), ComfyUI once its queue is empty (`drain_comfyui`), and a server with no unload URL
