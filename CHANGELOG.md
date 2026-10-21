@@ -26,6 +26,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The Windows check kit (`contrib/windows/check.ps1`): the per-process rows render again, the label and
+  the MiB figure computed before the row list, and the status reads the keys it actually has
+  (`squatters`, `unprotected`, `leases`; there is no `holders`). `berth events` is called with
+  `--format json`, and a berth that answers nothing leaves its stderr in the report instead of
+  a silent "returned nothing".
 - A lease whose attached run process dies without the wrapper's disconnect
   reaching the daemon (the run's tree force-killed, a crash, a power loss)
   is no longer left granted with an empty PIDS list: the broker now checks

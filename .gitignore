@@ -8,3 +8,7 @@ bin/
 
 # OME boards stay local; this repo is public
 .ome/
+
+# the binary a plain `go build` leaves at the root: untracked, it marks every later build +dirty
+/berth
+/berth.exe
