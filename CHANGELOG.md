@@ -6,6 +6,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.3] - 2026-10-21
+
+Fixes from the Windows testers and two gateway additions. On a single-GPU Windows desktop, the
+squatter total no longer passes the card's used memory, so `berth run` gets its grant while a model
+is loaded. A lease whose `berth run` process dies after attach now frees itself, and the Windows check
+kit prints its per-process rows and events again. The gateway reads the next engine's files into the
+page cache while the holder drains, and it measures every start it runs and prices a switch, or a
+chain of them, from those times.
+
 ### Added
 
 - Measured switch costs on the gateway: it times every start it runs, from the lease
