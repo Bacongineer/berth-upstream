@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/sysd"
 )
 
@@ -31,15 +30,14 @@ func afterStart(*exec.Cmd) {}
 // scopeToChild starts the engine in its own transient scope, so the
 // lease can name every process under it by cgroup even when one escapes
 // the process tree (chaos scenario 3: a child that forks and whose
-// parent exits before any tick records it). A run the gateway started
-// already lives in a berth-engine scope and passes that scope down;
-// without a user manager the child runs in this cgroup, as always.
+// parent exits before any tick records it). The engine gets a scope of
+// its own even when this run already sits in one (a gateway start, or a
+// `berth run` inside another lease's engine, as llama-swap runs its
+// models): two leases never share a scope. Without a user manager the
+// child runs in this cgroup, as always.
 func scopeToChild(as string, argv []string, log *slog.Logger) []string {
 	// Tests start fake engines: never in the developer's own user manager.
 	if testing.Testing() {
-		return argv
-	}
-	if _, scoped := procs.Scope(os.Getpid()); scoped {
 		return argv
 	}
 	if !sysd.ScopeReady() {

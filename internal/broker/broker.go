@@ -806,12 +806,8 @@ func (b *Broker) owner(id ident, container, scope string) *lease {
 			return l
 		}
 	}
-	if scope != "" {
-		for _, l := range b.leases {
-			if (l.state == active || l.state == draining || l.state == releasing) && l.scope == scope {
-				return l
-			}
-		}
+	if l := b.scopeLease(scope); l != nil {
+		return l
 	}
 	if container != "" {
 		for _, l := range b.leases {

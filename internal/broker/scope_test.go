@@ -64,3 +64,31 @@ func TestScopeNeverCrossAttributes(t *testing.T) {
 		t.Fatalf("reports = %q, want only the scopeless process", got)
 	}
 }
+
+func TestSharedScopeNamesNeither(t *testing.T) {
+	tree := procs.Fake{
+		Parents: map[int]int{100: 1, 110: 1, 112: 1},
+		Starts:  map[int]uint64{100: 1, 110: 2, 112: 5},
+	}
+	b, c, _ := setup(t, tree)
+	b.cfg.Scopes = func(pid int) (string, bool) { return runScopeA, true }
+
+	a := must(t, acquire(b, Request{Engine: "a", Needs: 4 * GiB}))
+	a.Attach(100)
+	mb := must(t, acquire(b, Request{Engine: "mine", Needs: 4 * GiB}))
+	mb.Attach(110)
+
+	// 112 sits in the scope both leases recorded and descends from neither.
+	c.set(gpu.Proc{PID: 112, Name: "python", Used: 8 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	for _, l := range st.Leases {
+		if l.Used != 0 {
+			t.Fatalf("lease %s holds %d, want a shared scope to name neither lease", l.Engine, l.Used)
+		}
+	}
+	if len(st.Squatters) != 1 || st.Squatters[0].PID != 112 {
+		t.Fatalf("squatters = %+v, want 112 reported as a stowaway", st.Squatters)
+	}
+}

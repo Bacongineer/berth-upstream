@@ -11,6 +11,25 @@ package broker
 // signalled because of a scope that Berth did not start: the scope
 // holds exactly the processes a Berth wrapper execed into it.
 
+// scopeLease is the one live lease that recorded scope, nil when none
+// did or when more than one did: a scope two leases share names neither,
+// so attribution falls through to the process tree.
+func (b *Broker) scopeLease(scope string) *lease {
+	if scope == "" {
+		return nil
+	}
+	var found *lease
+	for _, l := range b.leases {
+		if (l.state == active || l.state == draining || l.state == releasing) && l.scope == scope {
+			if found != nil {
+				return nil
+			}
+			found = l
+		}
+	}
+	return found
+}
+
 // scopeOf is a process's Berth scope path, "" when it runs outside one.
 func (b *Broker) scopeOf(pid int) string {
 	s, ok := b.cfg.Scopes(pid)
