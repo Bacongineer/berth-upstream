@@ -535,6 +535,9 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 	base := t.url
 	if fb != nil {
 		base, body = g.tookFallback(w, preamble, t.engine, fb, waited, body)
+		// The node key is the client's credential for this gateway; a
+		// fallback may run on another box and never gets it.
+		r.Header.Del("Authorization")
 	}
 	u, err := url.Parse(base)
 	if err != nil {

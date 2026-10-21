@@ -260,3 +260,35 @@ func TestFallbackAfterDefaults(t *testing.T) {
 		}
 	}
 }
+
+// The node's API key authenticates the client to the gateway and goes no
+// further: a fallback may run on another box, so the request it gets
+// carries no Authorization header.
+func TestFallbackDropsTheNodeKey(t *testing.T) {
+	var mu sync.Mutex
+	auth := "unset"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"object":"list","data":[{"id":"cpu"}]}`)
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auth = r.Header.Get("Authorization")
+		mu.Unlock()
+		fmt.Fprint(w, `{"choices":[]}`)
+	})
+	fb := httptest.NewServer(mux)
+	t.Cleanup(fb.Close)
+	gw, _, _ := fallbackGateway(t, 3*time.Second, 300*time.Millisecond, "cpu", fb.URL, io.Discard)
+
+	resp := call(t, "POST", gw.URL+"/v1/chat/completions", `{"model":"big"}`)
+	resp.Body.Close()
+	if resp.Header.Get("X-Berth-Fallback") != "strata-cpu" {
+		t.Fatalf("status %d: the request did not go to the fallback", resp.StatusCode)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if auth != "" {
+		t.Fatalf("the fallback got Authorization %q, want none", auth)
+	}
+}
