@@ -206,6 +206,10 @@ type lease struct {
 	state    state
 	pid      int
 	pidStart uint64
+	// goneTicks counts the consecutive ticks that saw the attached pid
+	// gone (no process with its start time); the reaper needs two, so a
+	// pid lookup hiccup on one tick cannot free a live lease.
+	goneTicks uint64
 	// container is the full ID of the runtime container the engine runs in
 	// ("" for a host process), containerName the name the operator gave.
 	container     string
@@ -701,29 +705,33 @@ func (b *Broker) Tick(ctx context.Context) {
 				delete(l.gpu, id)
 			}
 		}
+		if l.state == releasing || l.state == stuck {
+			if len(l.gpu) == 0 && read > l.releasedRead {
+				// Only a tick whose card read started after the release frees
+				// the lease: an earlier read knows nothing about a process that
+				// appeared after it. Read order, not the clock, decides.
+				b.log.Info("lease freed", "lease", key, "engine", l.engine)
+				b.counters.VRAMHandedOff += l.peak
+				b.foldFootprint(l, now)
+				b.emit(proto.Event{Kind: proto.EvFreed, Lease: key, Engine: l.engine, Bytes: l.peak})
+				delete(b.leases, key)
+			} else if l.state == releasing && now.Sub(l.released) > b.cfg.ReleaseGrace {
+				// Never grant on process exit alone: the lease keeps blocking
+				// until the card shows its memory gone, and waiters are told why.
+				l.state = stuck
+				b.log.Warn("lease stuck: released but its processes still hold memory", "lease", key, "engine", l.engine, "holding", holding(l))
+				b.counters.StuckCaught++
+				b.emit(proto.Event{Kind: proto.EvStuck, Lease: key, Engine: l.engine, Bytes: l.used(), Detail: holding(l)})
+			}
+			continue
+		}
+		// The remaining granted leases (active, draining, parking, parked)
+		// get the reaper's pass: a run whose attached process is gone gives
+		// its lease back without the wrapper's disconnect. One the reaper
+		// released is on its way out, so it skips the park tick.
+		b.reapAttached(key, l, now)
 		if l.state == parking {
 			b.parkingTick(key, l, now, read)
-			continue
-		}
-		if l.state != releasing && l.state != stuck {
-			continue
-		}
-		if len(l.gpu) == 0 && read > l.releasedRead {
-			// Only a tick whose card read started after the release frees
-			// the lease: an earlier read knows nothing about a process that
-			// appeared after it. Read order, not the clock, decides.
-			b.log.Info("lease freed", "lease", key, "engine", l.engine)
-			b.counters.VRAMHandedOff += l.peak
-			b.foldFootprint(l, now)
-			b.emit(proto.Event{Kind: proto.EvFreed, Lease: key, Engine: l.engine, Bytes: l.peak})
-			delete(b.leases, key)
-		} else if l.state == releasing && now.Sub(l.released) > b.cfg.ReleaseGrace {
-			// Never grant on process exit alone: the lease keeps blocking
-			// until the card shows its memory gone, and waiters are told why.
-			l.state = stuck
-			b.log.Warn("lease stuck: released but its processes still hold memory", "lease", key, "engine", l.engine, "holding", holding(l))
-			b.counters.StuckCaught++
-			b.emit(proto.Event{Kind: proto.EvStuck, Lease: key, Engine: l.engine, Bytes: l.used(), Detail: holding(l)})
 		}
 	}
 	b.claimed = claimed
@@ -1247,6 +1255,36 @@ func (l *Lease) Attach(pid int) {
 	l.b.mu.Lock()
 	l.l.pid, l.l.pidStart = pid, start
 	l.b.mu.Unlock()
+}
+
+// reapAttached is the second, connection-independent signal that a run has
+// ended: the wrapper's disconnect is the first, and it is the one that never
+// arrives when the run's whole process tree is killed out from under it.
+// The broker asks the process table itself. The attached process must have
+// been seen gone on two consecutive ticks, so a pid lookup hiccup on one
+// tick cannot free a live lease; a PID the kernel reused (same number, new
+// start time) counts as gone. A lease that names a container is left alone
+// (its processes belong to the container, not the PID), and so is one the
+// card still counts a process under or that has a live descendant: its
+// memory is not shown gone. The release then runs exactly as the wrapper's
+// would. Nothing here signals a process. Called with b.mu held, from Tick.
+func (b *Broker) reapAttached(key string, l *lease, now time.Time) {
+	if l.pid == 0 || l.pidStart == 0 {
+		l.goneTicks = 0
+		return
+	}
+	if b.tree.StartTime(l.pid) == l.pidStart {
+		l.goneTicks = 0
+		return
+	}
+	l.goneTicks++
+	if l.goneTicks < 2 || l.container != "" || len(l.gpu) != 0 || len(l.desc) != 0 {
+		return
+	}
+	b.log.Warn("attached process is gone; releasing the lease", "lease", key, "engine", l.engine, "pid", l.pid)
+	b.emit(proto.Event{Kind: proto.EvOrphaned, Lease: key, Engine: l.engine, PID: l.pid, Detail: "attached process is gone"})
+	l.goneTicks = 0
+	b.beginRelease(l, now, true)
 }
 
 // beginRelease takes a granted lease off the grant path: releasing waits for

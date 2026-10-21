@@ -129,6 +129,7 @@ const (
 	EvStuck          = "lease.stuck"
 	EvRefused        = "lease.refused"
 	EvReattached     = "lease.reattached"
+	EvOrphaned       = "lease.orphaned" // the attached process is gone and the broker released the lease itself
 	EvSquatter       = "squatter.appeared"
 	EvSquatterGone   = "squatter.gone"
 	EvProbeFailed    = "probe.failed"

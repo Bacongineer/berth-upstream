@@ -16,17 +16,22 @@ import (
 
 // recordDescendants reads the process table once and refreshes every
 // lease's descendant set: entries live until their PID plus start time no
-// longer does. Called with b.mu held.
+// longer does. Pruning runs whenever a set has entries, attached or not, so
+// a set whose processes are all gone reads empty on the next tick; new
+// entries are recorded only under a lease whose wrapper is still alive.
+// With neither, the table is not read. Called with b.mu held.
 func (b *Broker) recordDescendants() {
-	attached := false
+	attached, recorded := false, false
 	for _, l := range b.leases {
+		if len(l.desc) > 0 {
+			recorded = true
+		}
 		if (l.state == active || l.state == draining) && l.pid > 0 &&
 			b.tree.StartTime(l.pid) == l.pidStart {
 			attached = true
-			break
 		}
 	}
-	if !attached {
+	if !attached && !recorded {
 		return
 	}
 	table := b.cfg.ProcTable()
@@ -43,6 +48,9 @@ func (b *Broker) recordDescendants() {
 				delete(l.desc, id)
 			}
 		}
+	}
+	if !attached {
+		return
 	}
 	kids := make(map[int][]procs.Proc, len(table))
 	for _, p := range table {
