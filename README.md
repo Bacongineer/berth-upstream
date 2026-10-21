@@ -208,6 +208,8 @@ steps, the configuration file and how to uninstall.
 
 ## Documentation
 
+The same pages are a site with search at <https://t-crypt.github.io/berth/>.
+
 | Page | What it covers |
 |---|---|
 | [Install](docs/install.md) | The agent prompt, manual install, `berth.toml`, uninstall |
