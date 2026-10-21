@@ -11,6 +11,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/procs"
+	"github.com/T-Crypt/berth/internal/proto"
 )
 
 type guardedCard struct {
@@ -122,6 +123,36 @@ func TestGuardedReattachKeepsDriverBaseline(t *testing.T) {
 	b.Tick(context.Background())
 	if st := b.Status(); len(st.Leases) != 0 {
 		t.Fatalf("reattached lease lost its baseline: %+v", st.Leases)
+	}
+}
+
+func TestGuardedProbePreservesVFIOHoldAndRecovery(t *testing.T) {
+	skipNonLinux(t)
+	root := sysfsCard(t, "0000:03:00.0", "amdgpu")
+	b, c := guardedSetup(t)
+	c.snap.Devices = []gpu.Device{{Index: 0, BusID: "0000:03:00.0", Total: 24 * GiB}}
+	b.Tick(context.Background())
+	hold := must(t, acquire(b, vfioRequest()))
+	// A hold intentionally suppresses observations. It must not look like a
+	// failed or expired AMD probe, nor allow new work while the card is away.
+	c.err = fmt.Errorf("%w: probe must not run under a VFIO hold", gpu.ErrUnsafeRead)
+	b.Tick(context.Background())
+	if st := b.Status(); st.ProbeErr != "" || st.Passthrough == nil || st.Passthrough.State != proto.CardDetaching {
+		t.Fatalf("held AMD state: %+v", st)
+	}
+	bindCard(t, root, "0000:03:00.0", gpu.VFIODriver)
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "after-vm", Needs: GiB})
+	pending(t, w)
+	hold.Release()
+	bindCard(t, root, "0000:03:00.0", "amdgpu")
+	c.err = nil
+	c.set(0)
+	c.snap.Devices = []gpu.Device{{Index: 0, BusID: "0000:03:00.0", Total: 24 * GiB}}
+	b.Tick(context.Background())
+	must(t, w)
+	if st := b.Status(); st.Passthrough != nil {
+		t.Fatalf("returned card still marked passed through: %+v", st.Passthrough)
 	}
 }
 

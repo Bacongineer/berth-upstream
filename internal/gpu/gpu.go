@@ -176,8 +176,8 @@ type dedicatedUsage struct {
 	Bytes    uint64
 }
 
-// busID is the governed card's pci.bus_id, from this read's device list.
-func busID(s Snapshot) string {
+// BusID is the governed card's pci.bus_id, from this read's device list.
+func BusID(s Snapshot) string {
 	for _, d := range s.Devices {
 		if d.Index == s.Index {
 			return d.BusID
@@ -260,9 +260,11 @@ func capToTotal(dedicated map[int]uint64, total uint64) (map[int]uint64, []cappe
 // list. A listed process whose Used is 0 (WDDM reports [N/A]) takes the
 // PDH figure, and nvidia-smi's own number wins when it has one. A PID the
 // list lacks, a graphics client or a game, joins when its dedicated use
-// clears graphicsProcBytes; PDH does not say its name, so the Name stays
-// empty. Card totals still come from the driver.
-func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
+// clears graphicsProcBytes; PDH does not say its name, so the process
+// table does when it can (names, read once per probe read) and a PID the
+// table does not know keeps an empty Name. Card totals still come from the
+// driver.
+func mergeProcs(procs []Proc, dedicated map[int]uint64, names map[int]string) []Proc {
 	if len(dedicated) == 0 {
 		return procs
 	}
@@ -285,7 +287,7 @@ func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
 	}
 	sort.Ints(fresh)
 	for _, pid := range fresh {
-		out = append(out, Proc{PID: pid, Used: dedicated[pid]})
+		out = append(out, Proc{PID: pid, Name: names[pid], Used: dedicated[pid]})
 	}
 	return out
 }
@@ -293,6 +295,12 @@ func mergeProcs(procs []Proc, dedicated map[int]uint64) []Proc {
 // Probe reads the card.
 type Probe interface {
 	Read(ctx context.Context) (Snapshot, error)
+}
+
+// Pauser is a probe that keeps a process on the card between reads (the
+// nvidia-smi loop) and can stop it while the card's driver is switched.
+type Pauser interface {
+	Pause(bool)
 }
 
 // logger returns l, or the default logger when l is nil, so a probe without a

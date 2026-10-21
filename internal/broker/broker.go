@@ -184,6 +184,9 @@ type Request struct {
 	// the turn ends the normal rules apply. A re-attach starts a fresh
 	// turn. 0 = off.
 	MinTurn time.Duration
+	// ParkTTL is how long the lease may stay parked before the broker
+	// stops its engine, in place of the node's ParkTTL. 0 = the node's.
+	ParkTTL time.Duration
 	// Container is the engine's container: Acquire takes the name the
 	// operator gave (--container), the attach resolves the full ID. A GPU
 	// process inside it belongs to the lease.
@@ -206,6 +209,7 @@ type lease struct {
 	reattach bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
 	pinned   bool // never drained (Request.Pinned)
 	minTurn  time.Duration
+	parkTTL  time.Duration // 0 = the node's
 	prio     Priority
 	needs    uint64
 	state    state
@@ -291,6 +295,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		needs:    r.Needs,
 		pinned:   r.Pinned,
 		minTurn:  r.MinTurn,
+		parkTTL:  r.ParkTTL,
 		gpu:      map[ident]gpu.Proc{},
 		desc:     map[ident]struct{}{},
 		arrived:  now,
@@ -327,6 +332,14 @@ type Broker struct {
 	mu       sync.Mutex
 	snap     gpu.Snapshot
 	probeErr error
+	// cardAddr is the governed card's PCI function in sysfs form
+	// ("0000:01:00.0"), remembered from the last successful snapshot and
+	// found by scan when the probe fails and no reading ever came.
+	// cardState is "" normal, CardPassthrough or CardDetaching, and
+	// cardDriver is the driver bound at the last look.
+	cardAddr   string
+	cardState  string
+	cardDriver string
 	// squatClamped is whether the squatter total was last capped at the
 	// card's used figure (boundSquat); a change of that state logs once.
 	squatClamped bool
@@ -609,12 +622,26 @@ func (b *Broker) Tick(ctx context.Context) {
 	defer b.persistFootprints()
 	defer func() { b.persistUsage(b.now(), false) }()
 	read := b.reads.Add(1)
-	snap, err := b.probe.Read(ctx)
-	if err == nil {
-		for _, p := range snap.Procs {
-			if start := b.tree.StartTime(p.PID); p.Start != 0 && start != 0 && start != p.Start {
-				err = fmt.Errorf("%w: pid %d changed identity after GPU scan", gpu.ErrUnsafeRead, p.PID)
-				break
+	b.mu.Lock()
+	held := b.vfioHold()
+	b.mu.Unlock()
+	if p, ok := b.probe.(gpu.Pauser); ok {
+		// A probe that keeps nvidia-smi running would hold the card open
+		// through the driver switch, so it stops for the whole hold.
+		p.Pause(held != nil)
+	}
+	var snap gpu.Snapshot
+	var err error
+	if held == nil {
+		// While a VFIO hold is granted the operator is switching the card,
+		// and the probe opens the device; it does not run at all.
+		snap, err = b.probe.Read(ctx)
+		if err == nil {
+			for _, p := range snap.Procs {
+				if start := b.tree.StartTime(p.PID); p.Start != 0 && start != 0 && start != p.Start {
+					err = fmt.Errorf("%w: pid %d changed identity after GPU scan", gpu.ErrUnsafeRead, p.PID)
+					break
+				}
 			}
 		}
 	}
@@ -629,10 +656,23 @@ func (b *Broker) Tick(ctx context.Context) {
 	b.runs = rs
 	b.accountUsage(now)
 	b.pruneVerdicts(now)
+	if held != nil {
+		// The switch is berthd's to watch, not to touch: read the driver
+		// from sysfs, grant nothing, keep the hold HOT.
+		b.holdTick()
+		return
+	}
 	if err == nil && snap.Guarded && (snap.At.IsZero() || snap.MaxAge <= 0 || now.Sub(snap.At) > snap.MaxAge) {
 		err = fmt.Errorf("%w: GPU sample is stale", gpu.ErrUnsafeRead)
 	}
 	if err != nil {
+		if d := b.vfioBound(); d != "" {
+			// The card is in a VM, switched by hand: no probe-failed
+			// warning, the card state says it instead.
+			b.setCard(proto.CardPassthrough, d)
+			b.schedule(now)
+			return
+		}
 		if b.probeErr == nil {
 			b.log.Warn("gpu probe failed", "err", err, "admission_blocked", b.snap.Guarded || errors.Is(err, gpu.ErrUnsafeRead))
 			b.emit(proto.Event{Kind: proto.EvProbeFailed, Detail: err.Error()})
@@ -646,6 +686,14 @@ func (b *Broker) Tick(ctx context.Context) {
 		b.emit(proto.Event{Kind: proto.EvProbeRecovered})
 	}
 	b.probeErr = nil
+	if a := gpu.SysfsAddr(gpu.BusID(snap)); a != "" {
+		b.cardAddr = a
+	}
+	if b.cardState != "" {
+		// The probe answers again, so the card is back; the driver it reads
+		// now is the one the returned event names.
+		b.setCard("", gpu.DriverFor(b.cardAddr))
+	}
 	b.snap = snap
 	b.recordDescendants()
 	b.refreshScopes()
@@ -903,6 +951,13 @@ func (b *Broker) allowed(name string) bool {
 // holders to drain for the first waiter that does not fit. Nobody behind a
 // blocked waiter jumps it, so a big request is not starved by small ones.
 func (b *Broker) schedule(now time.Time) {
+	if b.cardState != "" {
+		// The card does not serve the node, so nothing new is granted, and
+		// every waiter reads the same reason. The VFIO hold itself keeps
+		// the card.
+		b.notifyWait(b.queue, b.cardWhy())
+		return
+	}
 	if why := b.observationWait(now); why != "" {
 		b.notifyWait(b.queue, why)
 		return

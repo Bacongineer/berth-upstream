@@ -98,6 +98,12 @@ berth run --as comfyui --priority batch --wait 87600h --drain-comfyui http://127
   python main.py --listen 127.0.0.1 --port 8188
 ```
 
+If a ComfyUI node calls another engine (a chat panel, a prompt expander), that call can drain
+ComfyUI while the node waits for its answer, and stopping the server kills the request. Set
+`keep_comfyui_up = true` and a short `park_ttl` on the ComfyUI engine entry, as
+[the gateway docs](https://github.com/T-Crypt/berth/blob/main/docs/gateway.md#comfyui-nodes-that-call-other-engines)
+show.
+
 Reading: `type = "comfyui"` (found on :8188 without config) shows jobs running and queued.
 
 ## vLLM and SGLang

@@ -68,6 +68,20 @@ type Engine struct {
 	DrainComfyUI string   `toml:"drain_comfyui,omitempty" json:"drain_comfyui,omitempty" yaml:"drain_comfyui,omitempty"` // as berth run --drain-comfyui
 	// KeepComfyUI is berth run --keep-comfyui-up: unload and stay up.
 	KeepComfyUI bool `toml:"keep_comfyui_up,omitempty" json:"keep_comfyui_up,omitempty" yaml:"keep_comfyui_up,omitempty"`
+	// KVSnapshots is the snapshot directory the engine's --slot-save-path
+	// points at. On a drain, Berth saves every idle slot's prompt cache
+	// into it; when this gateway later starts the engine again, the empty
+	// slots restore the newest snapshot for that model before the first
+	// request, so a long agent context is not prefilled again after every
+	// switch. Snapshots never cross models, and an engine that does not
+	// name exactly one model on /v1/models (llama-swap lists many) never
+	// snapshots. Absolute path: the gateway starts engines from its own
+	// working directory, and the drained engine writes through the same
+	// absolute name.
+	KVSnapshots string `toml:"kv_snapshots,omitempty" json:"kv_snapshots,omitempty" yaml:"kv_snapshots,omitempty"`
+	// KVSnapshotsMiB is how many MiB of snapshots the directory may hold
+	// before the least recently saved are removed. 0 = the default.
+	KVSnapshotsMiB uint64 `toml:"kv_snapshots_mib,omitzero" json:"kv_snapshots_mib,omitempty" yaml:"kv_snapshots_mib,omitempty"`
 	// DrainMax is berth run --drain-max: a ceiling on how long a drain may
 	// wait at a boundary (a processing slot, a running ComfyUI job) before
 	// it stops the engine anyway. 0 = unbounded, the default.
@@ -77,6 +91,12 @@ type Engine struct {
 	// time, whatever its priority, only a hold takes the card out. When
 	// the turn ends the normal rules apply. 0 = off, the default.
 	MinTurn Duration `toml:"min_turn,omitzero" json:"min_turn,omitempty" yaml:"min_turn,omitempty"`
+	// ParkTTL is how long this engine stays parked before Berth stops it,
+	// in place of [park] ttl. A short one suits keep_comfyui_up: a drain
+	// leaves ComfyUI up, so work its own nodes run outside the queue (a
+	// chat call to another engine) finishes, and its CUDA context goes
+	// soon after. 0 = [park] ttl.
+	ParkTTL Duration `toml:"park_ttl,omitzero" json:"park_ttl,omitempty" yaml:"park_ttl,omitempty"`
 	// Container is the engine's container, as berth run --container: the
 	// name of `docker run --name` (or of an existing container for
 	// `docker start -a`). The drain stops it through the runtime CLI
@@ -240,6 +260,10 @@ func (c *Config) ClaimRules() ([]claims.Rule, error) {
 type ModelsConfig struct {
 	Dirs []string `toml:"dirs,omitempty" json:"dirs,omitempty" yaml:"dirs,omitempty"`
 }
+
+// DefaultKVSnapshotsMiB is the snapshot budget an engine with kv_snapshots
+// and no kv_snapshots_mib gets.
+const DefaultKVSnapshotsMiB = 16384
 
 // DefaultFreeFloor is the share of a root's total space a pull must leave
 // free. A drive never fills: a pull that would go under it is refused.
@@ -574,11 +598,17 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Errorf("%s: drain_slots %q must be the engine's http(s)://host:port", where, e.DrainSlots))
 			}
 		}
+		if e.KVSnapshots != "" && !filepath.IsAbs(e.KVSnapshots) {
+			errs = append(errs, fmt.Errorf("%s: kv_snapshots %q must be an absolute path: the gateway starts engines from its own working directory", where, e.KVSnapshots))
+		}
 		if e.DrainMax.Duration < 0 {
 			errs = append(errs, fmt.Errorf("%s: drain_max %s must be >= 0", where, e.DrainMax))
 		}
 		if e.MinTurn.Duration < 0 {
 			errs = append(errs, fmt.Errorf("%s: min_turn %s must be >= 0", where, e.MinTurn))
+		}
+		if e.ParkTTL.Duration < 0 {
+			errs = append(errs, fmt.Errorf("%s: park_ttl %s must be >= 0", where, e.ParkTTL))
 		}
 		if e.GUI != "" {
 			if u, err := url.Parse(e.GUI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

@@ -100,6 +100,9 @@ Broker regressions cover driver-delayed release, disappearing/unreadable PIDs,
 stale/failed observations, PID reuse, park residual confirmation and unrelated
 memory releases that must not conceal lingering buffers. Service tests check that
 AMD/card flags reach the generated daemon unit, not the gateway or harbor.
+The guarded-probe regression also preserves upstream's VFIO hold/probe-suppression
+and return-to-host behavior. The existing VFIO CLI still uses nvidia-smi; AMD
+VFIO command support and physical passthrough tests are not part of this feature.
 
 ### 4. Opt-in real allocation and handoff
 

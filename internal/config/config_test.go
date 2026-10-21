@@ -720,6 +720,47 @@ func TestLibraryFloorDefaults(t *testing.T) {
 	}
 }
 
+// kv_snapshots is an absolute directory the engine's --slot-save-path points
+// at, with an open budget that takes the default; a relative path is refused
+// and the size parses as given.
+func TestEngineKVSnapshotsParsedAndValidated(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "kv")
+	c, err := Load(write(t, "[[engine]]\nname = \"llama-server\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nkv_snapshots = '"+abs+"'\nkv_snapshots_mib = 4096\n"))
+	if err != nil {
+		t.Fatalf("a valid kv_snapshots was refused: %v", err)
+	}
+	if c.Engine[0].KVSnapshots != abs {
+		t.Errorf("kv_snapshots = %q, want %q", c.Engine[0].KVSnapshots, abs)
+	}
+	if c.Engine[0].KVSnapshotsMiB != 4096 {
+		t.Errorf("kv_snapshots_mib = %d, want 4096", c.Engine[0].KVSnapshotsMiB)
+	}
+	c, err = Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Engine[0].KVSnapshots != "" || c.Engine[0].KVSnapshotsMiB != 0 {
+		t.Errorf("an engine that names no snapshot directory carries %q and %d",
+			c.Engine[0].KVSnapshots, c.Engine[0].KVSnapshotsMiB)
+	}
+	if DefaultKVSnapshotsMiB != 16384 {
+		t.Errorf("the open budget default is %d, want 16384", DefaultKVSnapshotsMiB)
+	}
+
+	for _, tc := range []struct {
+		dir     string
+		wantErr string
+	}{
+		{"kv", `engine[0] "x": kv_snapshots "kv" must be an absolute path`},
+		{"./kv", `engine[0] "x": kv_snapshots "./kv" must be an absolute path`},
+	} {
+		_, err := Load(write(t, "[[engine]]\nname = \"x\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nkv_snapshots = \""+tc.dir+"\"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("kv_snapshots %q: error lacks %q: %v", tc.dir, tc.wantErr, err)
+		}
+	}
+}
+
 func TestEngineFallbackParsedAndValidated(t *testing.T) {
 	const engines = `
 [[engine]]
@@ -777,5 +818,19 @@ fallback = "strata"
 `))
 	if err == nil || !strings.Contains(err.Error(), `engine[2] "third": fallback "strata" has a fallback of its own; no chains`) {
 		t.Errorf("a chain was accepted or names neither engine: %v", err)
+	}
+}
+
+func TestEngineParkTTL(t *testing.T) {
+	const entry = "[[engine]]\nname = \"comfyui\"\ntype = \"comfyui\"\nurl = \"http://127.0.0.1:8188\"\n"
+	c, err := Load(write(t, entry+"park_ttl = \"10m\"\n"))
+	if err != nil {
+		t.Fatalf("a valid park_ttl was refused: %v", err)
+	}
+	if got := c.Engine[0].ParkTTL.Duration; got != 10*time.Minute {
+		t.Errorf("park_ttl = %s, want 10m", got)
+	}
+	if _, err := Load(write(t, entry+"park_ttl = \"-1m\"\n")); err == nil || !strings.Contains(err.Error(), `engine[0] "comfyui": park_ttl -1m0s must be >= 0`) {
+		t.Errorf("a negative park_ttl: %v", err)
 	}
 }

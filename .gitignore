@@ -1,6 +1,6 @@
 bin/
 # Local design notes, kept out of the repo.
-/docs
+/notes
 
 
 # agent briefs and plans: machine-specific, never part of the repo
@@ -12,3 +12,6 @@ bin/
 # the binary a plain `go build` leaves at the root: untracked, it marks every later build +dirty
 /berth
 /berth.exe
+
+# mkdocs build output
+/site/

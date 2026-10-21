@@ -75,6 +75,9 @@ type Msg struct {
 	// younger than it after the grant, no waiter drains it but a hold.
 	// OpAcquire and OpReattach; 0 = off.
 	MinTurn float64 `json:"min_turn,omitempty"`
+	// ParkTTL is how long the lease may stay parked, in seconds, in place
+	// of the node's [park] ttl. OpAcquire and OpReattach; 0 = the node's.
+	ParkTTL float64 `json:"park_ttl,omitempty"`
 	// Container is the container the engine runs in: OpAcquire and
 	// OpReattach carry the name the operator gave (--container), OpAttach
 	// the full ID berth run resolved it to. The broker matches GPU
@@ -146,6 +149,22 @@ const (
 	// EvFootprint: a freed run measured far more VRAM than the engine's
 	// learned footprint, so the estimate a next run is offered grows.
 	EvFootprint = "engine.footprint"
+	// EvCardPassthrough: the governed card's PCI function is bound to
+	// vfio-pci, a VM holds the card. EvCardReturned: it is back on its
+	// host driver. Each fires once per transition.
+	EvCardPassthrough = "card.passthrough"
+	EvCardReturned    = "card.returned"
+)
+
+// Card states, the values Status.Passthrough.State takes. Normal is the
+// zero state: no Passthrough in the status at all.
+const (
+	// CardPassthrough: the card is in a VM, its PCI function is bound to
+	// vfio-pci.
+	CardPassthrough = "passthrough"
+	// CardDetaching: a VFIO hold is granted and the function is not bound
+	// to vfio-pci (yet or any more); the switch is in progress.
+	CardDetaching = "detaching"
 )
 
 // Counters are the collisions board. Every count is an event berthd can
@@ -204,6 +223,19 @@ type Status struct {
 	// RAM their warm copies are expected to hold. A reading, never a
 	// reservation.
 	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
+	// Passthrough is the governed card's VM state while it does not serve
+	// the node: bound to vfio-pci, or switching to or from that. Omitted
+	// when the card is normal.
+	Passthrough *Passthrough `json:"passthrough,omitempty"`
+}
+
+// Passthrough is the card's VM passthrough state.
+type Passthrough struct {
+	// State is CardPassthrough or CardDetaching.
+	State string `json:"state"`
+	// Driver is the kernel driver bound to the card's PCI function at the
+	// last look: vfio-pci, the host driver mid-switch, or "" unbound.
+	Driver string `json:"driver"`
 }
 
 // EngineFootprint is what the broker learned from one engine's leases: the
@@ -592,3 +624,8 @@ func (c *Conn) Recv() (Msg, error) {
 	}
 	return m, json.Unmarshal(line, &m)
 }
+
+// GroupVFIO is the lease group of a VFIO hold: a pinned acquire at hold
+// priority, Engine "vfio:<reason>", made by `berth vfio run`. While one is
+// granted berthd does not open the card, so the driver switch can run.
+const GroupVFIO = "vfio"

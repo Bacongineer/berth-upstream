@@ -51,3 +51,17 @@ func TestD3DKMTLayout(t *testing.T) {
 		}
 	}
 }
+
+// processNames reads the real process table. The test cannot pin an exe
+// name to a PID, so it asserts only that the walk named processes.
+func TestProcessNamesWalksTheTable(t *testing.T) {
+	names := processNames()
+	if len(names) == 0 {
+		t.Fatal("processNames = an empty table, want at least one name")
+	}
+	for pid, name := range names {
+		if name == "" {
+			t.Fatalf("processNames[%d] = an empty name", pid)
+		}
+	}
+}

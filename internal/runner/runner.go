@@ -46,7 +46,10 @@ type Options struct {
 	// neither does a higher one; only a hold (a game, a call, berth hold)
 	// takes the card out. When the turn ends the normal rules apply; a
 	// re-attach starts a fresh turn. 0 = off.
-	MinTurn   time.Duration
+	MinTurn time.Duration
+	// ParkTTL is how long the lease may stay parked before the broker stops
+	// the engine, in place of the node's [park] ttl. 0 = the node's.
+	ParkTTL   time.Duration
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
@@ -71,6 +74,21 @@ type Options struct {
 	// the card without it. 0 = unbounded, the default, so a long
 	// generation is never cut off.
 	DrainMax time.Duration
+	// KV snapshots (config kv_snapshots). On a drain, after the slot
+	// boundary and before the park step or anything stops the engine, the
+	// runner saves every idle slot's prompt cache into KVDir through the
+	// engine's own slot actions and asks the engine to trim nothing: the
+	// runner itself removes the least recently saved snapshots past
+	// KVBudget. Empty KVDir or KVBase disables the whole step.
+	KVDir string
+	// KVBudget is the snapshot directory's budget in bytes.
+	KVBudget int64
+	// KVBase is the engine base the slot calls go to: the entry's
+	// drain_slots, else the origin of its drain_post, else the engine URL.
+	KVBase string
+	// KVFloor is the [library] free_floor fraction the save guard keeps on
+	// the snapshot directory's root; 0 turns the guard off.
+	KVFloor float64
 	// Park, when set, is the engine's park adapter: on a drain, after the
 	// boundary and before the stop ladder, the runner asks the broker to
 	// admit the lease into RAM parking and the adapter moves the weights
@@ -152,7 +170,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -325,7 +343,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()
@@ -622,6 +640,10 @@ func command(o Options, out io.Writer) *exec.Cmd {
 	return cmd
 }
 
+// ExitCode is a wrapped command's exit status, 128 plus the signal number
+// when it was signalled. berth vfio run exits with its script's code.
+func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
+
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
 // to the engine's whole process group.
 func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
@@ -681,6 +703,10 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			return
 		}
 	}
+	// KV snapshots ride the boundary: with nothing generating, the idle
+	// slots save their prompt caches, before the park step or anything
+	// stops the engine. A failure here never changes the stop ladder.
+	kvSave(o, done, say)
 	// The park step sits after the boundary, before anything stops the
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.

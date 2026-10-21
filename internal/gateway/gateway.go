@@ -270,6 +270,44 @@ type target struct {
 	live   bool           // an engine already answering lists the model
 }
 
+// engineEntry is the configured entry behind a target: the one the
+// gateway may start it when that is set, otherwise the entry whose url
+// is the target's (an already-running configured engine). A discovered
+// engine has no entry.
+func (g *Gateway) engineEntry(t target) *config.Engine {
+	if t.engine != nil {
+		return t.engine
+	}
+	want := strings.TrimRight(t.url, "/")
+	for i := range g.Engines {
+		if strings.TrimRight(g.Engines[i].URL, "/") == want {
+			return &g.Engines[i]
+		}
+	}
+	return nil
+}
+
+// engineAuth is the Authorization a proxied request to the engine
+// carries: the engine's own key when it has one, none otherwise. The
+// client's node key is a credential for this gateway and goes no
+// further: the engine, its logs and any proxy in front of it would see
+// it. A credential that will not resolve sends nothing and logs one
+// WARN line naming the engine and the error, never the key.
+func (g *Gateway) engineAuth(entry *config.Engine, r *http.Request) {
+	r.Header.Del("Authorization")
+	if entry == nil {
+		return
+	}
+	key, err := entry.APIKey()
+	if err != nil {
+		g.log().Warn("engine key not resolved", "engine", entry.Name, "err", err)
+		return
+	}
+	if key != "" {
+		r.Header.Set("Authorization", "Bearer "+key)
+	}
+}
+
 // live is every engine the node reads that is up, configured or discovered.
 func (g *Gateway) live() []proto.Engine {
 	if st := g.nodeStatus(); st != nil {
@@ -533,11 +571,15 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	base := t.url
+	// The request ends at the fallback when it switched to it, else the
+	// engine that serves the model. Either way it carries that engine's
+	// own key when it has one: the client's node key is a credential for
+	// this gateway and goes no further, a fallback included.
 	if fb != nil {
 		base, body = g.tookFallback(w, preamble, t.engine, fb, waited, body)
-		// The node key is the client's credential for this gateway; a
-		// fallback may run on another box and never gets it.
-		r.Header.Del("Authorization")
+		g.engineAuth(fb, r)
+	} else {
+		g.engineAuth(g.engineEntry(t), r)
 	}
 	u, err := url.Parse(base)
 	if err != nil {
@@ -680,7 +722,7 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	g.comfyProxyTo(t.url, w, r)
+	g.comfyProxyTo(t, w, r)
 }
 
 // comfyProxy passes the rest of the ComfyUI surface (/ws, /history, /view,
@@ -697,17 +739,18 @@ func (g *Gateway) comfyProxy(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusServiceUnavailable, "ComfyUI is not running; POST /prompt first to start it")
 		return
 	}
-	g.comfyProxyTo(t.url, w, r)
+	g.comfyProxyTo(t, w, r)
 }
 
-func (g *Gateway) comfyProxyTo(base string, w http.ResponseWriter, r *http.Request) {
-	u, err := url.Parse(base)
+func (g *Gateway) comfyProxyTo(t target, w http.ResponseWriter, r *http.Request) {
+	u, err := url.Parse(t.url)
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, "engine url: "+err.Error())
 		return
 	}
 	p := httputil.NewSingleHostReverseProxy(u)
 	p.FlushInterval = -1 // stream progress as ComfyUI sends it
+	g.engineAuth(g.engineEntry(t), r)
 	r.Host = u.Host
 	p.ServeHTTP(w, r)
 }
@@ -779,6 +822,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 			// free while that happens, so the reads go first.
 			go g.prefetch(e)
 		}
+		if e.KVSnapshots != "" {
+			// The same wait warms the engine's saved prompt caches, so the
+			// restore below reads the page cache where it can.
+			go g.kvWarm(e, ready)
+		}
 		go g.run(e, s, ready)
 	}
 
@@ -786,6 +834,11 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	for {
 		if probe(ctx, e.URL) {
 			g.markAnswered(e, s)
+			if starting && e.KVSnapshots != "" {
+				// Only the start this gateway ran restores: its slots are
+				// empty, and the restore lands before the first request.
+				g.kvRestore(e)
+			}
 			return nil
 		}
 		select {
@@ -947,10 +1000,19 @@ func (t *tailBuf) String() string {
 	return string(t.b)
 }
 
+// ansiCSI matches a terminal escape sequence such as a color code.
+var ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// lastLine is the engine output's last line as a terminal would show it:
+// color codes dropped, and a line redrawn with \r (a progress bar) read
+// from its last redraw.
 func lastLine(s string) string {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(ansiCSI.ReplaceAllString(s, ""))
 	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
-		return s[i+1:]
+		s = s[i+1:]
+	}
+	if i := strings.LastIndexByte(s, '\r'); i >= 0 {
+		s = s[i+1:]
 	}
 	return s
 }

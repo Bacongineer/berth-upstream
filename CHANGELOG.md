@@ -8,6 +8,18 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Card passed through to a VM (experimental). While the governed card is bound to `vfio-pci`,
+  `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
+  granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.
+  `card.passthrough` and `card.returned` events mark each change.
+- `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to
+  a VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes
+  holding the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while
+  any process holds it, runs your own switch script with `BERTH_VFIO_DEVICES` set, and releases the
+  hold only when the card is back on its host driver. `--before` and `--after` run your own commands
+  around the session, for example to stop a service that holds the card and start it again once the
+  card is back. Berth never switches drivers or asks for passwords. See docs/vfio.md; `contrib/vfio`
+  has an example launcher and the libvirt device entries.
 - Gateway fallback routing: an `[[engine]]` may name a `fallback`, another engine in the file that
   needs no card (a CPU llama-server, an Ollama on another box), and `fallback_after` (10 s by
   default). A request that has waited that long for its own engine is proxied to the fallback when
@@ -15,9 +27,8 @@ has a matching GitHub release whose body comes from its section below.
   is set. A non-streaming answer carries `X-Berth-Fallback: <fallback>`; a streaming one, whose SSE
   preamble was already sent, gets the fallback's stream after one `: berth: fallback <fallback>`
   comment. The gateway never starts, leases or drains the fallback, and the primary's start is never
-  cancelled, so later requests land on it. The request reaches the fallback without its
-  `Authorization` header, so the node's API key never leaves the gateway. One hop: `berth config check`
-  refuses chains.
+  cancelled, so later requests land on it. The fallback never receives the node's API key, only its
+  own key from its entry when it has one. One hop: `berth config check` refuses chains.
 - Cgroup attribution closes the one known stowaway window (chaos scenario 3: a child
   whose parent exits within one 2 s tick). On Linux with a systemd user manager,
   `berth run` execs the engine in its own transient cgroup scope (`systemd-run --user
@@ -26,8 +37,45 @@ has a matching GitHub release whose body comes from its section below.
   turns stuck naming it, `berth reclaim` lists it, and a whole-card request is never
   granted `contested` over it. A GPU process in a scope no live lease recorded is a
   stowaway as before, and a process outside every scope is never attributed to a
-  scopeless lease. Without a user manager, and on Windows, the run starts as before
-  and the window stands.
+  scopeless lease. Without a user manager, inside a `Type=notify` service (where
+  systemd only accepts readiness from the service's own cgroup), and on Windows, the run
+  starts as before and the window stands.
+- `kv_snapshots` and `kv_snapshots_mib` on an `[[engine]]` entry: the drain saves an idle slot's
+  prompt cache into the engine's `--slot-save-path` directory once the boundary is reached, keeps
+  the directory within its budget (16 GiB by default, above the library free floor), and the
+  gateway restores the newest snapshot of the engine's model into its empty slots before the first
+  request, so a sequence of agents skips the prefill after each switch. The snapshots are keyed by
+  the model the engine itself names on `/v1/models`, so an engine that lists none or many
+  (llama-swap) never snapshots, and nothing crosses models. The restore also warms the files into
+  the page cache during the start's wait: cached, never reserved. A save is bounded at 60 s and a
+  restore at 30 s, so whatever goes wrong along the way costs one line and the switch goes on as
+  before. A snapshot holds the conversation's tokens: the ledger is owner-only, and the README asks
+  for a private directory.
+- `park_ttl` on an `[[engine]]` entry sets how long that engine stays parked before Berth stops it,
+  in place of `[park] ttl`. With `keep_comfyui_up = true` and a short `park_ttl`, a ComfyUI node that
+  calls another engine (a chat panel calling llama-swap) gets its answer. The drain leaves ComfyUI
+  up, and Berth stops the server once the ttl passes
+  ([#121](https://github.com/T-Crypt/berth/issues/121)).
+
+### Changed
+
+- The README keeps the overview, quick start and screenshots, and the reference moved to pages under
+  `docs/`: install, engines, leasing, models, gateway, the harbor, interfaces, benchmarks, roadmap and
+  FAQ. The README's old Tested hardware, Swap numbers and Roadmap headings link to their new pages.
+
+### Security
+
+- The gateway no longer forwards the node's API key to engines. A proxied request, fallback and
+  ComfyUI routes included, carries the engine's own key when its entry has one (`api_key_env` or
+  `api_key_file`) and no `Authorization` when it has none. If an engine of yours checked the node's
+  key, give it its own key in its `berth.toml` entry.
+
+### Fixed
+
+- The wake page and start errors show an engine's last log line without terminal color codes
+  (`[32m[INFO][0m`), and a progress bar's line as its last redraw.
+- Windows: a process the GPU counters report but nvidia-smi does not list, such as dwm.exe
+  holding the card's memory, now shows its name instead of a blank one.
 
 ## [v0.3.3] - 2026-10-21
 

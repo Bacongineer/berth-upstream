@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/T-Crypt/berth/internal/procs"
 	"golang.org/x/sys/windows"
 )
 
@@ -296,7 +297,7 @@ func enumerateAdaptersCached() ([]adapter, error) {
 // adapters on the box are dropped. It reports an error when no single adapter
 // matches, which the caller takes as "keep every adapter".
 func targetLUID(s Snapshot) (map[luid]bool, error) {
-	id := busID(s)
+	id := BusID(s)
 	bus, dev, fn, ok := parseBusID(id)
 	if !ok {
 		return nil, fmt.Errorf("the governed card's pci.bus_id %q does not parse", id)
@@ -355,6 +356,20 @@ func logCapped(log *slog.Logger, reads []cappedRead) {
 	}
 }
 
+// processNames reads the process table's exe name for every PID, from one
+// Toolhelp32 snapshot. The walk needs no OpenProcess, so protected
+// processes such as dwm.exe and csrss.exe are named too. A nil map means
+// the table could not be read and no name is available.
+func processNames() map[int]string {
+	names := map[int]string{}
+	if err := procs.Walk(func(e *windows.ProcessEntry32) {
+		names[int(e.ProcessID)] = windows.UTF16ToString(e.ExeFile[:])
+	}); err != nil {
+		return nil
+	}
+	return names
+}
+
 // withPDH merges PDH's per-process reading into a parsed snapshot. The
 // driver's totals stand; PDH is Windows' only view of a process's own
 // VRAM under WDDM. Only the governed card's adapter is counted, and a PID's
@@ -375,6 +390,10 @@ func withPDH(s Snapshot, log *slog.Logger) Snapshot {
 	byPid := dedicatedByPid(filterByLuid(found, want))
 	capped, reads := capToTotal(byPid, s.Total)
 	logCapped(log, reads)
-	s.Procs = mergeProcs(s.Procs, capped)
+	var names map[int]string
+	if len(capped) > 0 {
+		names = processNames()
+	}
+	s.Procs = mergeProcs(s.Procs, capped, names)
 	return s
 }
