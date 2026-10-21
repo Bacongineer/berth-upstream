@@ -72,7 +72,6 @@ func TestMain(m *testing.M) {
 // at all), and BERTH_GW_KVLOG the file its slot calls and chat requests
 // are appended to, one line each in arrival order.
 func slotsSpec() (n int, kvlog string) {
-	n, _ = 0, ""
 	if spec := os.Getenv("BERTH_GW_SLOTS"); spec != "" {
 		if _, err := fmt.Sscanf(spec, "%d", &n); err != nil {
 			fmt.Fprintf(os.Stderr, "bad BERTH_GW_SLOTS %q: %v\n", spec, err)
