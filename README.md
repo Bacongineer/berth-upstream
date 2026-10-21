@@ -42,8 +42,8 @@ claim. When another engine holds it, Berth:
 The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
 shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 
-> **Status: alpha (v0.2).** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
-> Strata, ComfyUI and games. [Capabilities](#capabilities) lists what works and has tests; the
+> **Status: alpha, v0.3.1.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> Strata, ComfyUI and games, and testers run it on Windows. [Capabilities](#capabilities) lists what works and has tests; the
 > [Roadmap](#roadmap) lists the phases and what is still missing.
 
 ### Berth and llama-swap
@@ -68,9 +68,24 @@ line goes away.
 - **No ping-pong.** When two clients ask for different engines at once, a ranking picks one
   and the other waits, so the card stays put.
 - **ComfyUI at a job boundary.** Berth waits for the running image job to finish before the handoff.
+- **A minimum turn.** `min_turn = "5m"` keeps an engine on the card for five minutes after it
+  gets it, whatever asks next; only a hold takes it out sooner.
+- **Engines in containers.** `berth run --container NAME -- docker run ...` puts a Docker or
+  Podman engine under its lease, and the drain stops it through `docker stop`.
 - **Survives restarts.** Upgrade or restart the daemon and your running engines stay up and
   re-attach. The gateway's engines survive it too: it starts each one as its own `berth run`
   process (in its own systemd scope on Linux) and adopts them again on its next start.
+
+**Faster switches, and a way out** *(v0.3)*
+- **Park in RAM.** An engine that can offload itself (ComfyUI, vLLM, SGLang, or any engine that
+  serves the [park protocol](contrib/PARK-PROTOCOL.md)) moves its weights to system memory on a
+  drain and resumes from there instead of reloading from disk. Berth parks only when the RAM it
+  measures covers the engine plus a floor, and stops parked engines first when memory runs short.
+- **A way out of every lease state.** `berth stop ENGINE` drains an engine on purpose,
+  `berth resume ENGINE` puts a parked one back, and `berth reclaim` stops what a stuck release
+  left behind, once you confirm.
+- **A place in the queue.** Every wait reason starts with the waiter's place ("2nd in line
+  (behind interactive comfyui)"), and `berth status` adds a start estimate from measured switches.
 
 **Games and other apps**
 - **Games take the card while you play.** Launch a Steam, Lutris or gamescope game on Linux,
@@ -90,7 +105,7 @@ line goes away.
 - It proxies ComfyUI's workflow API too, so an image request queues behind the same lease.
 - **Wake pages** (`--gui-listen`): a bookmark to a stopped engine's web UI shows who holds the
   card and a Start button, says what the start waits for, and opens the UI once it answers.
-- Bearer key on every route, loopback only, browser origins refused.
+- Bearer key on every API route, loopback only, browser origins refused.
 
 **Models**
 - **`berth pull hf:org/repo:Q4_K_M`** downloads from Hugging Face, resumes where it stopped,
@@ -115,8 +130,8 @@ line goes away.
   the API's releases/latest, cached in the state directory, and shows "Update
   available" in its header when the answer is a newer release. `[update]
   check = false` in `berth.toml` turns the check off, and with it off Berth
-  never contacts GitHub on its own; typing `berth update` is the operator
-  asking, and it still does.
+  never contacts GitHub on its own. `berth update` and `berth update --check`
+  ask GitHub every time you type them and never read the harbor's cached answer.
 
 **Sees everything on the card**
 - **Finds your engines.** Berth reads llama.cpp, llama-swap, Ollama, vLLM, SGLang, ComfyUI,
@@ -135,8 +150,8 @@ line goes away.
 **Built for agents and scripts**
 - **`berth skill install`** teaches Claude Code, Codex, OpenCode and other agents to ask Berth
   for the card instead of killing GPU processes.
-- Every command takes `--format json|yaml`, keeps results on stdout and diagnostics on stderr,
-  and exits 0, 1 or 2 by one rule.
+- Every reporting command takes `--format json|yaml`. All of them keep results on stdout and
+  diagnostics on stderr, and exit 0, 1 or 2 by one rule.
 
 **Runs on** Linux with an NVIDIA GPU (supported) and Windows 10/11 with an NVIDIA GPU
 (experimental). Apache-2.0.
@@ -365,6 +380,9 @@ startup, so a change to the roots applies on the next restart.
   ones, SIGTERM first and SIGKILL to the survivors after `--grace`, re-checking each
   PID and start time immediately before every signal.
 - **Process identity is PID plus start time**, so a reused PID never inherits a lease.
+- **Children stay on the lease.** Berth records every descendant of an engine's wrapper each
+  tick, so a child that escapes its process group and reparents keeps the lease stuck under its
+  own name instead of turning into a stowaway.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine
   but records it as an *unprotected run* that status shows (`--fail-closed` refuses).
@@ -518,7 +536,8 @@ startup, so a change to the roots applies on the next restart.
   before it answers: 503 with the reason, the engine's own failure line, a `Retry-After` and an
   error `code` a client can branch on: `outranked` (lost a juggle), `drained_while_starting`,
   `no_berth`, `not_ready`, `start_failed`, `engine_oom` (the engine could not get the GPU
-  memory it asked for) or `no_start`. An engine that crashes on start isn't started again on
+  memory it asked for), `no_headroom` (a cold start would leave the machine short of RAM,
+`--headroom-mib`) or `no_start`. An engine that crashes on start isn't started again on
   every retry: for 15 s, doubling to 5 min, the gateway answers at once with the same cause,
   and `Retry-After` says when the next start is allowed. A start that answers clears it. A
   model listed under `serves` by two engines fails `berth config check`.
@@ -830,7 +849,10 @@ and what every state word and figure means.
 - **CLI:** one command tree with one output contract. `berth status`, `berth events -f`,
   `berth run`, `berth hold`, `berth stop`, `berth claims`, `berth pull`, `berth verify`, `berth models`, `berth gateway`,
   `berth wire llama-swap`, `berth engine check`, `berth config check`, `berth config show`,
-  `berth export`, `berth key`, `berth skill install`, `berth update`, `berth version`.
+  `berth export`, `berth key`, `berth skill install|show`, `berth update`, `berth version`,
+  and for the node itself `berth daemon`, `berth harbor`, `berth service install|uninstall|status`,
+  `berth reclaim`, `berth resume`, `berth prefetch`, `berth storage`, `berth civitai search|versions`
+  and the ComfyUI suite under `berth engine install|show|update|rollback|remove`.
   Berth runs fully headless.
 
   ```sh
@@ -895,6 +917,7 @@ and the table credits you here.
 | RTX 4090 | 24 GB | 615.78.08 | Arch Linux | llama-swap + NInfer + Strata + ComfyUI | daily use | T-Crypt | 2026-10-20 |
 | RTX 4090 | 24 GB | 615.78.08 | Arch Linux | contrib/chaos scenarios 1, 2, 4 | pass | T-Crypt | 2026-10-20 |
 | RTX 4090 | 24 GB | 615.78.08 | Arch Linux | contrib/chaos scenario 3 (parent exits at once) | reported as a stowaway, never signalled: the known window | T-Crypt | 2026-10-20 |
+| RTX 5070 Ti + RTX 3060 | 16 GB + 12 GB | - | Windows 11 | the node, claims and the harbor, no engines | found [#81](https://github.com/T-Crypt/berth/issues/81) and [#82](https://github.com/T-Crypt/berth/issues/82) | mesquitafmr | 2026-10-21 |
 
 ---
 
@@ -920,8 +943,8 @@ and `cuda-checkpoint` follow in v0.3.x. Run the bench on your card and add a row
 | Platform | Status |
 |---|---|
 | Linux + NVIDIA | Supported |
-| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. Still no installer and no locked-down control pipe |
-| AMD on Linux | Not supported yet; next after v0.3 (a vendor-neutral probe, then amdgpu) |
+| Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. Known issues: [#81](https://github.com/T-Crypt/berth/issues/81), [#82](https://github.com/T-Crypt/berth/issues/82), both fixed in v0.3.2 |
+| AMD on Linux | Not supported yet; planned for v0.4 (a vendor-neutral probe, then amdgpu) |
 | Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
 
@@ -945,61 +968,58 @@ and `cuda-checkpoint` follow in v0.3.x. Run the bench on your card and add a row
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
-### Next: v0.3, fast swap and proof (target 2026-11-30)
+### Shipped: v0.3, fast swap and proof (2026-10-20)
 
-v0.3 goes after the cost you feel most, reloading every engine from disk on every switch, and
-proves Berth holds up when an engine misbehaves. It ships when the swap benchmark and the failure
-scenarios pass, not on the date.
+v0.3.0 went after the cost you feel most, a reload from disk on every switch, and after proof
+that Berth holds up when an engine misbehaves. It shipped park in RAM with adapters for ComfyUI,
+vLLM and SGLang and an open [park protocol](contrib/PARK-PROTOCOL.md); `berth stop`, `berth resume`
+and `berth reclaim`; engines in Docker and Podman; a place and an estimate in every wait reason;
+`berth update` and `berth service install`; the page-cache CACHED column and `berth prefetch`;
+per-process VRAM on Windows and the test suite on Windows in CI; and the proof kit:
+[contrib/chaos](contrib/chaos/README.md), [contrib/bench/swap](contrib/bench/swap), the drain report
+form and the [tested hardware](#tested-hardware) table. v0.3.1 fixed `berth update` answering from
+a stale cache. The [CHANGELOG](CHANGELOG.md) has every entry.
 
-In v0.3:
+### Next: v0.3.x
 
-- **Park in RAM.** On a drain, an engine that can offload itself moves its weights to system
-  memory through its own park and resume URLs, and comes back in seconds instead of reloading
-  from disk. ComfyUI gets a built-in adapter. Berth parks only when the free RAM it measures
-  covers the engine plus a floor, and stops parked engines first when memory runs short.
-  Without the RAM, the drain runs as it does today.
-- **Measured.** A swap benchmark (cold, warm and parked, per engine) with the numbers published
-  here.
-- **`berth reclaim`.** Lists the processes Berth recorded under a lease that still hold memory
-  (a crashed run's child, a stuck release) and stops them when you confirm. Processes Berth
-  never started stay report-only.
-- **Handoff fixes.** A lease frees only after a card read shows its memory gone; a gateway
-  restart keeps the engines it started; a streaming request gets keep-alive lines while its
-  engine loads.
-- **A place and an estimate in every wait reason.** Every reason a waiter is sent starts
-  with its place in the queue, "next in line" or "2nd in line (behind interactive
-  comfyui)", and the waiting table of `berth status` shows the place with a start estimate
-  in seconds after the card frees. The estimate prices only what the node's book of
-  measured switch times has measured, one start per waiter ahead plus its own; an
-  unmeasured start says unmeasured, and the holder's drain is never in the figure, because
-  a request runs as long as it runs.
-- **`berth update`.** Asks the release page (one GET, cached 24 h) whether a newer
-  release exists, and on your say-so downloads this machine's binary and the release's
-  SHA256SUMS, checks the hash, and replaces the running binary in place, then names what
-  to restart. The harbor's header shows a new release the same way; `[update] check = false`
-  in `berth.toml` keeps Berth from ever contacting GitHub on its own.
-- **Proof.** Tagged releases with changelogs; `contrib/chaos`, the failure scenarios anyone can
-  run (an engine that ignores SIGTERM, a child that escapes, a stowaway, a daemon restart
-  mid-lease); a public table of tested GPUs, drivers and engines.
+v0.3.2 is a fix release. It carries the reports from the first Windows testers and the one
+feature merged since v0.3.1:
 
-In v0.3 if ready, else a v0.3.x release: NVIDIA's `cuda-checkpoint` for unmodified CUDA engines
-on Linux; reading the next engine's files ahead while the holder drains, and showing how much
-of each model the page cache still holds; `berth fit` and scenes, so engines that fit together
-never swap.
+- A minimum turn per engine (`min_turn`, `berth run --min-turn`), merged in [#80](https://github.com/T-Crypt/berth/pull/80).
+- The built-in Epic rule holds the card while only Epic's background services run
+  ([#81](https://github.com/T-Crypt/berth/issues/81)).
+- Per-process VRAM on Windows can read past the card's size, because Berth sums every adapter
+  ([#82](https://github.com/T-Crypt/berth/issues/82)).
+- `berth service install` on Windows creates its tasks without starting them, and they write no log.
 
-### After v0.3
+After it, in v0.3.x releases. Each item has its building blocks merged or a spec written:
+
+- Cgroup attribution, which closes the one known stowaway window (chaos scenario 3: a child
+  whose parent exits within one 2 s tick).
+- KV snapshots wired into the drain and start paths, so a sequence of agents skips the prefill
+  after each switch.
+- Measured switch costs on the live daemon and the gateway (`/v1/berth/cost`, `/v1/berth/plan`).
+- Gateway fallback routing, and models started on demand for a standalone llama-server.
+- The gateway reads the next engine's files into the page cache while the holder drains;
+  today `berth prefetch` does it by hand.
+- Parked resume numbers in [Swap numbers](#swap-numbers), which take the vLLM and SGLang park
+  adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
+  CUDA engines on Linux.
+
+Not started, and in no release yet: `berth fit` and scenes, so engines that fit together never swap.
+
+### After v0.3.x
 
 | Release | What it brings |
 |---|---|
-| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (installer, a locked-down control pipe) |
+| v0.4 | AMD on Linux, through a vendor-neutral probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
 | v0.5 | Multi-GPU scheduling, including one lease across two cards for engines that split a model |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 
-On hold until v0.3 ships: engine installers beyond the ComfyUI suite, the migration
-manager, and Berth swapping models itself. llama-swap already swaps models well;
-Berth works beside it, and a proposal to llama-swap for generic load hooks is planned, so Berth needs no
-wrapper line.
+On hold: engine installers beyond the ComfyUI suite, the migration manager, and Berth swapping
+models itself. llama-swap already swaps models well. Berth works beside it, and a proposal to
+llama-swap for generic load hooks is planned, so Berth needs no wrapper line.
 
 ## What Berth never does
 
@@ -1020,13 +1040,15 @@ covers the whole card, including ComfyUI, games and the stray process holding me
 neither tool started. See [Berth and llama-swap](#berth-and-llama-swap).
 
 **Can a 700B model take turns on a 24 GB card?** No. Berth gives each engine the whole card in
-turn; it doesn't make a model fit that doesn't.
+turn, or a sized share with `--needs-mib`; it doesn't make a model fit that doesn't.
 
 **How reliable is it?** Alpha. It runs every day on the author's RTX 4090 workstation, and v0.3
-adds `contrib/chaos` and a public table of tested hardware so you can check it on yours.
+added `contrib/chaos`, the swap bench and the [tested hardware](#tested-hardware) table so you can
+check it on yours.
 
 **AMD? Windows?** AMD on Linux and a full Windows node are planned for v0.4. Windows with NVIDIA
-works today as experimental; see the [support matrix](#support-matrix).
+works today as experimental, and `contrib/windows/check.ps1` checks it on your machine; see the
+[support matrix](#support-matrix).
 
 **Can Berth handle ComfyUI on the host and vLLM in Docker?** Yes. Start each one under its own
 lease: `berth run --as comfyui -- python ...` for ComfyUI, and
