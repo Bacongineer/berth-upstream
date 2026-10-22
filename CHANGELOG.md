@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Gateway: `POST /v1/berth/switch` and `POST /v1/berth/stop` switch the card to an engine or give it back without
+  sending a prompt. Stop never touches a pinned holder. The `/gui/` board's Launch now uses the same switch.
+- Gateway: `GET /v1/berth/board` reads the node in one call: the card and who holds it, every engine's state and
+  actions, and each engine's models with which are loaded.
 - Linux AMD support (experimental), contributed by @jenerestain. `berth daemon --gpu-backend amd`
   governs a discrete RDNA3 or RDNA4 card, or a Phoenix APU (Radeon 780M), read from sysfs and DRM
   `fdinfo` with no ROCm. `--gpu N` names DRM cardN. On an APU, reserved VRAM and GTT (shared host
@@ -83,6 +87,9 @@ has a matching GitHub release whose body comes from its section below.
 - Windows: the host's CPU is read (GetSystemTimes), so the harbor's machine meter and `berth status` show real CPU
   use instead of 0%. Windows has no load averages: the node now leaves them out of its JSON and the harbor and
   `berth status` say n/a instead of three zeros. Reported by @azrael-229 (#139).
+- One empty `models--*` husk no longer makes a whole store read as an HF cache with no models,
+  reported by @azrael-229 (#138). A root is an HF cache only when a `models--*` directory holds
+  `snapshots`, so an abandoned download beside plain models keeps them listed.
 - The gateway's `/gui/` board launches an engine that has a `start` command but no `gui` URL (Strata, a
   llama-server). Its Launch button answered 404 and stayed on "Launching..."; it now starts the engine under a
   lease and shows Running once it answers. A refused start shows its reason instead of hanging.
