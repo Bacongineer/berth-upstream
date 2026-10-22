@@ -29,7 +29,7 @@ berth status                                          # who holds the card, who 
 
 ## How it works
 
-<p align="center"><img src="assets/how-it-works.svg" alt="How berth works. Four clients ask for the card: a chat agent through the gateway, a ComfyUI workflow, an engine under berth run, and a game. berthd queues them by priority, drains the holder when its reply or job ends, waits for the driver to show the memory free, then grants the lease. Below, a timeline of one 24 GiB card: llama-swap, strata, a game and ComfyUI take turns and never overlap; markers 1 to 4 show one handoff." width="100%"></p>
+<p align="center"><img src="assets/how-it-works.svg" alt="How berth works. Clients ask for the card: agents such as Hermes and ComfyUI workflows through the berth gateway, one endpoint that starts engines on demand; an engine under berth run; a game; and a VM through berth vfio run. berthd queues them by priority, drains the holder at its boundary (saving KV caches or parking it in RAM), waits for the driver to show the memory free, then grants the lease. gpu0 serves strata while gpu1 is passed through to a VM. Below, a timeline of one 24 GiB card: llama-swap, strata, a game, a VM passage and ComfyUI take turns and never overlap; markers 1 to 4 show one handoff." width="100%"></p>
 
 Every engine asks berthd for the card: through `berth run`, the gateway, ComfyUI's API or a game
 claim. When another engine holds it, Berth:

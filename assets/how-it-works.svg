@@ -1,154 +1,182 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 980" width="1200" height="980" role="img" aria-labelledby="t d">
 <title id="t">How berth works</title>
-<desc id="d">Clients ask berth for the GPU: a chat agent through the gateway, a ComfyUI workflow, an engine under berth run, a game. berthd queues them by priority, drains the holder at its request or job boundary, waits for the driver to show the memory free, then grants the lease and starts the next engine. A timeline of one 24 GiB card shows llama-swap, strata, a game and ComfyUI taking turns with no overlap.</desc>
+<desc id="d">Clients ask berth for the GPU. Agents such as Hermes and ComfyUI workflows go through the berth gateway, one endpoint that starts engines on demand; engines under berth run, games and a VM passage (berth vfio run) ask directly. berthd queues them by priority, drains the holder at its boundary (saving KV caches or parking it in RAM), waits for the driver to show the memory free, then grants the lease. gpu0 serves strata while gpu1 is passed through to a VM. A timeline of one 24 GiB card shows llama-swap, strata, a game, a VM passage and ComfyUI taking turns with no overlap.</desc>
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1420"/><stop offset="1" stop-color="#070c13"/></linearGradient>
-  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7ad4f2"/></marker>
-  <marker id="arDim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5d7ea6"/></marker>
-
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1420"/><stop offset="1" stop-color="#070c13"/></linearGradient>
 <linearGradient id="gcy" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7ad4f2" stop-opacity=".55"/><stop offset="1" stop-color="#7ad4f2" stop-opacity=".08"/></linearGradient>
 <linearGradient id="gpe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9aa8ff" stop-opacity=".55"/><stop offset="1" stop-color="#9aa8ff" stop-opacity=".08"/></linearGradient>
 <linearGradient id="gma" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb7185" stop-opacity=".55"/><stop offset="1" stop-color="#fb7185" stop-opacity=".08"/></linearGradient>
 <linearGradient id="gam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8b56f" stop-opacity=".55"/><stop offset="1" stop-color="#e8b56f" stop-opacity=".08"/></linearGradient>
+<pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="10" height="10" fill="#c4a1ff" fill-opacity=".06"/><line x1="0" y1="0" x2="0" y2="10" stroke="#c4a1ff" stroke-opacity=".28" stroke-width="3"/></pattern>
 <style>
   .m{font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace} .s{font-family:system-ui,-apple-system,'Segoe UI',Inter,'Helvetica Neue',Arial,'DejaVu Sans',sans-serif}
   .flow{stroke-dasharray:6 8;animation:flow 1.6s linear infinite}
   @keyframes flow{to{stroke-dashoffset:-28}}
-  .head{animation:play 14s linear infinite}
-  @keyframes play{from{transform:translateX(0)}to{transform:translateX(1060px)}}
+  .head{animation:play 16s linear infinite}
+  @keyframes play{from{transform:translateX(0)}to{transform:translateX(1080px)}}
   .pulse{animation:pulse 2.4s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
   @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </defs>
-<rect width="1200" height="900" rx="18" fill="url(#bg)"/>
-<rect x=".75" y=".75" width="1198.5" height="898.5" rx="17.5" fill="none" stroke="#243549" stroke-width="1.5"/>
-
+<rect width="1200" height="980" rx="18" fill="url(#bg)"/>
+<rect x=".75" y=".75" width="1198.5" height="978.5" rx="17.5" fill="none" stroke="#243549" stroke-width="1.5"/>
 <text x="40" y="52" class="m" font-size="13" letter-spacing="3" fill="#e8b56f">HOW BERTH WORKS</text>
 <text x="40" y="84" class="s" font-size="25" font-weight="600" fill="#f0f5fa">Everything asks for the card. Berth hands it over only when it is safe.</text>
 <text x="40" y="130" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">WHO ASKS</text>
-<text x="410" y="130" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">BERTHD · THE HARBOR MASTER</text>
-<text x="890" y="130" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">ONE CARD</text>
-<rect x="40" y="148" width="300" height="62" rx="10" fill="#111b28" stroke="#243549"/>
-<rect x="40" y="148" width="4" height="62" rx="2" fill="#9aa8ff"/>
-<path d="M62 167h22a5 5 0 0 1 5 5v11a5 5 0 0 1-5 5h-12l-7 6v-6h-3a5 5 0 0 1-5-5v-11a5 5 0 0 1 5-5z" fill="none" stroke="#9aa8ff" stroke-width="2"/>
-<text x="108" y="175" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Chat app or agent</text>
-<text x="108" y="196" class="m" font-size="12.5" fill="#8ba0b8">POST /v1/chat · model=strata</text>
-<path class="flow" d="M342 179C372 179 378 270 404 270" fill="none" stroke="#9aa8ff" stroke-opacity=".7" stroke-width="2"/>
-<rect x="40" y="226" width="300" height="62" rx="10" fill="#111b28" stroke="#243549"/>
-<rect x="40" y="226" width="4" height="62" rx="2" fill="#e8b56f"/>
-<rect x="58" y="245" width="30" height="24" rx="4" fill="none" stroke="#e8b56f" stroke-width="2"/><path d="M62 265l7-8l6 6l4-4l8 6" fill="none" stroke="#e8b56f" stroke-width="2" stroke-linejoin="round"/><circle cx="80" cy="252" r="2.5" fill="#e8b56f"/>
-<text x="108" y="253" class="s" font-size="16" font-weight="600" fill="#f0f5fa">ComfyUI workflow</text>
-<text x="108" y="274" class="m" font-size="12.5" fill="#8ba0b8">POST /prompt</text>
-<path class="flow" d="M342 257C372 257 378 270 404 270" fill="none" stroke="#e8b56f" stroke-opacity=".7" stroke-width="2"/>
-<rect x="40" y="304" width="300" height="62" rx="10" fill="#111b28" stroke="#243549"/>
-<rect x="40" y="304" width="4" height="62" rx="2" fill="#7ad4f2"/>
-<rect x="58" y="323" width="30" height="24" rx="4" fill="none" stroke="#7ad4f2" stroke-width="2"/><path d="M64 331l5 4l-5 4M73 340h8" fill="none" stroke="#7ad4f2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="108" y="331" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Your engine</text>
-<text x="108" y="352" class="m" font-size="12.5" fill="#8ba0b8">berth run -- llama-server</text>
-<path class="flow" d="M342 335C372 335 378 270 404 270" fill="none" stroke="#7ad4f2" stroke-opacity=".7" stroke-width="2"/>
-<rect x="40" y="382" width="300" height="62" rx="10" fill="#111b28" stroke="#243549"/>
-<rect x="40" y="382" width="4" height="62" rx="2" fill="#fb7185"/>
-<path d="M64 405h22a7 7 0 0 1 7 7v4a7 7 0 0 1-12 5l-2-2h-6l-2 2a7 7 0 0 1-12-5v-4a7 7 0 0 1 7-7z" fill="none" stroke="#fb7185" stroke-width="2"/><path d="M66 413h6M69 410v6" stroke="#fb7185" stroke-width="2" stroke-linecap="round"/><circle cx="82" cy="412" r="1.8" fill="#fb7185"/><circle cx="86" cy="416" r="1.8" fill="#fb7185"/>
-<text x="108" y="409" class="s" font-size="16" font-weight="600" fill="#f0f5fa">A game launches</text>
-<text x="108" y="430" class="m" font-size="12.5" fill="#8ba0b8">claim → hold the card</text>
-<path class="flow" d="M342 413C372 413 378 270 404 270" fill="none" stroke="#fb7185" stroke-opacity=".7" stroke-width="2"/>
-<rect x="410" y="148" width="420" height="296" rx="14" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
-<circle cx="444" cy="184" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
-<text x="444" y="189" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">1</text>
-<text x="472" y="180" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Queue by priority</text>
-<text x="472" y="201" class="m" font-size="12.5" fill="#8ba0b8">hold › foreground › interactive › batch</text>
-<line x1="444" y1="200" x2="444" y2="226" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
-<circle cx="444" cy="244" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
-<text x="444" y="249" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">2</text>
-<text x="472" y="240" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Drain the holder at its boundary</text>
-<text x="472" y="261" class="m" font-size="12.5" fill="#8ba0b8">reply finished · ComfyUI job done · slots idle</text>
-<line x1="444" y1="260" x2="444" y2="286" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
-<circle cx="444" cy="304" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
-<text x="444" y="309" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">3</text>
-<text x="472" y="300" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Wait for the driver</text>
-<text x="472" y="321" class="m" font-size="12.5" fill="#8ba0b8">grant only when the memory shows free</text>
-<line x1="444" y1="320" x2="444" y2="346" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
-<circle cx="444" cy="364" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
-<text x="444" y="369" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">4</text>
-<text x="472" y="360" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Grant the lease, start the engine</text>
-<text x="472" y="381" class="m" font-size="12.5" fill="#8ba0b8">the request streams; nobody crashed</text>
-<rect x="426" y="410" width="388" height="22" rx="11" fill="#1d1420" stroke="#6b2b3a"/>
-<text x="620.0" y="425" text-anchor="middle" class="m" font-size="11" fill="#ffc2cb">stowaways (VRAM without a lease): reported, never killed</text>
-<g transform="translate(772 114)">
+<rect x="40" y="148" width="300" height="150" rx="12" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
+<text x="56" y="172" class="m" font-size="15" font-weight="700" fill="#7ad4f2">berth gateway</text>
+<text x="324" y="172" text-anchor="end" class="m" font-size="11.5" fill="#8ba0b8">:9799 · one endpoint</text>
+<path d="M62 188h22a5 5 0 0 1 5 5v11a5 5 0 0 1-5 5h-12l-7 6v-6h-3a5 5 0 0 1-5-5v-11a5 5 0 0 1 5-5z" fill="none" stroke="#9aa8ff" stroke-width="2"/>
+<text x="102" y="199" class="s" font-size="14.5" font-weight="600" fill="#f0f5fa">Agents · Hermes · chat apps</text>
+<text x="102" y="217" class="m" font-size="12" fill="#8ba0b8">POST /v1/chat/completions</text>
+<rect x="58" y="232" width="30" height="24" rx="4" fill="none" stroke="#e8b56f" stroke-width="2"/><path d="M62 252l7-8l6 6l4-4l8 6" fill="none" stroke="#e8b56f" stroke-width="2" stroke-linejoin="round"/><circle cx="80" cy="239" r="2.5" fill="#e8b56f"/>
+<text x="102" y="243" class="s" font-size="14.5" font-weight="600" fill="#f0f5fa">ComfyUI workflows</text>
+<text x="102" y="261" class="m" font-size="12" fill="#8ba0b8">POST /prompt</text>
+<text x="56" y="287" class="m" font-size="11.5" fill="#7ad4f2">starts engines on demand · fallback</text>
+<path class="flow" d="M342 223C364 223 356 316 374 316" fill="none" stroke="#7ad4f2" stroke-opacity=".8" stroke-width="2"/>
+<rect x="40" y="312" width="300" height="58" rx="10" fill="#111b28" stroke="#243549"/>
+<rect x="40" y="312" width="4" height="58" rx="2" fill="#7ad4f2"/>
+<rect x="58" y="329" width="30" height="24" rx="4" fill="none" stroke="#7ad4f2" stroke-width="2"/><path d="M64 337l5 4l-5 4M73 346h8" fill="none" stroke="#7ad4f2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="108" y="337" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Your engine</text>
+<text x="108" y="357" class="m" font-size="12.5" fill="#8ba0b8">berth run -- llama-server</text>
+<path class="flow" d="M342 341C360 341 356 316 374 316" fill="none" stroke="#7ad4f2" stroke-opacity=".7" stroke-width="2"/>
+<rect x="40" y="382" width="300" height="58" rx="10" fill="#111b28" stroke="#243549"/>
+<rect x="40" y="382" width="4" height="58" rx="2" fill="#fb7185"/>
+<path d="M64 403h22a7 7 0 0 1 7 7v4a7 7 0 0 1-12 5l-2-2h-6l-2 2a7 7 0 0 1-12-5v-4a7 7 0 0 1 7-7z" fill="none" stroke="#fb7185" stroke-width="2"/><path d="M66 411h6M69 408v6" stroke="#fb7185" stroke-width="2" stroke-linecap="round"/><circle cx="82" cy="410" r="1.8" fill="#fb7185"/><circle cx="86" cy="414" r="1.8" fill="#fb7185"/>
+<text x="108" y="407" class="s" font-size="16" font-weight="600" fill="#f0f5fa">A game launches</text>
+<text x="108" y="427" class="m" font-size="12.5" fill="#8ba0b8">claim → hold the card</text>
+<path class="flow" d="M342 411C362 411 356 316 374 316" fill="none" stroke="#fb7185" stroke-opacity=".7" stroke-width="2"/>
+<rect x="40" y="452" width="300" height="58" rx="10" fill="#111b28" stroke="#243549"/>
+<rect x="40" y="452" width="4" height="58" rx="2" fill="#c4a1ff"/>
+<rect x="58" y="467" width="30" height="21" rx="3" fill="none" stroke="#c4a1ff" stroke-width="2"/><path d="M66 494h14M73 488v6" stroke="#c4a1ff" stroke-width="2" stroke-linecap="round"/><path d="M64 474h18M64 480h11" stroke="#c4a1ff" stroke-width="1.6" stroke-linecap="round" stroke-opacity=".7"/>
+<text x="108" y="477" class="s" font-size="16" font-weight="600" fill="#f0f5fa">A VM takes the card</text>
+<text x="108" y="497" class="m" font-size="12.5" fill="#8ba0b8">berth vfio run -- start-vm</text>
+<path class="flow" d="M342 481C366 481 356 316 374 316" fill="none" stroke="#c4a1ff" stroke-opacity=".7" stroke-width="2"/>
+<text x="380" y="130" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">BERTHD · THE HARBOR MASTER</text>
+<rect x="380" y="148" width="420" height="362" rx="14" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
+<circle cx="414" cy="188" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
+<text x="414" y="193" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">1</text>
+<text x="442" y="184" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Queue by priority</text>
+<text x="442" y="205" class="m" font-size="12.5" fill="#8ba0b8">hold › foreground › interactive › batch</text>
+<line x1="414" y1="204" x2="414" y2="236" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
+<circle cx="414" cy="252" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
+<text x="414" y="257" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">2</text>
+<text x="442" y="248" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Drain the holder at its boundary</text>
+<text x="442" y="269" class="m" font-size="12.5" fill="#8ba0b8">reply done · job done · KV saved or parked</text>
+<line x1="414" y1="268" x2="414" y2="300" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
+<circle cx="414" cy="316" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
+<text x="414" y="321" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">3</text>
+<text x="442" y="312" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Wait for the driver</text>
+<text x="442" y="333" class="m" font-size="12.5" fill="#8ba0b8">grant only when the memory shows free</text>
+<line x1="414" y1="332" x2="414" y2="364" stroke="#7ad4f2" stroke-opacity=".35" stroke-width="1.5"/>
+<circle cx="414" cy="380" r="15" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.6"/>
+<text x="414" y="385" text-anchor="middle" class="m" font-size="14" font-weight="700" fill="#7ad4f2">4</text>
+<text x="442" y="376" class="s" font-size="16" font-weight="600" fill="#f0f5fa">Grant the lease, start the engine</text>
+<text x="442" y="397" class="m" font-size="12.5" fill="#8ba0b8">the request streams; nobody crashed</text>
+<rect x="396" y="440" width="388" height="22" rx="11" fill="#1d1420" stroke="#6b2b3a"/>
+<text x="590.0" y="455" text-anchor="middle" class="m" font-size="11" fill="#ffc2cb">stowaways (VRAM without a lease): reported, never killed</text>
+<rect x="396" y="472" width="388" height="22" rx="11" fill="#11202e" stroke="#2a4e68"/>
+<text x="590.0" y="487" text-anchor="middle" class="m" font-size="11" fill="#bfe6f5">harbor :9798 · /metrics · alerts · survives restarts</text>
+<g transform="translate(742 114)">
 <circle cx="24" cy="24" r="26" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
 <rect x="12" y="14" width="26" height="24" rx="11" fill="#f4edda"/><ellipse cx="36" cy="30" rx="9" ry="7" fill="#f4edda"/>
 <rect x="14" y="6" width="5" height="11" rx="2.5" fill="#f4edda"/><rect x="25" y="6" width="5" height="11" rx="2.5" fill="#f4edda"/>
 <path d="M10 17q1-12 15-13q14 1 15 12z" fill="#1b2a44"/><path d="M30 13q10-1 14 4q-7 2-16 0z" fill="#22365a"/><circle cx="25" cy="4.5" r="2.2" fill="#e8b56f"/>
 <circle cx="31" cy="24" r="2" fill="#1a1a22"/><ellipse cx="35" cy="32" rx="3" ry="1.8" fill="#f3a6a0" opacity=".8"/>
 </g>
-<path class="flow" d="M832 296H884" fill="none" stroke="#7ad4f2" stroke-width="2.4"/><path d="M880 290l8 6l-8 6" fill="none" stroke="#7ad4f2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="890" y="148" width="270" height="296" rx="14" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
-<text x="910" y="180" class="m" font-size="15" fill="#f0f5fa">gpu0</text><text x="1140" y="180" text-anchor="end" class="m" font-size="12.5" fill="#8ba0b8">RTX 4090 · 24 GiB</text>
-<rect x="910" y="196" width="70" height="200" rx="8" fill="#0b1420" stroke="#243549"/>
-<rect x="914" y="213.5" width="62" height="178.5" rx="5" fill="url(#gpe)" stroke="#9aa8ff" stroke-opacity=".8"/>
-<text x="945.0" y="235.5" text-anchor="middle" class="m" font-size="12" fill="#e2e6ff">strata</text>
-<line x1="910" y1="229" x2="916" y2="229" stroke="#5d7ea6"/>
-<line x1="910" y1="263" x2="916" y2="263" stroke="#5d7ea6"/>
-<line x1="910" y1="296" x2="916" y2="296" stroke="#5d7ea6"/>
-<line x1="910" y1="329" x2="916" y2="329" stroke="#5d7ea6"/>
-<line x1="910" y1="363" x2="916" y2="363" stroke="#5d7ea6"/>
-<text x="998" y="216" class="m" font-size="11.5" fill="#8ba0b8">holder</text><text x="998" y="233" class="m" font-size="14" fill="#9aa8ff">strata</text>
-<text x="998" y="252" class="m" font-size="11.5" fill="#8ba0b8">lease</text><text x="998" y="269" class="m" font-size="14" fill="#cbd8e8">foreground</text>
-<text x="998" y="288" class="m" font-size="11.5" fill="#8ba0b8">vram</text><text x="998" y="305" class="m" font-size="14" fill="#cbd8e8">21.9 / 24 GiB</text>
-<text x="998" y="324" class="m" font-size="11.5" fill="#8ba0b8">waiting</text><text x="998" y="341" class="m" font-size="14" fill="#e8b56f">comfyui</text>
-<text x="998" y="360" class="m" font-size="11.5" fill="#8ba0b8">collisions</text><text x="998" y="377" class="m" font-size="14" fill="#7ee8ac">0</text>
-<rect x="910" y="410" width="230" height="22" rx="11" fill="#0f2a1f" stroke="#2c5038"/>
-<text x="1025.0" y="425" text-anchor="middle" class="m" font-size="12" fill="#bff0d1">one holder at a time</text>
-<line x1="40" y1="482" x2="1160" y2="482" stroke="#243549"/>
-<text x="40" y="520" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">ONE CARD, TAKING TURNS</text>
-<text x="1160" y="520" text-anchor="end" class="s" font-size="14" fill="#8ba0b8">VRAM on one 24 GiB card over an evening</text>
-<line x1="70" y1="572" x2="1150" y2="572" stroke="#8ba0b8" stroke-opacity=".5" stroke-dasharray="4 5"/>
-<text x="62" y="576" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">24</text><text x="62" y="746" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">0</text>
-<text x="62" y="661" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">GiB</text>
-<line x1="70" y1="742" x2="1150" y2="742" stroke="#5d7ea6"/>
-<path d="M70 742L72 578.4H388L404 742z" fill="url(#gcy)"/>
-<path d="M70 742L72 578.4H388L404 742" fill="none" stroke="#7ad4f2" stroke-width="2"/>
-<text x="230" y="602" text-anchor="middle" class="m" font-size="13" fill="#7ad4f2">llama-swap · NInfer 27B</text>
-<text x="230" y="620" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">23.1 GiB</text>
-<path d="M428 742L470 586.9H690L702 742z" fill="url(#gpe)"/>
-<path d="M428 742L470 586.9H690L702 742" fill="none" stroke="#9aa8ff" stroke-width="2"/>
-<text x="580" y="611" text-anchor="middle" class="m" font-size="13" fill="#9aa8ff">strata</text>
-<text x="580" y="629" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">21.9 GiB</text>
-<path d="M716 742L722 678.2H880L886 742z" fill="url(#gma)"/>
-<path d="M716 742L722 678.2H880L886 742" fill="none" stroke="#fb7185" stroke-width="2"/>
-<text x="801" y="702" text-anchor="middle" class="m" font-size="13" fill="#fb7185">game · hold</text>
-<text x="801" y="720" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">9 GiB</text>
-<path d="M900 742L930 642.8H1146L1150 742z" fill="url(#gam)"/>
-<path d="M900 742L930 642.8H1146L1150 742" fill="none" stroke="#e8b56f" stroke-width="2"/>
-<text x="1038" y="667" text-anchor="middle" class="m" font-size="13" fill="#e8b56f">comfyui</text>
-<text x="1038" y="685" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">14 GiB</text>
-<line x1="352" y1="742" x2="352" y2="762" stroke="#7ad4f2" stroke-opacity=".6"/>
-<circle cx="352" cy="774" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/><text x="352" y="778.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">1</text>
-<line x1="388" y1="742" x2="388" y2="762" stroke="#7ad4f2" stroke-opacity=".6"/>
-<circle cx="388" cy="774" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/><text x="388" y="778.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">2</text>
-<line x1="416" y1="742" x2="416" y2="762" stroke="#7ad4f2" stroke-opacity=".6"/>
-<circle cx="416" cy="774" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/><text x="416" y="778.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">3</text>
-<line x1="434" y1="742" x2="434" y2="762" stroke="#7ad4f2" stroke-opacity=".6"/>
-<circle cx="434" cy="774" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/><text x="434" y="778.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">4</text>
-<path d="M340 794H446" stroke="#7ad4f2" stroke-opacity=".5"/><text x="393" y="812" text-anchor="middle" class="m" font-size="11.5" fill="#7ad4f2">handoff · seconds</text>
-<line x1="352" y1="556" x2="352" y2="566" stroke="#9aa8ff" stroke-opacity=".5" stroke-dasharray="3 4"/>
-<text x="352" y="550" text-anchor="middle" class="s" font-size="13" fill="#9aa8ff">agent asks for strata</text>
-<line x1="716" y1="556" x2="716" y2="566" stroke="#fb7185" stroke-opacity=".5" stroke-dasharray="3 4"/>
-<text x="716" y="550" text-anchor="middle" class="s" font-size="13" fill="#fb7185">game starts: strata drained</text>
-<line x1="900" y1="556" x2="900" y2="566" stroke="#e8b56f" stroke-opacity=".5" stroke-dasharray="3 4"/>
-<text x="900" y="550" text-anchor="middle" class="s" font-size="13" fill="#e8b56f">game quits: comfyui starts</text>
-<g class="head"><line x1="70" y1="568" x2="70" y2="742" stroke="#e6f7ff" stroke-opacity=".55" stroke-width="1.5"/><circle cx="70" cy="568" r="3.5" fill="#e6f7ff" class="pulse"/></g>
-<circle cx="51" cy="843" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/><text x="51" y="847" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">1</text>
-<text x="68" y="842" class="s" font-size="13" fill="#cbd8e8">Request for strata arrives while</text>
-<text x="68" y="859" class="s" font-size="13" fill="#cbd8e8">NInfer holds the card</text>
-<circle cx="333" cy="843" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/><text x="333" y="847" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">2</text>
-<text x="350" y="842" class="s" font-size="13" fill="#cbd8e8">Berth lets NInfer finish its</text>
-<text x="350" y="859" class="s" font-size="13" fill="#cbd8e8">reply, then unloads it</text>
-<circle cx="615" cy="843" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/><text x="615" y="847" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">3</text>
-<text x="632" y="842" class="s" font-size="13" fill="#cbd8e8">The grant waits until the driver</text>
-<text x="632" y="859" class="s" font-size="13" fill="#cbd8e8">shows the memory free</text>
-<circle cx="897" cy="843" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/><text x="897" y="847" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">4</text>
-<text x="914" y="842" class="s" font-size="13" fill="#cbd8e8">Strata loads; the request that</text>
-<text x="914" y="859" class="s" font-size="13" fill="#cbd8e8">waited streams</text>
+<text x="840" y="130" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">THE CARDS</text>
+<text x="1160" y="130" text-anchor="end" class="m" font-size="11.5" fill="#c4a1ff">multi-GPU · experimental</text>
+<path class="flow" d="M802 250H834" fill="none" stroke="#7ad4f2" stroke-width="2.4"/>
+<path d="M830 244l8 6l-8 6" fill="none" stroke="#7ad4f2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path class="flow" d="M802 440H834" fill="none" stroke="#c4a1ff" stroke-width="2.4" stroke-opacity=".8"/>
+<path d="M830 434l8 6l-8 6" fill="none" stroke="#c4a1ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="840" y="148" width="320" height="200" rx="14" fill="#0f1a28" stroke="#2a4e68" stroke-width="1.5"/>
+<text x="858" y="176" class="m" font-size="15" fill="#f0f5fa">gpu0</text>
+<text x="1142" y="176" text-anchor="end" class="m" font-size="12.5" fill="#8ba0b8">RTX 4090 · 24 GiB</text>
+<rect x="858" y="190" width="56" height="142" rx="8" fill="#0b1420" stroke="#243549"/>
+<rect x="862" y="202.5" width="48" height="125.5" rx="5" fill="url(#gpe)" stroke="#9aa8ff" stroke-opacity=".8"/>
+<text x="886" y="222" text-anchor="middle" class="m" font-size="11.5" fill="#e2e6ff">strata</text>
+<text x="932" y="206" class="m" font-size="11.5" fill="#8ba0b8">holder</text>
+<text x="932" y="223" class="m" font-size="14" fill="#9aa8ff">strata</text>
+<text x="932" y="240" class="m" font-size="11.5" fill="#8ba0b8">lease</text>
+<text x="932" y="257" class="m" font-size="14" fill="#cbd8e8">foreground</text>
+<text x="932" y="274" class="m" font-size="11.5" fill="#8ba0b8">vram</text>
+<text x="932" y="291" class="m" font-size="14" fill="#cbd8e8">21.9 / 24 GiB</text>
+<text x="932" y="308" class="m" font-size="11.5" fill="#8ba0b8">waiting</text>
+<text x="932" y="325" class="m" font-size="14" fill="#e8b56f">comfyui</text>
+<rect x="840" y="360" width="320" height="150" rx="14" fill="url(#hatch)" stroke="#c4a1ff" stroke-opacity=".7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="858" y="388" class="m" font-size="15" fill="#f0f5fa">gpu1</text>
+<text x="1142" y="388" text-anchor="end" class="m" font-size="12.5" fill="#8ba0b8">RTX 4070 · 12 GiB</text>
+<text x="858" y="416" class="m" font-size="14" fill="#c4a1ff">passed through to VM galaxy</text>
+<text x="858" y="438" class="m" font-size="12" fill="#cbd8e8">vfio-pci · 0000:02:00.0 · held</text>
+<text x="858" y="458" class="m" font-size="12" fill="#cbd8e8">engines wait, told where the card is</text>
+<rect x="858" y="474" width="284" height="22" rx="11" fill="#1a1630" stroke="#4a3d78"/>
+<text x="1000.0" y="489" text-anchor="middle" class="m" font-size="11" fill="#e3d6ff">back on nvidia when the VM is done</text>
+<line x1="40" y1="538" x2="1160" y2="538" stroke="#243549"/>
+<text x="40" y="574" class="m" font-size="12.5" letter-spacing="2.5" fill="#8ba0b8">ONE CARD, TAKING TURNS</text>
+<text x="1160" y="574" text-anchor="end" class="s" font-size="14" fill="#8ba0b8">VRAM on one 24 GiB card over an evening</text>
+<line x1="70" y1="640" x2="1150" y2="640" stroke="#8ba0b8" stroke-opacity=".5" stroke-dasharray="4 5"/>
+<text x="62" y="644" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">24</text>
+<text x="62" y="804" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">0</text>
+<text x="62" y="724.0" text-anchor="end" class="m" font-size="11" fill="#8ba0b8">GiB</text>
+<line x1="70" y1="800" x2="1150" y2="800" stroke="#5d7ea6"/>
+<path d="M70 800L72 646.0H314L330 800z" fill="url(#gcy)"/>
+<path d="M70 800L72 646.0H314L330 800" fill="none" stroke="#7ad4f2" stroke-width="2"/>
+<text x="200.0" y="670.0" text-anchor="middle" class="m" font-size="13" fill="#7ad4f2">llama-swap · NInfer</text>
+<text x="200.0" y="688.0" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">23.1 GiB</text>
+<path d="M372 800L402 654.0H566L576 800z" fill="url(#gpe)"/>
+<path d="M372 800L402 654.0H566L576 800" fill="none" stroke="#9aa8ff" stroke-width="2"/>
+<text x="474.0" y="678.0" text-anchor="middle" class="m" font-size="13" fill="#9aa8ff">strata · gateway</text>
+<text x="474.0" y="696.0" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">21.9 GiB</text>
+<path d="M590 800L596 740.0H698L704 800z" fill="url(#gma)"/>
+<path d="M590 800L596 740.0H698L704 800" fill="none" stroke="#fb7185" stroke-width="2"/>
+<text x="647.0" y="764.0" text-anchor="middle" class="m" font-size="13" fill="#fb7185">game · hold</text>
+<text x="647.0" y="782.0" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">9 GiB</text>
+<rect x="718" y="640" width="196" height="160" rx="6" fill="url(#hatch)" stroke="#c4a1ff" stroke-opacity=".75" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="816" y="704" text-anchor="middle" class="m" font-size="13" fill="#c4a1ff">in VM · vfio-pci</text>
+<text x="816" y="722" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">the host sees no card</text>
+<path d="M928 800L954 706.7H1146L1150 800z" fill="url(#gam)"/>
+<path d="M928 800L954 706.7H1146L1150 800" fill="none" stroke="#e8b56f" stroke-width="2"/>
+<text x="1039.0" y="730.6666666666666" text-anchor="middle" class="m" font-size="13" fill="#e8b56f">comfyui</text>
+<text x="1039.0" y="748.6666666666666" text-anchor="middle" class="m" font-size="12" fill="#8ba0b8">14 GiB</text>
+<line x1="300" y1="800" x2="300" y2="820" stroke="#7ad4f2" stroke-opacity=".6"/>
+<circle cx="300" cy="832" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/>
+<text x="300" y="836.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">1</text>
+<line x1="330" y1="800" x2="330" y2="820" stroke="#7ad4f2" stroke-opacity=".6"/>
+<circle cx="330" cy="832" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/>
+<text x="330" y="836.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">2</text>
+<line x1="356" y1="800" x2="356" y2="820" stroke="#7ad4f2" stroke-opacity=".6"/>
+<circle cx="356" cy="832" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/>
+<text x="356" y="836.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">3</text>
+<line x1="376" y1="800" x2="376" y2="820" stroke="#7ad4f2" stroke-opacity=".6"/>
+<circle cx="376" cy="832" r="11" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.4"/>
+<text x="376" y="836.5" text-anchor="middle" class="m" font-size="12" font-weight="700" fill="#7ad4f2">4</text>
+<path d="M288 852H390" stroke="#7ad4f2" stroke-opacity=".5"/>
+<text x="339" y="870" text-anchor="middle" class="m" font-size="11.5" fill="#7ad4f2">handoff · seconds</text>
+<line x1="300" y1="618" x2="300" y2="636" stroke="#9aa8ff" stroke-opacity=".5" stroke-dasharray="3 4"/>
+<text x="300" y="612" text-anchor="middle" class="s" font-size="13" fill="#9aa8ff">agent asks for strata</text>
+<line x1="590" y1="598" x2="590" y2="636" stroke="#fb7185" stroke-opacity=".5" stroke-dasharray="3 4"/>
+<text x="590" y="592" text-anchor="middle" class="s" font-size="13" fill="#fb7185">game starts: strata drained</text>
+<line x1="718" y1="618" x2="718" y2="636" stroke="#c4a1ff" stroke-opacity=".5" stroke-dasharray="3 4"/>
+<text x="718" y="612" text-anchor="middle" class="s" font-size="13" fill="#c4a1ff">game quits: vfio run takes the card</text>
+<line x1="928" y1="598" x2="928" y2="636" stroke="#e8b56f" stroke-opacity=".5" stroke-dasharray="3 4"/>
+<text x="928" y="592" text-anchor="middle" class="s" font-size="13" fill="#e8b56f">VM shuts down: comfyui starts</text>
+<g class="head"><line x1="70" y1="636" x2="70" y2="800" stroke="#e6f7ff" stroke-opacity=".55" stroke-width="1.5"/><circle cx="70" cy="636" r="3.5" fill="#e6f7ff" class="pulse"/></g>
+<circle cx="51" cy="913" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/>
+<text x="51" y="917" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">1</text>
+<text x="68" y="912" class="s" font-size="13" fill="#cbd8e8">Request for strata reaches the</text>
+<text x="68" y="929" class="s" font-size="13" fill="#cbd8e8">gateway while NInfer holds the card</text>
+<circle cx="333" cy="913" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/>
+<text x="333" y="917" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">2</text>
+<text x="350" y="912" class="s" font-size="13" fill="#cbd8e8">Berth lets NInfer finish its</text>
+<text x="350" y="929" class="s" font-size="13" fill="#cbd8e8">reply, then unloads it</text>
+<circle cx="615" cy="913" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/>
+<text x="615" y="917" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">3</text>
+<text x="632" y="912" class="s" font-size="13" fill="#cbd8e8">The grant waits until the driver</text>
+<text x="632" y="929" class="s" font-size="13" fill="#cbd8e8">shows the memory free</text>
+<circle cx="897" cy="913" r="10" fill="#132a3c" stroke="#7ad4f2" stroke-width="1.3"/>
+<text x="897" y="917" text-anchor="middle" class="m" font-size="11" font-weight="700" fill="#7ad4f2">4</text>
+<text x="914" y="912" class="s" font-size="13" fill="#cbd8e8">Strata loads; the request that</text>
+<text x="914" y="929" class="s" font-size="13" fill="#cbd8e8">waited streams</text>
 </svg>
