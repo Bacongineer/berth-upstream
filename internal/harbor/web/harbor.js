@@ -2007,7 +2007,8 @@ function renderMachine(s) {
   setMeter(machineRows.cpu, h.cpu_pct, 100, fmtPct(h.cpu_pct, 1));
   setMeter(machineRows.ram, h.ram_used, h.ram_total, fmtGiB(h.ram_used) + " / " + fmtGiB(h.ram_total) + " GiB");
   if (hasSwap) setMeter(machineRows.swap, h.swap_used, h.swap_total, fmtGiB(h.swap_used) + " / " + fmtGiB(h.swap_total) + " GiB");
-  setText(machineRows.load.val, (h.load || []).map((v) => v.toFixed(2)).join("  "));
+  // Windows reads no load averages: the node leaves them out, and the row says so.
+  setText(machineRows.load.val, na(h.load, (l) => l.map((v) => v.toFixed(2)).join("  ")));
 }
 // The CPU/RAM lines are history-driven and repaint on the heavy gate from
 // renderHeavy, so a status poll never rebuilds them; a poll that reads the

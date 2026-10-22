@@ -80,6 +80,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- Windows: the host's CPU is read (GetSystemTimes), so the harbor's machine meter and `berth status` show real CPU
+  use instead of 0%. Windows has no load averages: the node now leaves them out of its JSON and the harbor and
+  `berth status` say n/a instead of three zeros. Reported by @azrael-229 (#139).
 - The gateway's `/gui/` board launches an engine that has a `start` command but no `gui` URL (Strata, a
   llama-server). Its Launch button answered 404 and stayed on "Launching..."; it now starts the engine under a
   lease and shows Running once it answers. A refused start shows its reason instead of hanging.
