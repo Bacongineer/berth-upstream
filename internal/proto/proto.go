@@ -327,14 +327,15 @@ type GPU struct {
 
 // Host is the machine the node runs on.
 type Host struct {
-	Supported bool       `json:"supported"`
-	CPU       float64    `json:"cpu_pct"`
-	Cores     int        `json:"cores"`
-	RAMTotal  uint64     `json:"ram_total"`
-	RAMUsed   uint64     `json:"ram_used"`
-	SwapTotal uint64     `json:"swap_total"`
-	SwapUsed  uint64     `json:"swap_used"`
-	Load      [3]float64 `json:"load"`
+	Supported bool    `json:"supported"`
+	CPU       float64 `json:"cpu_pct"`
+	Cores     int     `json:"cores"`
+	RAMTotal  uint64  `json:"ram_total"`
+	RAMUsed   uint64  `json:"ram_used"`
+	SwapTotal uint64  `json:"swap_total"`
+	SwapUsed  uint64  `json:"swap_used"`
+	// Load is absent where the platform has no load averages (Windows).
+	Load *[3]float64 `json:"load,omitempty"`
 }
 
 // Sample is one point of the node's in-memory history (the graphs).

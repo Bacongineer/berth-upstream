@@ -292,10 +292,14 @@ func hostLine(c *Context, h *proto.Host) {
 		c.Printf("%s  no host telemetry on this platform\n", c.Style.Dim("host"))
 		return
 	}
+	load := "load n/a"
+	if h.Load != nil {
+		load = fmt.Sprintf("load %.2f %.2f %.2f", h.Load[0], h.Load[1], h.Load[2])
+	}
 	c.Printf("%s %s\n", c.Style.Dim("host"),
-		fmt.Sprintf("CPU %.0f%% of %d cores, RAM %s of %s, swap %s of %s, load %.2f %.2f %.2f",
+		fmt.Sprintf("CPU %.0f%% of %d cores, RAM %s of %s, swap %s of %s, %s",
 			h.CPU, h.Cores, server.MiB(h.RAMUsed), server.MiB(h.RAMTotal),
-			server.MiB(h.SwapUsed), server.MiB(h.SwapTotal), h.Load[0], h.Load[1], h.Load[2]))
+			server.MiB(h.SwapUsed), server.MiB(h.SwapTotal), load))
 }
 
 // alertsLine is the alert state the node holds: the node is the source of
