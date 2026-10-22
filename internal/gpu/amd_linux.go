@@ -17,9 +17,9 @@ import (
 	"time"
 )
 
-// AMDGPU observes discrete RDNA3/RDNA4 cards without opening a DRM device or
+// AMDGPU observes RDNA3/RDNA4 discrete cards and Phoenix APUs without opening a DRM device or
 // creating a HIP/Vulkan context. SysRoot is /sys/class/drm, ProcRoot is /proc.
-// Card indices are the N in cardN, not HIP ordinals. APUs are not admitted.
+// Card indices are the N in cardN, not HIP ordinals. APU VRAM/GTT stay separate.
 type AMDGPU struct {
 	Index    int
 	SysRoot  string
@@ -102,6 +102,10 @@ func (a AMDGPU) cards() ([]amdCard, error) {
 		minor, e2 := readUint(filepath.Join(ip, "minor"))
 		rev, e3 := readUint(filepath.Join(ip, "revision"))
 		generation := rdnaDiscrete(major, minor, rev)
+		apu := major == 11 && minor == 0 && rev == 1 // Phoenix, including Radeon 780M
+		if apu {
+			generation = "RDNA3 APU"
+		}
 		if e1 != nil || e2 != nil || e3 != nil || generation == "" {
 			continue
 		}
@@ -113,7 +117,7 @@ func (a AMDGPU) cards() ([]amdCard, error) {
 		if name == "" {
 			name = fmt.Sprintf("AMD %s (%s)", generation, fields["PCI_ID"])
 		}
-		cards = append(cards, amdCard{Device: Device{Index: idx, Name: name, BusID: bus,
+		cards = append(cards, amdCard{Device: Device{Index: idx, Name: name, BusID: bus, APU: apu,
 			Util: -1, Temp: -1, Power: -1, PowerLimit: -1, Fan: -1, ClockSM: -1, ClockMem: -1, PCIeGen: -1, PCIeWidth: -1}, path: p})
 	}
 	sort.Slice(cards, func(i, j int) bool { return cards[i].Index < cards[j].Index })
@@ -144,9 +148,9 @@ func (a AMDGPU) Read(ctx context.Context) (snap Snapshot, err error) {
 		}
 	}
 	if selected == nil {
-		return snap, fmt.Errorf("card%d is not an available RDNA3/RDNA4 discrete amdgpu card (APUs and other GC IPs are not supported)", a.Index)
+		return snap, fmt.Errorf("card%d is not an available RDNA3/RDNA4 discrete or Phoenix APU amdgpu card", a.Index)
 	}
-	snap.Procs, snap.Unobserved, err = a.processes(ctx, selected.BusID)
+	snap.Procs, snap.Unobserved, err = a.processes(ctx, selected.BusID, selected.APU)
 	if err != nil {
 		return snap, err
 	}
@@ -167,16 +171,34 @@ func (a AMDGPU) Read(ctx context.Context) (snap Snapshot, err error) {
 			return snap, fmt.Errorf("card%d invalid VRAM reading: used %d, total %d", c.Index, c.Used, c.Total)
 		}
 		c.Free = c.Total - c.Used
+		if c.APU {
+			c.GTTTotal, err = readUint(filepath.Join(c.path, "mem_info_gtt_total"))
+			if err != nil {
+				return snap, err
+			}
+			c.GTTUsed, err = readUint(filepath.Join(c.path, "mem_info_gtt_used"))
+			if err != nil {
+				return snap, err
+			}
+			if c.GTTTotal == 0 || c.GTTUsed > c.GTTTotal {
+				return snap, fmt.Errorf("card%d invalid GTT reading: used %d, capacity %d", c.Index, c.GTTUsed, c.GTTTotal)
+			}
+		}
 		amdTelemetry(&c.Device, c.path)
 		snap.Devices = append(snap.Devices, c.Device)
 	}
 	snap.Index, snap.Name, snap.Total, snap.Used, snap.Free = selected.Index, selected.Name, selected.Total, selected.Used, selected.Free
-	var accounted uint64
+	snap.APU, snap.GTTTotal, snap.GTTUsed = selected.APU, selected.GTTTotal, selected.GTTUsed
+	var accounted, shared uint64
 	for _, p := range snap.Procs {
 		if p.Used > snap.Used-accounted {
 			return snap, fmt.Errorf("process VRAM exceeds card usage; memory changed during scan, retrying")
 		}
 		accounted += p.Used
+		if p.GTT > snap.GTTUsed-shared {
+			return snap, fmt.Errorf("process GTT exceeds driver usage; memory changed during scan, retrying")
+		}
+		shared += p.GTT
 	}
 	return snap, nil
 }
@@ -216,9 +238,10 @@ func pciAddress(s string) (string, error) {
 type drmClient struct {
 	bus, id string
 	used    uint64
+	gtt     uint64
 }
 
-func parseDRM(s, want string) (drmClient, bool, error) {
+func parseDRM(s, want string, apu bool) (drmClient, bool, error) {
 	f := keyValues(s, ":")
 	if f["drm-driver"] != "amdgpu" {
 		return drmClient{}, false, nil
@@ -234,30 +257,45 @@ func parseDRM(s, want string) (drmClient, bool, error) {
 	if err != nil {
 		return drmClient{}, false, fmt.Errorf("missing/invalid drm-client-id")
 	}
-	// These are aliases, never additive. Requested (drm-total) and GTT bytes
-	// must not be passed to the broker as physically resident VRAM.
-	mem, ok := f["drm-resident-vram"]
+	used, err := privateResident(f, "vram")
+	if err != nil {
+		return drmClient{}, false, err
+	}
+	var gtt uint64
+	if apu {
+		gtt, err = privateResident(f, "gtt")
+		if err != nil {
+			return drmClient{}, false, err
+		}
+	}
+	return drmClient{bus: bus, id: strconv.FormatUint(id, 10), used: used, gtt: gtt}, true, nil
+}
+
+// Aliases are never additive; requested buffers and CPU heap figures do not
+// represent resident GPU storage. Shared objects stay in each pool's baseline.
+func privateResident(f map[string]string, domain string) (uint64, error) {
+	mem, ok := f["drm-resident-"+domain]
 	if !ok {
-		mem, ok = f["drm-memory-vram"]
+		mem, ok = f["drm-memory-"+domain]
 	}
 	if !ok {
-		return drmClient{}, false, fmt.Errorf("missing resident VRAM counter")
+		return 0, fmt.Errorf("missing resident %s counter", domain)
 	}
 	used, err := drmBytes(mem)
 	if err != nil {
-		return drmClient{}, false, err
+		return 0, err
 	}
 	// Shared objects can be charged to several clients. There is no buffer
 	// identity here with which to deduplicate them: attribute only the private
 	// lower bound and leave shared storage in the card's baseline instead.
-	if shared, ok := f["drm-shared-vram"]; ok {
+	if shared, ok := f["drm-shared-"+domain]; ok {
 		n, err := drmBytes(shared)
 		if err != nil {
-			return drmClient{}, false, err
+			return 0, err
 		}
 		used -= min(used, n)
 	}
-	return drmClient{bus: bus, id: strconv.FormatUint(id, 10), used: used}, true, err
+	return used, nil
 }
 
 func drmBytes(s string) (uint64, error) {
@@ -290,9 +328,10 @@ func drmBytes(s string) (uint64, error) {
 type clientOwner struct {
 	proc Proc
 	used uint64
+	gtt  uint64
 }
 
-func (a AMDGPU) processes(ctx context.Context, bus string) ([]Proc, []int, error) {
+func (a AMDGPU) processes(ctx context.Context, bus string, apu bool) ([]Proc, []int, error) {
 	_, root := a.roots()
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -353,7 +392,7 @@ func (a AMDGPU) processes(ctx context.Context, bus string) ([]Proc, []int, error
 			if err != nil {
 				return nil, nil, fmt.Errorf("pid %d fdinfo: %w", pid, err)
 			}
-			client, ok, err := parseDRM(string(b), bus)
+			client, ok, err := parseDRM(string(b), bus, apu)
 			if err != nil {
 				return nil, nil, fmt.Errorf("pid %d DRM accounting: %w", pid, err)
 			}
@@ -383,7 +422,7 @@ func (a AMDGPU) processes(ctx context.Context, bus string) ([]Proc, []int, error
 			key := s.bus + "/" + s.id
 			old, ok := clients[key]
 			if !ok {
-				clients[key] = clientOwner{proc: proc, used: s.used}
+				clients[key] = clientOwner{proc: proc, used: s.used, gtt: s.gtt}
 				continue
 			}
 			// Duplicated descriptors (also across fork) describe one client.
@@ -392,12 +431,13 @@ func (a AMDGPU) processes(ctx context.Context, bus string) ([]Proc, []int, error
 				old.proc = proc
 			}
 			old.used = max(old.used, s.used)
+			old.gtt = max(old.gtt, s.gtt)
 			clients[key] = old
 		}
 	}
 	byPID := map[int]Proc{}
 	for _, c := range clients {
-		if c.used == 0 {
+		if c.used == 0 && c.gtt == 0 {
 			continue
 		} // an open, empty context is not a memory holder
 		p, ok := byPID[c.proc.PID]
@@ -408,6 +448,10 @@ func (a AMDGPU) processes(ctx context.Context, bus string) ([]Proc, []int, error
 			return nil, nil, fmt.Errorf("pid %d VRAM sum overflow", p.PID)
 		}
 		p.Used += c.used
+		if math.MaxUint64-p.GTT < c.gtt {
+			return nil, nil, fmt.Errorf("pid %d GTT sum overflow", p.PID)
+		}
+		p.GTT += c.gtt
 		byPID[p.PID] = p
 	}
 	out := make([]Proc, 0, len(byPID))

@@ -61,7 +61,7 @@ func Open(o Options) (Probe, error) {
 		case nvErr == nil:
 			backend = "nvidia"
 		default:
-			return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU")
+			return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
 		}
 	}
 	if backend == "amd" {

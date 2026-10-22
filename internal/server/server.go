@@ -251,6 +251,12 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 	if c := lease.Contested(); c > 0 {
 		granted.Reason = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
 	}
+	if shared := lease.ContestedGTT(); shared > 0 {
+		if granted.Reason == "" {
+			granted.Reason = "card contested: processes without a lease hold shared RAM"
+		}
+		granted.Reason += fmt.Sprintf(" (%d MiB GTT)", shared/gpu.MiB)
+	}
 	if !u.send(granted) {
 		return
 	}

@@ -54,7 +54,31 @@ func (b *Broker) driverReleased(l *lease) bool {
 	if !b.snap.Guarded {
 		return true
 	}
-	return !b.leaseUnobserved(l) && b.snap.Baseline() <= l.releaseBaseline
+	return !b.leaseUnobserved(l) && b.snap.Baseline() <= l.releaseBaseline &&
+		(!b.snap.APU || b.snap.GTTBaseline() <= l.releaseGTTBaseline)
+}
+
+// APU GTT consumes host RAM, not extra VRAM. This is an admission floor, not
+// a reservation or a promise that an unbounded engine will fit after starting.
+func (b *Broker) apuAdmissionWait() string {
+	if b.snap.GTTTotal == 0 || b.snap.GTTUsed >= b.snap.GTTTotal {
+		return "waiting for APU GTT driver capacity"
+	}
+	if available := b.cfg.MemAvailable(); available <= b.cfg.APUHeadroom {
+		return fmt.Sprintf("waiting for APU host RAM headroom: %d MiB available, must exceed %d MiB", available/gpu.MiB, b.cfg.APUHeadroom/gpu.MiB)
+	}
+	if b.cfg.MemPressure() >= b.cfg.ParkPressure {
+		return "waiting for APU host memory pressure to subside"
+	}
+	return ""
+}
+
+func (b *Broker) squatGTTBytes() uint64 {
+	var n uint64
+	for _, s := range b.squatters {
+		n += s.proc.GTT
+	}
+	return min(n, b.snap.GTTUsed)
 }
 
 // retainUnobserved keeps already attributed memory on unreadable PIDs. New,
@@ -84,7 +108,7 @@ func (b *Broker) retainUnobserved(pids []int, present map[ident]bool, claimed ma
 // memory whose process is no longer observable.
 func (b *Broker) guardedDetail(l *lease) string {
 	if b.snap.Guarded && len(l.gpu) == 0 {
-		return fmt.Sprintf("driver reports %d MiB unattributed (pre-load baseline %d MiB)", b.snap.Baseline()/gpu.MiB, l.releaseBaseline/gpu.MiB)
+		return fmt.Sprintf("driver reports %d MiB unattributed VRAM and %d MiB GTT (pre-load baselines %d/%d MiB)", b.snap.Baseline()/gpu.MiB, b.snap.GTTBaseline()/gpu.MiB, l.releaseBaseline/gpu.MiB, l.releaseGTTBaseline/gpu.MiB)
 	}
 	return holding(l)
 }

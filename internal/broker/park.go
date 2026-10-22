@@ -101,6 +101,11 @@ func (b *Broker) Park(id string) (bool, string) {
 	if !ok || l.state != draining {
 		return false, fmt.Sprintf("lease %s is not draining", id)
 	}
+	if b.snap.APU {
+		why := "park refused: APU VRAM/GTT offload accounting is not yet supported; using normal drain"
+		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Detail: why})
+		return false, why
+	}
 	foot := b.footprintOf(l)
 	if foot == 0 {
 		// Nothing was ever measured: there is nothing to hold in RAM,

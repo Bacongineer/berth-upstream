@@ -25,12 +25,13 @@ import time
 SIZE = 64 << 20
 
 
-def buffer(node, ready):
+def buffer(node, ready, pool):
     # DRM_IOCTL_AMDGPU_GEM_CREATE: 32-byte in/out union, VRAM domain = 4.
     # A GEM allocation is real driver memory, not a HIP/Vulkan compute context.
     fd = os.open(node, os.O_RDWR | os.O_CLOEXEC)
     try:
-        req = bytearray(struct.pack("=QQQQ", SIZE, 4096, 4, 0))
+        domain = 2 if pool == "gtt" else 4
+        req = bytearray(struct.pack("=QQQQ", SIZE, 4096, domain, 0))
         fcntl.ioctl(fd, 0xC0206440, req, True)
         handle = struct.unpack_from("=I", req)[0]
         # Legacy amdgpu fdinfo accounts VM-mapped buffers, not every GEM
@@ -44,7 +45,7 @@ def buffer(node, ready):
 
         signal.signal(signal.SIGTERM, finish)
         signal.signal(signal.SIGINT, finish)
-        Path(ready).write_text(json.dumps({"pid": os.getpid(), "bytes": SIZE}))
+        Path(ready).write_text(json.dumps({"pid": os.getpid(), "bytes": SIZE, "pool": pool}))
         deadline = time.monotonic() + 30
         while not stop and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -75,6 +76,11 @@ def check(args):
     )
     if free < 2 * SIZE:
         raise RuntimeError("less than 128 MiB free; refusing to allocate")
+    if args.pool != "vram":
+        gtt_free = int((card / "mem_info_gtt_total").read_text()) - int((card / "mem_info_gtt_used").read_text())
+        available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:"))
+        if gtt_free < 2 * SIZE or available < (2 << 30) + 2 * SIZE:
+            raise RuntimeError("insufficient GTT/host RAM headroom; refusing to allocate")
     directory = Path(args.output) if args.output else Path(tempfile.mkdtemp(prefix="berth-amd-"))
     if args.output:
         directory.mkdir(parents=True, exist_ok=False)
@@ -99,10 +105,11 @@ def check(args):
         )
         return json.loads(result.stdout)
 
-    def holding(name):
+    def holding(name, pool):
         st = status()
         report["last_observation"] = st
-        matches = [l for l in st["leases"] if l["engine"] == name and l["used"] >= SIZE]
+        field = "gtt_used" if pool == "gtt" else "used"
+        matches = [l for l in st["leases"] if l["engine"] == name and l.get(field, 0) >= SIZE]
         return st if matches else None
 
     def released():
@@ -118,13 +125,37 @@ def check(args):
         if daemon.poll() is not None:
             raise RuntimeError("daemon failed; see " + str(directory / "daemon.log"))
         report["initial"] = status()
-        for name, priority in [("amd-check-a", "batch"), ("amd-check-b", "foreground")]:
+        scheduled = next(g for g in report["initial"]["gpus"] if g["scheduled"])
+        if args.pool != "vram" and not scheduled.get("apu"):
+            raise RuntimeError("GTT checks require an APU; refusing to allocate on another device")
+        if scheduled.get("apu"):
+            # Simulate an insufficient floor, without creating actual RAM
+            # pressure or allocating anything. The child must never start.
+            guard_sock = str(directory / "ram-guard.sock")
+            guard = spawn("ram-guard", [binary, "daemon", "--socket", guard_sock,
+                "--gpu-backend", "amd", "--gpu", str(args.gpu), "--poll", "250ms",
+                "--headroom-mib", "1048576", "--config", str(config),
+                "--counters", "", "--usage", "", "--footprint", ""])
+            wait_for(lambda: Path(guard_sock).exists() or guard.poll() is not None, "RAM-guard daemon")
+            marker = directory / "must-not-start"
+            blocked = subprocess.run([binary, "run", "--socket", guard_sock, "--config", str(config),
+                "--as", "ram-guard", "--wait", "500ms", "--fail-closed", "--", sys.executable,
+                "-c", "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"],
+                capture_output=True, text=True, timeout=10)
+            if blocked.returncode == 0 or marker.exists() or "APU host RAM headroom" not in blocked.stderr:
+                raise RuntimeError("APU RAM guard did not refuse before starting the child: " + blocked.stderr)
+            report["ram_guard"] = "passed"
+            guard.terminate()
+            guard.wait(timeout=10)
+        pools = ["vram", "gtt"] if args.pool == "mixed" else [args.pool, args.pool]
+        for (name, priority), pool in zip([("amd-check-a", "batch"), ("amd-check-b", "foreground")], pools):
             spawn(name, [binary, "run", "--socket", sock, "--config", str(config),
                 "--as", name, "--priority", priority, "--fail-closed", "--grace", "2s",
                 "--wait", "15s", "--", sys.executable, str(Path(__file__).resolve()),
                 "--allow-allocation", "--buffer", "--render-node", args.render_node,
+                "--pool", pool,
                 "--ready", str(directory / (name + ".json"))])
-            report[name] = wait_for(lambda: holding(name), name + " allocation attribution")
+            report[name] = wait_for(lambda: holding(name, pool), name + " " + pool + " allocation attribution")
         a_pid = json.loads((directory / "amd-check-a.json").read_text())["pid"]
         b_pid = json.loads((directory / "amd-check-b.json").read_text())["pid"]
         if Path(f"/proc/{a_pid}/fdinfo").exists():
@@ -145,6 +176,7 @@ def check(args):
         report["result"] = "passed"
         report["buffer_pids"] = [a_pid, b_pid]
         report["bytes_per_buffer"] = SIZE
+        report["pools"] = pools
         print("PASS: real AMD allocation, PID attribution, priority drain, driver-confirmed release and handoff")
     finally:
         for proc in reversed(processes):
@@ -168,13 +200,14 @@ def main():
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--render-node", default="/dev/dri/renderD128")
     parser.add_argument("--output")
+    parser.add_argument("--pool", choices=["vram", "gtt", "mixed"], default="vram", help="APU: test reserved VRAM, shared GTT, or a handoff between them")
     parser.add_argument("--buffer", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--ready", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not args.allow_allocation:
         parser.error("requires --allow-allocation; allocates up to 128 MiB on the selected GPU")
     if args.buffer:
-        buffer(args.render_node, args.ready)
+        buffer(args.render_node, args.ready, args.pool)
     else:
         check(args)
 

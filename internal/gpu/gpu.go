@@ -26,17 +26,21 @@ type Proc struct {
 	Name  string
 	Used  uint64 // bytes
 	Start uint64 // process start time, when sampled by the probe; 0 = broker resolves it
+	GTT   uint64 // APU GPU-accessible system RAM, kept separate from Used (VRAM)
 }
 
 // Device is one card as the driver reports it. Telemetry the driver does
 // not report ("[N/A]") reads -1, never a made-up zero.
 type Device struct {
-	Index int
-	Name  string
-	BusID string // pci.bus_id, e.g. "00000000:01:00.0"; empty when not queried
-	Total uint64
-	Used  uint64
-	Free  uint64
+	Index    int
+	Name     string
+	BusID    string // pci.bus_id, e.g. "00000000:01:00.0"; empty when not queried
+	Total    uint64
+	Used     uint64
+	Free     uint64
+	APU      bool
+	GTTTotal uint64 // driver capacity, not extra/dedicated VRAM or a reservation
+	GTTUsed  uint64
 
 	Util       float64 // %
 	Temp       float64 // C
@@ -55,14 +59,17 @@ const Query = "index,name,pci.bus_id,memory.total,memory.used,memory.free,utiliz
 // Snapshot is one reading: the scheduled card in full, every card's memory
 // in Devices, so a multi-GPU box is inventoried with its real limits.
 type Snapshot struct {
-	Devices []Device
-	Index   int
-	Name    string
-	Total   uint64
-	Used    uint64
-	Free    uint64
-	Procs   []Proc
-	At      time.Time
+	Devices  []Device
+	Index    int
+	Name     string
+	Total    uint64
+	Used     uint64
+	Free     uint64
+	Procs    []Proc
+	At       time.Time
+	APU      bool
+	GTTTotal uint64
+	GTTUsed  uint64
 	// Guarded probes need fresh, successful observations for admission and
 	// card-wide confirmation of release: a /proc entry can disappear before
 	// the driver has reclaimed its buffers. NVIDIA retains its existing policy.
@@ -85,6 +92,19 @@ func (s Snapshot) Baseline() uint64 {
 		return 0
 	}
 	return s.Used - procs
+}
+
+// GTTBaseline is APU shared memory not privately attributed to a visible client.
+// It must return independently of the reserved-UMA baseline before release.
+func (s Snapshot) GTTBaseline() uint64 {
+	var procs uint64
+	for _, p := range s.Procs {
+		procs += p.GTT
+	}
+	if procs >= s.GTTUsed {
+		return 0
+	}
+	return s.GTTUsed - procs
 }
 
 // graphicsProcBytes is how much dedicated VRAM a process nvidia-smi does

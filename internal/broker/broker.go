@@ -91,6 +91,7 @@ type Reporter interface {
 type Config struct {
 	Poll         time.Duration // how often the card is read
 	Reserve      uint64        // bytes never handed out
+	APUHeadroom  uint64        // minimum host MemAvailable for APU admission; 0 = 2 GiB
 	ReleaseGrace time.Duration // how long a released lease's processes may linger before it is reported stuck
 	DefaultWait  time.Duration // how long Acquire waits when the request names no limit
 	Allow        []string      // process-name substrings that are never squatters
@@ -227,15 +228,17 @@ type lease struct {
 	// ("" when it runs outside one). A cgroup is inherited on fork, so
 	// every process under that path is the lease's, however its process
 	// tree is shaped.
-	scope           string
-	gpu             map[ident]gpu.Proc
-	desc            map[ident]struct{} // descendants recorded while the lease ran
-	contested       uint64             // squatter bytes on the card when granted
-	peak            uint64             // most memory its processes were measured holding
-	releaseBaseline uint64             // guarded probes: unattributed driver baseline before this lease loaded
-	arrived         time.Time
-	granted         time.Time
-	released        time.Time
+	scope              string
+	gpu                map[ident]gpu.Proc
+	desc               map[ident]struct{} // descendants recorded while the lease ran
+	contested          uint64             // squatter bytes on the card when granted
+	peak               uint64             // most memory its processes were measured holding
+	releaseBaseline    uint64             // guarded probes: unattributed driver baseline before this lease loaded
+	releaseGTTBaseline uint64             // APU shared pool must return independently
+	contestedGTT       uint64
+	arrived            time.Time
+	granted            time.Time
+	released           time.Time
 	// releasedRead and parkedRead are the card reads started when the lease
 	// was released or its park call was done: only a tick whose read is
 	// later frees it or marks it parked. Clock-free, so a coarse clock
@@ -268,6 +271,14 @@ func (l *lease) used() uint64 {
 	var n uint64
 	for _, p := range l.gpu {
 		n += p.Used
+	}
+	return n
+}
+
+func (l *lease) gttUsed() uint64 {
+	var n uint64
+	for _, p := range l.gpu {
+		n += p.GTT
 	}
 	return n
 }
@@ -498,6 +509,9 @@ func (b *Broker) now() time.Time {
 }
 
 func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
+	if cfg.APUHeadroom == 0 {
+		cfg.APUHeadroom = 2 * gpu.GiB
+	}
 	if cfg.Poll <= 0 {
 		cfg.Poll = 2 * time.Second
 	}
@@ -773,7 +787,7 @@ func (b *Broker) Tick(ctx context.Context) {
 				detail += " (" + s.containerName + ")"
 			}
 		}
-		b.log.Warn("squatter: GPU memory held without a lease", "pid", p.PID, "name", p.Name, "mib", p.Used/gpu.MiB, "unprotected_run", s.run, "container", short(s.container))
+		b.log.Warn("squatter: GPU memory held without a lease", "pid", p.PID, "name", p.Name, "mib", p.Used/gpu.MiB, "gtt_mib", p.GTT/gpu.MiB, "unprotected_run", s.run, "container", short(s.container))
 		b.counters.SquattersCaught++
 		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: detail})
 		if b.cfg.Reporter != nil {
@@ -932,7 +946,11 @@ func (b *Broker) reattaching(now time.Time) int {
 func holding(l *lease) string {
 	parts := make([]string, 0, len(l.gpu))
 	for _, p := range l.gpu {
-		parts = append(parts, fmt.Sprintf("pid %d (%s) %d MiB", p.PID, p.Name, p.Used/gpu.MiB))
+		part := fmt.Sprintf("pid %d (%s) %d MiB", p.PID, p.Name, p.Used/gpu.MiB)
+		if p.GTT > 0 {
+			part += fmt.Sprintf(" + %d MiB GTT", p.GTT/gpu.MiB)
+		}
+		parts = append(parts, part)
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ", ")
@@ -979,13 +997,20 @@ func (b *Broker) schedule(now time.Time) {
 			return
 		}
 		ok, reason, victims := b.evaluate(w, now)
+		if ok && b.snap.APU {
+			if why := b.apuAdmissionWait(); why != "" {
+				ok, reason = false, why
+			}
+		}
 		if ok {
 			b.queue = b.queue[1:]
 			w.state = active
 			w.granted = now
 			w.grantedN = b.order()
 			w.releaseBaseline = b.snap.Baseline()
+			w.releaseGTTBaseline = b.snap.GTTBaseline()
 			w.contested = b.squatBytes()
+			w.contestedGTT = b.squatGTTBytes()
 			b.leases[w.id] = w
 			beside := w.beside
 			w.beside = ""
@@ -1004,8 +1029,8 @@ func (b *Broker) schedule(now time.Time) {
 			if beside != "" {
 				b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
 			}
-			if w.contested > 0 {
-				b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB)
+			if w.contested > 0 || w.contestedGTT > 0 {
+				b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB, "squatters_gtt_mib", w.contestedGTT/gpu.MiB)
 				b.counters.ContestedGrants++
 			}
 			if w.lastWait != "" {
@@ -1357,6 +1382,13 @@ func (l *Lease) Contested() uint64 {
 	return l.l.contested
 }
 
+// ContestedGTT is unleased APU shared-RAM usage at grant, separate from VRAM.
+func (l *Lease) ContestedGTT() uint64 {
+	l.b.mu.Lock()
+	defer l.b.mu.Unlock()
+	return l.l.contestedGTT
+}
+
 // Attach records the engine holding the berth, by PID plus start time.
 // Its Berth scope is read on the next tick, not here: systemd-run moves
 // itself into the scope only after a round trip to the user manager, so
@@ -1449,6 +1481,9 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	scope, _ := b.cfg.Scopes(pid)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.snap.APU && r.Needs > 0 {
+		return nil, fmt.Errorf("%w: APU requires an exclusive lease; omit needs-mib", ErrRefused)
+	}
 	for _, l := range b.leases {
 		if l.pid == pid && l.pidStart == start {
 			return nil, fmt.Errorf("%w: pid %d already holds %s", ErrRefused, pid, l.id)
@@ -1467,6 +1502,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	l.granted = now
 	l.grantedN = b.order()
 	l.releaseBaseline = b.snap.Baseline()
+	l.releaseGTTBaseline = b.snap.GTTBaseline()
 	close(l.grantCh)
 	b.leases[l.id] = l
 	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)
@@ -1482,6 +1518,13 @@ var ErrRefused = errors.New("refused")
 // the wait runs out. onWait hears each new reason for waiting.
 func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*Lease, error) {
 	b.mu.Lock()
+	if b.snap.APU && r.Needs > 0 {
+		why := "APU requires an exclusive lease; omit needs-mib (VRAM and GTT are separate pools)"
+		b.counters.Refused++
+		b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
+		b.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
+	}
 	// A request bigger than the card can never fit, and would block the
 	// queue behind it until it timed out.
 	if limit := sat(b.snap.Total, b.cfg.Reserve); r.Needs > 0 && b.snap.Total > 0 && r.Needs > limit {

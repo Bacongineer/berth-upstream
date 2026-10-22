@@ -153,8 +153,9 @@ line goes away.
 - Every reporting command takes `--format json|yaml`. All of them keep results on stdout and
   diagnostics on stderr, and exit 0, 1 or 2 by one rule.
 
-**Runs on** Linux with an NVIDIA GPU (supported), Linux with a discrete AMD RDNA3/RDNA4
-GPU (experimental), and Windows 10/11 with an NVIDIA GPU (experimental). Apache-2.0.
+**Runs on** Linux with an NVIDIA GPU (supported), Linux with AMD RDNA3/RDNA4 discrete
+GPUs or a Phoenix APU such as the 780M (experimental), and Windows 10/11 with an NVIDIA
+GPU (experimental). Apache-2.0.
 
 ### AMD on Linux
 
@@ -172,8 +173,11 @@ processes by PCI address, not PID alone. On mixed NVIDIA/AMD installations, choo
 not where the engine loads: configure the engine's GPU placement separately.
 
 The AMD adapter reads kernel sysfs and DRM `fdinfo`; no ROCm installation, `amd-smi`,
-root privileges, or extra monitoring service is required. APUs/UMA and AMD on Windows
-are not supported. See [AMD scope, accounting limits and validation](contrib/amd/README.md).
+root privileges, or extra monitoring service is required. Phoenix APUs keep reserved
+UMA VRAM and shared-RAM GTT separate; use exclusive leases (omit `--needs-mib`). New
+APU admissions require host RAM above `--headroom-mib` (default 2048 MiB); parking is
+not yet supported on APUs, so engines use the normal drain. Other APU generations and
+AMD Windows are not supported. See [scope and validation](contrib/amd/README.md).
 
 ## Quick start
 
@@ -249,7 +253,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 |---|---|
 | Linux + NVIDIA | Supported |
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
-| AMD on Linux | Experimental: discrete RDNA3/RDNA4 through amdgpu sysfs/DRM. W7900 allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APUs/UMA excluded. [Scope and checks](contrib/amd/README.md). |
+| AMD on Linux | Experimental: discrete RDNA3/RDNA4 and Phoenix APUs through amdgpu sysfs/DRM. W7900 and 780M bounded allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APU leases are exclusive, with independent UMA/GTT accounting and host-RAM admission checks. [Scope and checks](contrib/amd/README.md). |
 | Intel, Apple | Not supported yet |
 | Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
 

@@ -27,6 +27,8 @@ func guardedSetup(t *testing.T) (*Broker, *guardedCard) {
 	c := &guardedCard{}
 	c.set(0)
 	b.probe = c
+	b.cfg.MemAvailable = func() uint64 { return 32 * GiB }
+	b.cfg.MemPressure = func() float64 { return 0 }
 	b.Tick(context.Background())
 	return b, c
 }

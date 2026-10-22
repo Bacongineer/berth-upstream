@@ -14,7 +14,9 @@ turn, or a sized share with `--needs-mib`; it doesn't make a model fit that does
 added `contrib/chaos`, the swap bench and the [tested hardware](benchmarks.md#tested-hardware) table so you can
 check it on yours.
 
-**AMD? Windows?** Linux discrete AMD RDNA3/RDNA4 support is experimental; APUs/UMA are deferred.
+**AMD? Windows?** Linux AMD RDNA3/RDNA4 discrete and Phoenix/780M APU support is experimental.
+APU leases are exclusive, track UMA VRAM/GTT separately, and require host-RAM headroom;
+APU parking and other APU generations are not supported yet.
 Windows with NVIDIA is experimental too, and `contrib/windows/check.ps1` checks it on your
 machine; see the [support matrix](https://github.com/T-Crypt/berth#support-matrix).
 

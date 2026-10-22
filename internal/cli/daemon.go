@@ -35,7 +35,7 @@ func runDaemon(c *Context) int {
 	backend := fs.String("gpu-backend", "auto", "GPU probe: auto, nvidia or amd (AMD --gpu is the DRM cardN number)")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
-	headroomMib := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start, added to the park floor (the gateway's guard default)")
+	headroomMib := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine: cold-start/park headroom and APU admission floor (0 retains the APU default)")
 	wait := fs.Duration("wait", 120*time.Second, "default time a request waits before it is refused; negative = no deadline")
 	grace := fs.Duration("release-grace", 30*time.Second, "how long a released lease's processes may linger before they count as squatters")
 	reattachWin := fs.Duration("reattach-window", 15*time.Second, "after a restart, how long new grants wait for engines that ran under the last daemon to re-attach")
@@ -106,6 +106,7 @@ func runDaemon(c *Context) int {
 	b := broker.New(broker.Config{
 		Poll:           *poll,
 		Reserve:        *reserve * gpu.MiB,
+		APUHeadroom:    *headroomMib * gpu.MiB,
 		ReleaseGrace:   *grace,
 		DefaultWait:    *wait,
 		Allow:          splitList(*allow),

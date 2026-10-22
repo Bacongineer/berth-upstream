@@ -91,9 +91,9 @@ func TestAMDRDNA3And4Snapshots(t *testing.T) {
 	}
 }
 
-func TestAMDMultiCardAndAPUExclusion(t *testing.T) {
+func TestAMDMultiCardAndUnsupportedAPUExclusion(t *testing.T) {
 	a := amdFixture(t)
-	amdFixtureCard(t, a, 1, "0000:0a:00.0", 11, 0, 1) // Phoenix, never selectable
+	amdFixtureCard(t, a, 1, "0000:0a:00.0", 11, 5, 0) // unvalidated APU IP remains excluded
 	amdFixtureCard(t, a, 10, "0001:04:00.0", 12, 0, 1)
 	amdFixtureProc(t, a, 101, "engine", 123,
 		drmSample("0000:03:00.0", "9", "drm-memory-vram: 1024 MiB"),
@@ -269,5 +269,11 @@ func TestAMDLiveReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%s PCI=%s VRAM total=%d used=%d free=%d processes=%+v telemetry=%+v", s.Name, s.Devices[0].BusID, s.Total, s.Used, s.Free, s.Procs, s.Devices[0])
+	var card Device
+	for _, d := range s.Devices {
+		if d.Index == s.Index {
+			card = d
+		}
+	}
+	t.Logf("%s PCI=%s APU=%v VRAM total=%d used=%d free=%d GTT capacity=%d used=%d processes=%+v telemetry=%+v", s.Name, card.BusID, s.APU, s.Total, s.Used, s.Free, s.GTTTotal, s.GTTUsed, s.Procs, card)
 }
