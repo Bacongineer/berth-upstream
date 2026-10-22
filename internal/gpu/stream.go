@@ -22,6 +22,11 @@ import (
 // away moves the used figure, and the periodic list catches anything else.
 // If the stream stalls, Read falls back to a one-shot query, so a dead
 // stream costs freshness, never correctness.
+//
+// Index picks the card on the first reading only. From then on the card is
+// its PCI bus id: a card passed through to a VM leaves nvidia-smi and the
+// cards after it are renumbered, and the scheduled card must not change
+// with them.
 type Stream struct {
 	Index     int
 	Bin       string
@@ -30,7 +35,8 @@ type Stream struct {
 	AppsEvery time.Duration // longest gap between process lists; default 10 s
 
 	mu       sync.Mutex
-	devices  map[int]Device
+	devices  map[string]seen // by bus id; a card that stops reporting drops out
+	busID    string          // the scheduled card, pinned by the first reading that finds Index
 	lastLine time.Time
 	procs    []Proc
 	procsAt  time.Time
@@ -63,7 +69,24 @@ func (s *Stream) Pause(p bool) {
 	}
 }
 
-func (s *Stream) oneShot() NvidiaSMI { return NvidiaSMI{Index: s.Index, Bin: s.Bin, Log: s.Log} }
+// seen is one card's last line from the stream and when it came.
+type seen struct {
+	Device
+	at time.Time
+}
+
+// oneShot is the one-shot probe for the card at busID ("" = by Index).
+func (s *Stream) oneShot(busID string) NvidiaSMI {
+	return NvidiaSMI{Index: s.Index, BusID: busID, Bin: s.Bin, Log: s.Log}
+}
+
+// pin records the scheduled card's bus id once a reading finds it. Called
+// with s.mu held.
+func (s *Stream) pin(busID string) {
+	if s.busID == "" {
+		s.busID = busID
+	}
+}
 
 func (s *Stream) interval() time.Duration {
 	if s.Interval <= 0 {
@@ -100,7 +123,7 @@ func (s *Stream) Run(ctx context.Context) {
 }
 
 func (s *Stream) follow(ctx context.Context) {
-	cmd := exec.CommandContext(ctx, s.oneShot().bin(),
+	cmd := exec.CommandContext(ctx, NvidiaSMI{Bin: s.Bin}.bin(),
 		"--query-gpu="+Query, "--format=csv,noheader,nounits",
 		"-lms", strconv.FormatInt(s.interval().Milliseconds(), 10))
 	out, err := cmd.StdoutPipe()
@@ -118,10 +141,14 @@ func (s *Stream) follow(ctx context.Context) {
 		}
 		s.mu.Lock()
 		if s.devices == nil {
-			s.devices = map[int]Device{}
+			s.devices = map[string]seen{}
 		}
-		s.devices[devs[0].Index] = devs[0]
+		key := devs[0].BusID
+		if key == "" {
+			key = "index " + strconv.Itoa(devs[0].Index)
+		}
 		s.lastLine = time.Now()
+		s.devices[key] = seen{devs[0], s.lastLine}
 		s.mu.Unlock()
 	}
 	_ = cmd.Wait()
@@ -135,30 +162,46 @@ func (s *Stream) Read(ctx context.Context) (Snapshot, error) {
 	s.mu.Lock()
 	fresh := !s.lastLine.IsZero() && time.Since(s.lastLine) < 3*s.interval()
 	if !fresh {
+		busID := s.busID
 		s.mu.Unlock()
-		return s.oneShot().Read(ctx)
+		snap, err := s.oneShot(busID).Read(ctx)
+		if err == nil {
+			s.mu.Lock()
+			s.pin(BusID(snap))
+			s.mu.Unlock()
+		}
+		return snap, err
 	}
 	snap := Snapshot{At: s.lastLine}
-	for _, d := range s.devices {
-		snap.Devices = append(snap.Devices, d)
+	for key, c := range s.devices {
+		if s.lastLine.Sub(c.at) >= 3*s.interval() {
+			delete(s.devices, key) // passed through, or renumbered under another key
+			continue
+		}
+		snap.Devices = append(snap.Devices, c.Device)
 	}
 	sort.Slice(snap.Devices, func(i, j int) bool { return snap.Devices[i].Index < snap.Devices[j].Index })
-	d, ok := s.devices[s.Index]
-	if !ok {
+	d, err := pick(snap.Devices, s.Index, s.busID)
+	if err != nil {
 		s.mu.Unlock()
-		return snap, fmt.Errorf("no GPU with index %d (found %d)", s.Index, len(s.devices))
+		return snap, err
 	}
+	s.pin(d.BusID)
+	selector := s.busID
 	snap.Index, snap.Name, snap.Total, snap.Used, snap.Free = d.Index, d.Name, d.Total, d.Used, d.Free
 	stale := s.procsAt.IsZero() || time.Since(s.procsAt) >= appsEvery || s.procsFor != d.Used
 	procs := s.procs
 	s.mu.Unlock()
 
 	if stale {
-		apps, err := s.oneShot().run(ctx, "-i", strconv.Itoa(s.Index), "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits")
+		if selector == "" {
+			selector = strconv.Itoa(d.Index)
+		}
+		apps, err := s.oneShot("").run(ctx, "-i", selector, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits")
 		if err != nil {
 			return snap, err
 		}
-		parsed, err := Parse(s.Index, fmt.Sprintf("%d, %s, %d, %d, %d", d.Index, d.Name, d.Total/MiB, d.Used/MiB, d.Free/MiB), apps, snap.At)
+		parsed, err := Parse(d.Index, fmt.Sprintf("%d, %s, %d, %d, %d", d.Index, d.Name, d.Total/MiB, d.Used/MiB, d.Free/MiB), apps, snap.At)
 		if err != nil {
 			return snap, err
 		}

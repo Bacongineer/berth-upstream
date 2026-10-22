@@ -6,6 +6,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- On a box with more than one NVIDIA card, berthd keeps governing its own card when another card is passed
+  through to a VM. nvidia-smi renumbers the cards that stay, so `--gpu N` now picks the card on the first reading
+  only, and from then on berthd follows that card's PCI address. Before, the daemon for the card left on the host
+  read a frozen copy of its old index, and the daemon for the card in the VM could read the other card as its own.
+
 ## [v0.3.4] - 2026-10-22
 
 The gateway can now switch the card and give it back without a prompt (`/v1/berth/switch`,

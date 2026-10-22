@@ -206,6 +206,21 @@ func BusID(s Snapshot) string {
 	return ""
 }
 
+// pick finds the scheduled card: by bus id once it is known, so a card that
+// took the index of one passed through to a VM is never read in its place,
+// and by index before that.
+func pick(devs []Device, index int, busID string) (Device, error) {
+	for _, d := range devs {
+		if busID != "" && strings.EqualFold(d.BusID, busID) || busID == "" && d.Index == index {
+			return d, nil
+		}
+	}
+	if busID != "" {
+		return Device{}, fmt.Errorf("no GPU at %s (found %d)", busID, len(devs))
+	}
+	return Device{}, fmt.Errorf("no GPU with index %d (found %d)", index, len(devs))
+}
+
 // parseBusID splits a pci.bus_id like "00000000:01:00.0" into its PCI bus,
 // device and function. The domain is not matched: the adapter address a
 // Windows query returns carries no domain, so a multi-domain box falls back
@@ -346,9 +361,11 @@ func logger(l *slog.Logger) *slog.Logger {
 	return l
 }
 
-// NvidiaSMI probes one GPU by index through nvidia-smi.
+// NvidiaSMI probes one GPU through nvidia-smi: the card at BusID when it
+// is set, otherwise the card at Index.
 type NvidiaSMI struct {
 	Index int
+	BusID string // pci.bus_id, as nvidia-smi prints it
 	Bin   string // default "nvidia-smi"
 	Log   *slog.Logger
 }
@@ -375,11 +392,23 @@ func (n NvidiaSMI) Read(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	apps, err := n.run(ctx, "-i", strconv.Itoa(n.Index), "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits")
+	devs, err := ParseDevices(mem)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	s, err := Parse(n.Index, mem, apps, time.Now())
+	d, err := pick(devs, n.Index, n.BusID)
+	if err != nil {
+		return Snapshot{Devices: devs}, err
+	}
+	selector := n.BusID
+	if selector == "" {
+		selector = strconv.Itoa(d.Index)
+	}
+	apps, err := n.run(ctx, "-i", selector, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	s, err := Parse(d.Index, mem, apps, time.Now())
 	if err != nil {
 		return s, err
 	}
