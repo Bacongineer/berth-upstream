@@ -21,6 +21,7 @@ import (
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/history"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -44,6 +45,7 @@ func runDaemon(c *Context) int {
 	webhook := fs.String("webhook", "", "POST squatter events here as JSON")
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines to read, /metrics listener ($BERTH_CONFIG); missing = none")
 	countersFile := fs.String("counters", defaultStateFile("counters.json"), "keeps the collisions board across restarts; \"\" = start at zero every time")
+	devicesFile := fs.String("devices", defaultStateFile("harbor-devices.json"), "devices paired to act from the harbor (berth pair); \"\" = pairing off")
 	usageFile := fs.String("usage", defaultStateFile("usage.json"), "card-hours per engine, the default juggle ranking; \"\" = memory only")
 	footprintFile := fs.String("footprint", defaultStateFile("footprint.json"), "VRAM measured per engine across restarts, the estimate behind EST. VRAM; \"\" = memory only")
 	if code, done := c.Parse(fs); done {
@@ -219,6 +221,9 @@ func runDaemon(c *Context) int {
 	x := server.Extras{Engines: watcher.Snapshot, Host: lastHost.Load, History: rec.Get,
 		Insights: func() *proto.Insights { return watcher.Insights(time.Now()) },
 		Requests: watcher.Requests, Alerts: lastAlerts.Load}
+	if *devicesFile != "" {
+		x.Pair = &pair.Store{Path: *devicesFile}
+	}
 	if err := server.Serve(ctx, ln, b, x, log); err != nil {
 		return c.fail(Systemf("serve: %v", err))
 	}

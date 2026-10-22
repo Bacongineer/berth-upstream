@@ -10,6 +10,9 @@ has a matching GitHub release whose body comes from its section below.
 
 - Gateway: `POST /v1/berth/switch` and `POST /v1/berth/stop` switch the card to an engine or give it back without
   sending a prompt. Stop never touches a pinned holder. The `/gui/` board's Launch now uses the same switch.
+- `berth pair` pairs a phone or browser with the harbor: a one-time link and its QR code, a
+  **Pair this device** page, and a device cookie for a year. `--list`, `--revoke ID` and `--revoke-all`
+  manage devices. berthd keeps only hashes. Pairing is the groundwork for switching engines from the harbor.
 - Gateway: `GET /v1/berth/board` reads the node in one call: the card and who holds it, every engine's state and
   actions, and each engine's models with which are loaded.
 - Linux AMD support (experimental), contributed by @jenerestain. `berth daemon --gpu-backend amd`
