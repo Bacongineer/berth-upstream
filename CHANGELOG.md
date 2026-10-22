@@ -89,6 +89,10 @@ has a matching GitHub release whose body comes from its section below.
   (`[32m[INFO][0m`), and a progress bar's line as its last redraw.
 - Windows: a process the GPU counters report but nvidia-smi does not list, such as dwm.exe
   holding the card's memory, now shows its name instead of a blank one.
+- The harbor engine cards and `berth status` draw an unreported rate as unknown, not zero. An
+  engine whose counters endpoint never answered (a llama-swap whose llama-server starts without
+  `--metrics`) shows n/a for decode, prefill and the token totals, and the ENGINE table prints a
+  dash. Reported by @azrael-229 ([#140](https://github.com/T-Crypt/berth/issues/140)).
 
 ## [v0.3.3] - 2026-10-21
 
