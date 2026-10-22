@@ -263,6 +263,11 @@ curl -s http://127.0.0.1:9799/v1/berth/stop   -H "Authorization: Bearer $(berth 
   pinned holder (a game, a render, `berth hold`) is a `409`: Berth never stops it from the network. An engine that is
   not running under a lease is a `409` too, and berthd not answering is a `503`.
 
+`GET /v1/berth/board` is the node in one read, for a board or a script: the card (who holds it, and whether it is
+free, held, draining, in a VM or failing its probe), then every engine in `berth.toml` with its state (up, offline,
+waiting, starting, failed), whether it can be switched to (`launch`) or stopped (`stoppable`), and its models with a
+`loaded` flag from the engine's own reader. `cards` is a list so a node with more cards needs no new shape.
+
 ## Open a stopped engine's web UI
 
 A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a
