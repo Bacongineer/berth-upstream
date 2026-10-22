@@ -28,21 +28,24 @@ per-process VRAM on Windows and the test suite on Windows in CI; and the proof k
 form and the [tested hardware](benchmarks.md#tested-hardware) table. v0.3.1 fixed `berth update` answering from
 a stale cache. The [CHANGELOG](https://github.com/T-Crypt/berth/blob/main/CHANGELOG.md) has every entry.
 
-## Shipped since: v0.3.3 (2026-10-21)
+## Shipped since: v0.3.4 (2026-10-22)
 
-v0.3.2 carried the first Windows testers' reports: the Epic launcher no longer holds the card from
-the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts only the
-governed card ([#82](https://github.com/T-Crypt/berth/issues/82)), and `berth service install`
-starts its Windows tasks ([#89](https://github.com/T-Crypt/berth/issues/89)), with the minimum turn,
-keys on drain requests and fail-closed drain boundaries beside them.
+v0.3.2 and v0.3.3 carried the first Windows testers' reports: the Epic launcher no longer holds the
+card from the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts only
+the governed card ([#82](https://github.com/T-Crypt/berth/issues/82)), the squatter total stops at
+the memory the driver reports in use ([#103](https://github.com/T-Crypt/berth/issues/103)), and a
+lease whose `berth run` process dies after attach frees itself
+([#104](https://github.com/T-Crypt/berth/issues/104)). The gateway warms the next engine's files
+during a drain and serves measured switch costs at `/v1/berth/cost` and `/v1/berth/plan`.
 
-v0.3.3 carries the next round. The squatter total stops at the memory the driver reports in use, so
-a Windows compositor's committed reservation no longer blocks admission
-([#103](https://github.com/T-Crypt/berth/issues/103)). A lease whose `berth run` process dies after
-attach frees itself ([#104](https://github.com/T-Crypt/berth/issues/104)), and the Windows check kit
-works again ([#105](https://github.com/T-Crypt/berth/issues/105)). The gateway warms the next
-engine's files during a drain (`prefetch`) and serves measured switch costs at `/v1/berth/cost` and
-`/v1/berth/plan`.
+v0.3.4 gives the gateway a keyed API for the card: `/v1/berth/switch`, `/v1/berth/stop` and
+`/v1/berth/board`, plus fallback routing to an engine that needs no card. `berth pair` pairs a phone
+or browser with the harbor, the groundwork for switching engines from it. Linux AMD support and
+`berth vfio` arrive as experimental. On Windows, desktop apps and dwm.exe leave the stowaway list
+([#149](https://github.com/T-Crypt/berth/issues/149)) and the CPU meter reads
+([#139](https://github.com/T-Crypt/berth/issues/139)). Engine rates hold through a llama.cpp
+generation ([#147](https://github.com/T-Crypt/berth/issues/147)), and the `chat` shelf is now `text`
+([#148](https://github.com/T-Crypt/berth/issues/148)).
 
 ## Next: v0.3.x
 

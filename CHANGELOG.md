@@ -6,6 +6,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.4] - 2026-10-22
+
+The gateway can now switch the card and give it back without a prompt (`/v1/berth/switch`,
+`/v1/berth/stop`), read the whole node in one call (`/v1/berth/board`), and fall back to an engine
+that needs no card while the primary starts. `berth pair` pairs a phone or browser with the harbor.
+Two experimental additions: Linux AMD support, contributed by @jenerestain, and passing the card to
+a VM with `berth vfio`. Windows testers' reports fixed the stowaway list, the CPU meter and engine
+rates. One upgrade note: the gateway no longer forwards the node's API key to engines (see Security).
+
 ### Added
 
 - Gateway: `POST /v1/berth/switch` and `POST /v1/berth/stop` switch the card to an engine or give it back without
