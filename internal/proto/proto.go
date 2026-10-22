@@ -450,6 +450,10 @@ type Engine struct {
 	Metrics    EngineMetrics `json:"metrics"`
 	DecodeTPS  float64       `json:"decode_tps"`
 	PrefillTPS float64       `json:"prefill_tps"`
+	// MetricsReported is true when this read got real counters from the
+	// engine. A zero rate beside it is an idle engine; without it the
+	// engine never answered its metrics endpoint and the rate is unknown.
+	MetricsReported bool `json:"metrics_reported"`
 	// Window is the engine-level context budget: the /props n_ctx for the
 	// llama.cpp family, the max model window for llama-swap. 0 = not reported.
 	Window int `json:"window,omitempty"`
