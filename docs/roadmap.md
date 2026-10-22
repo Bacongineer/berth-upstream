@@ -12,7 +12,7 @@
 | P5.5 | Harbor router: one URL serves models from any node in the fleet | Planned |
 | P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (**done**); Windows node (**experimental**) | Partly done |
 | P7 | Offers: a waiting request can offer for an idle card on another machine; the holder decides | Planned |
-| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Planned |
+| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Started: one berthd per card, named by PCI address (experimental) |
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
@@ -56,6 +56,12 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
 - Parked resume numbers in [Swap numbers](benchmarks.md#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
   CUDA engines on Linux.
+- VFIO on a box with two NVIDIA cards, experimental. Merged: berthd follows its card by PCI address,
+  starts while the card is in a VM, and `berth vfio run` ignores engines on the other card. Still to
+  do: keep the other card's berthd from opening the card being switched, after a measurement on a real
+  two-card box.
+- Hermes Agent as a gateway client: a `berth skill install` target, a setup page, and an overnight
+  recipe where Hermes and a ComfyUI batch queue share one card.
 
 Not started, and in no release yet: `berth fit` and scenes, so engines that fit together never swap.
 
@@ -65,8 +71,7 @@ Not started, and in no release yet: `berth fit` and scenes, so engines that fit 
 |---|---|
 | v0.4 | Broader AMD Linux hardware validation beyond the experimental RDNA3/RDNA4 probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
 | v0.4 | Proxmox in every common layout. Berth detects whether it runs on a Proxmox host, in an LXC container or in a VM and says where it belongs (`berth env`). Engines in LXC containers lease the host's card and show by container, and a system service covers hosts without a user session |
-| v0.4 | GPU passthrough to a VM (VFIO), experimental. `berth vfio run` drains the card and proves nothing holds it before your own script switches the driver, and the card shows as passed through until it comes back |
-| v0.5 | Multi-GPU scheduling, including one lease across two cards for engines that split a model |
+| v0.4 | Multi-GPU in one berthd, first as v0.4.0-rc preview tags. One daemon and one gateway for every card on the machine, cards named `gpu0` and `gpu1` or a name you pick, an engine pinned to one card or holding two under one lease, and one card in a VM while the rest serve. Then "any card that fits" |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 
