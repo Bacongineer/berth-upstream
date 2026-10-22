@@ -116,7 +116,7 @@ func TestMergeProcs(t *testing.T) {
 		{PID: 12, Name: "nvidia-smi", Used: 3 * MiB},
 	}
 	dedicated := map[int]uint64{
-		11: 10 << 20,  // fills the [N/A] compute app
+		11: 10 << 30,  // fills the [N/A] compute app
 		12: 99 << 20,  // nvidia-smi's own figure wins
 		13: 100 << 20, // a graphics client over the floor joins
 		14: 64 * MiB,  // exactly at the floor does not
@@ -126,13 +126,13 @@ func TestMergeProcs(t *testing.T) {
 	}
 	names := map[int]string{
 		11: "not-nfer-serve", // nvidia-smi's own name wins for a listed PID
-		13: "dwm.exe",        // a PDH-only PID takes the table's name
+		13: "Photoshop.exe",  // a PDH-only PID takes the table's name
 		16: "explorer.exe",
 	}
 	want := []Proc{
-		{PID: 11, Name: "nfer-serve", Used: 10 << 20},
+		{PID: 11, Name: "nfer-serve", Used: 10 << 30},
 		{PID: 12, Name: "nvidia-smi", Used: 3 * MiB},
-		{PID: 13, Name: "dwm.exe", Used: 100 << 20},
+		{PID: 13, Name: "Photoshop.exe", Used: 100 << 20},
 		{PID: 16, Name: "explorer.exe", Used: 65 << 20},
 		{PID: 17, Used: 70 << 20}, // no table entry: the name stays empty
 	}
@@ -141,7 +141,7 @@ func TestMergeProcs(t *testing.T) {
 	}
 	// A walk that found nothing (nil names) leaves every fresh PID nameless.
 	nameless := []Proc{
-		{PID: 11, Name: "nfer-serve", Used: 10 << 20},
+		{PID: 11, Name: "nfer-serve", Used: 10 << 30},
 		{PID: 12, Name: "nvidia-smi", Used: 3 * MiB},
 		{PID: 13, Used: 100 << 20},
 		{PID: 16, Used: 65 << 20},
@@ -152,5 +152,36 @@ func TestMergeProcs(t *testing.T) {
 	}
 	if got := mergeProcs(procs, nil, names); !reflect.DeepEqual(got, procs) {
 		t.Fatalf("mergeProcs with no PDH figures = %+v, want the list unchanged", got)
+	}
+}
+
+// TestMergeProcsWindowsDesktop is the reading behind issue 149: under WDDM
+// nvidia-smi lists every graphics client with [N/A], PDH puts them near
+// zero, and dwm.exe reports a committed reservation of 12307 MiB (#103)
+// while the 27B engine holds 14367 MiB of a 16303 MiB card. Only the engine
+// is a process on the card; the desktop is the baseline.
+func TestMergeProcsWindowsDesktop(t *testing.T) {
+	procs := []Proc{
+		{PID: 26152, Name: `C:\llama\llama-server.exe`},
+		{PID: 1964, Name: `C:\Windows\System32\dwm.exe`},
+		{PID: 7012, Name: `C:\Windows\explorer.exe`},
+		{PID: 8840, Name: `C:\Program Files\Google\Chrome\Application\chrome.exe`},
+		{PID: 9120, Name: `C:\Windows\SystemApps\SearchHost.exe`},
+	}
+	dedicated := map[int]uint64{
+		26152: 14367 * MiB,
+		1964:  12307 * MiB,
+		7012:  250 << 10,
+		8840:  200 * MiB, // a client that really holds memory stays visible
+		// 9120 has no PDH figure at all
+		4410: 11138 * MiB, // the compositor of a second session, PDH only
+	}
+	names := map[int]string{4410: "DWM.EXE"}
+	want := []Proc{
+		{PID: 26152, Name: `C:\llama\llama-server.exe`, Used: 14367 * MiB},
+		{PID: 8840, Name: `C:\Program Files\Google\Chrome\Application\chrome.exe`, Used: 200 * MiB},
+	}
+	if got := mergeProcs(procs, dedicated, names); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mergeProcs = %+v, want %+v", got, want)
 	}
 }
