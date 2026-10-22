@@ -161,7 +161,7 @@ export class EngineView {
       c.models.textContent = "";
       if (Array.isArray(eng.models) && eng.models.length > 0) {
         for (const m of eng.models) {
-          const vram = na(m.reported_vram, (v) => " " + fmtGiB(v) + "G");
+          const vram = " " + na(m.reported_vram, (v) => fmtGiB(v) + "G");
           c.models.append(el("div", "engine-model", el("span", null, m.name || "?"), el("span", "ms", (m.state || "") + vram)));
         }
       } else {
