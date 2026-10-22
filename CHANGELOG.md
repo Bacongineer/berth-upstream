@@ -117,6 +117,11 @@ has a matching GitHub release whose body comes from its section below.
   reports a committed reservation of 11 to 14 GiB, counts as the desktop baseline, as Xorg does on
   Linux, so DOCKED and STOWAWAY no longer add up past the card. Reported by @azrael-229
   ([#149](https://github.com/T-Crypt/berth/issues/149)).
+- An engine card no longer reads 0.0 t/s for most of a llama.cpp generation. llama.cpp adds a
+  request's tokens to its counters only when the request ends, so the decode and prefill rates
+  sat at 0 and spiked once per request. While a request runs, the card now shows the rate the
+  last finished request measured; an idle engine still reads 0. Reported by @azrael-229
+  ([#147](https://github.com/T-Crypt/berth/issues/147)).
 
 ## [v0.3.3] - 2026-10-21
 
