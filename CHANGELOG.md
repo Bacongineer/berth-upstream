@@ -8,6 +8,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Gateway: `POST /v1/berth/switch` and `POST /v1/berth/stop` switch the card to an engine or give it back without
+  sending a prompt. Stop never touches a pinned holder. The `/gui/` board's Launch now uses the same switch.
 - Linux AMD support (experimental), contributed by @jenerestain. `berth daemon --gpu-backend amd`
   governs a discrete RDNA3 or RDNA4 card, or a Phoenix APU (Radeon 780M), read from sysfs and DRM
   `fdinfo` with no ROCm. `--gpu N` names DRM cardN. On an APU, reserved VRAM and GTT (shared host

@@ -350,40 +350,15 @@ func names(card []guiHold) string {
 	return strings.Join(out, " and ")
 }
 
-// guiWake starts the engine in the background and answers at once; the page
-// polls /state. A second ask while a start is under way joins it. Only the
-// Start button asks: opening the page never takes the card.
+// guiWake is the page's Launch: a switch to the engine. Only the button
+// asks; opening the page never takes the card.
 func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
 	e, ok := g.launchable(r.PathValue("name"))
 	if !ok {
 		apiError(w, http.StatusNotFound, "no engine of that name has a start command in berth.toml")
 		return
 	}
-	g.mu.Lock()
-	if g.wakes == nil {
-		g.wakes = map[string]*wake{}
-	}
-	already := g.wakes[e.Name] != nil && g.wakes[e.Name].starting
-	if !already {
-		g.wakes[e.Name] = &wake{starting: true}
-	}
-	g.mu.Unlock()
-	if !already {
-		g.log().Info("gui plane starting engine", "engine", e.Name)
-		go func() {
-			// The start outlives the page's request: a closed tab still
-			// leaves the engine coming up, bounded by the gateway's ready.
-			ctx, cancel := context.WithTimeout(context.Background(), g.ready())
-			defer cancel()
-			err := g.ensure(ctx, e)
-			if err != nil {
-				g.log().Warn("gui plane start failed", "engine", e.Name, "err", err)
-			}
-			g.mu.Lock()
-			g.wakes[e.Name] = &wake{err: err}
-			g.mu.Unlock()
-		}()
-	}
+	g.switchTo(e)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(guiStatus{State: "waiting", Message: "Asking berth for the card"})
