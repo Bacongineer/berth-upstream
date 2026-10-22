@@ -175,8 +175,13 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if b, ok := est[e.Name]; ok {
 				estimate = server.MiB(b)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%.0f t/s\t%.0f t/s\t%.0f\t%.0f\t%s\n", e.Name, e.Type, esc(up), strings.Join(names, ","),
-				e.DecodeTPS, e.PrefillTPS, e.Metrics.OutputTokens, e.Metrics.Processing+e.Metrics.Waiting, estimate)
+			// a rate with no metrics behind it is unknown, not a measured idle
+			decode, prefill := "-", "-"
+			if e.MetricsReported {
+				decode, prefill = fmt.Sprintf("%.0f t/s", e.DecodeTPS), fmt.Sprintf("%.0f t/s", e.PrefillTPS)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%.0f\t%.0f\t%s\n", e.Name, e.Type, esc(up), strings.Join(names, ","),
+				decode, prefill, e.Metrics.OutputTokens, e.Metrics.Processing+e.Metrics.Waiting, estimate)
 		}
 	}
 	tw.Flush()
