@@ -260,6 +260,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | [VFIO passthrough](docs/vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script, a box with two NVIDIA cards |
 | [Models](docs/models.md) | `berth pull`, integrity checks, shelves, `berth storage`, the page cache and `berth prefetch` |
 | [Gateway](docs/gateway.md) | One OpenAI-compatible port, cold starts, fallbacks, KV snapshots, switch costs, wake pages, park in RAM |
+| [Hermes Agent](docs/hermes.md) | Hermes on the gateway, auxiliary models, cold starts, the skill |
 | [The harbor and telemetry](docs/harbor.md) | Stowaways, the collisions board, alerts, every harbor panel, what Berth measures |
 | [Interfaces](docs/interfaces.md) | The CLI's output contract and exit codes, the harbor's options, Prometheus |
 | [Benchmarks](docs/benchmarks.md) | Tested hardware and measured swap times |

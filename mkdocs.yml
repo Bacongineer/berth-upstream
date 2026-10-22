@@ -30,6 +30,7 @@ nav:
   - VFIO passthrough (experimental): vfio.md
   - Models: models.md
   - Gateway: gateway.md
+  - Hermes Agent: hermes.md
   - The harbor and telemetry: harbor.md
   - Interfaces: interfaces.md
   - Benchmarks: benchmarks.md
