@@ -106,6 +106,12 @@ has a matching GitHub release whose body comes from its section below.
   engine whose counters endpoint never answered (a llama-swap whose llama-server starts without
   `--metrics`) shows n/a for decode, prefill and the token totals, and the ENGINE table prints a
   dash. Reported by @azrael-229 ([#140](https://github.com/T-Crypt/berth/issues/140)).
+- Windows: desktop apps no longer fill the stowaway list. nvidia-smi lists every graphics client with
+  no memory figure, so explorer, Chrome, OneDrive and 30 more showed as 0.0 GiB stowaways. A listed
+  process now needs the same 64 MiB in the GPU counters as an unlisted one. dwm.exe, whose counter
+  reports a committed reservation of 11 to 14 GiB, counts as the desktop baseline, as Xorg does on
+  Linux, so DOCKED and STOWAWAY no longer add up past the card. Reported by @azrael-229
+  ([#149](https://github.com/T-Crypt/berth/issues/149)).
 
 ## [v0.3.3] - 2026-10-21
 
