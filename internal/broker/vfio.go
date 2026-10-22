@@ -82,7 +82,18 @@ func (b *Broker) setCard(state, driver string) {
 // held.
 func (b *Broker) cardWhy() string {
 	if b.cardState == proto.CardDetaching {
-		return fmt.Sprintf("gpu%d is being passed through to a VM; it comes back when the VM's hold ends", b.snap.Index)
+		return fmt.Sprintf("%s is being passed through to a VM; it comes back when the VM's hold ends", b.cardName())
 	}
-	return fmt.Sprintf("gpu%d is passed through to a VM (%s); it comes back when the VM's hold ends", b.snap.Index, b.cardDriver)
+	return fmt.Sprintf("%s is passed through to a VM (%s); it comes back when the VM's hold ends", b.cardName(), b.cardDriver)
+}
+
+// cardName is how messages name the governed card: gpuN once a reading
+// placed it, its PCI address while berthd has never read it (it started
+// with the card in a VM, and gpu0 can be another card). Called with b.mu
+// held.
+func (b *Broker) cardName() string {
+	if b.snap.Name == "" && b.cardAddr != "" {
+		return "the card at " + b.cardAddr
+	}
+	return fmt.Sprintf("gpu%d", b.snap.Index)
 }

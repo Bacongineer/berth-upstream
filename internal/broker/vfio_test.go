@@ -346,6 +346,27 @@ func TestCardAddrNamesItsCardAmongTwoInVMs(t *testing.T) {
 	}
 }
 
+// A berthd that started with its card in a VM never read the card, so it
+// names the card by address in what waiters read, not as gpu0.
+func TestWaiterToldTheUnreadCardByAddress(t *testing.T) {
+	skipNonLinux(t)
+	sysfsCard(t, "0000:02:00.0", "vfio-pci")
+	p := &fakeProbe{}
+	p.set(true, "")
+	b := New(Config{CardAddr: "0000:02:00.0", DefaultWait: 2 * time.Second, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}, p, procs.Map{})
+	b.Tick(context.Background())
+	waiter := acquire(b, Request{Engine: "llama", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, waiter)
+	b.Tick(context.Background())
+
+	if why := lastWaiting(b); !strings.Contains(why, "the card at 0000:02:00.0 is passed through to a VM (vfio-pci)") {
+		t.Fatalf("wait reason = %q", why)
+	}
+	if card := b.Status().Passthrough; card == nil || card.Addr != "0000:02:00.0" {
+		t.Fatalf("passthrough = %+v, want the address", card)
+	}
+}
+
 // A card remembered on nvidia whose probe then fails is an ordinary probe
 // failure: the warning stands.
 func TestProbeFailureOnNvidiaWarns(t *testing.T) {

@@ -15,6 +15,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A berthd that starts with its card already in a VM names the card by its PCI address in `berth status`
+  and in what waiting requests read. Before, both said gpu0, which on a two-card box can be the other card.
 - On a box with two NVIDIA cards, `berth vfio run` no longer refuses because an engine on the other card
   is running. The holder check counts the switched card's own `/dev/nvidiaN` and DRM nodes, and counts
   the shared `/dev/nvidiactl` and `/dev/nvidia-uvm` only for a process that holds no other card. An
