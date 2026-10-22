@@ -15,3 +15,6 @@ bin/
 
 # mkdocs build output
 /site/
+
+# A worker's planning handoff, never part of the repo
+/plan.md
