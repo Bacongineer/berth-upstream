@@ -15,8 +15,9 @@ driver.
 - Holds the card for the whole session with a pinned lease at hold priority, so nothing else starts on
   it and nothing drains it.
 - Stops berthd's own `nvidia-smi` probe for the whole hold, then checks which processes still hold
-  `/dev/nvidia*` or the card's DRM nodes. Any holder stops the run, and Berth names it by PID and
-  device node.
+  the card's `/dev/nvidiaN`, its DRM nodes, or the shared `/dev/nvidiactl` and `/dev/nvidia-uvm`
+  without another card's node. Any holder stops the run, and Berth names it by PID and device node.
+  An engine that runs on another NVIDIA card keeps the shared nodes open and does not stop the run.
 - Runs your script with the terminal attached, so its sudo prompt and the VM's console reach you, and
   with `BERTH_VFIO_DEVICES` set to the card's PCI functions.
 - After the script exits, waits until every function of the card is off `vfio-pci` and the card

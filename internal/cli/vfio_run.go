@@ -257,7 +257,8 @@ func vfioRun(c *Context, o vfioRunOpts) int {
 		for _, b := range bad {
 			e = e.Detail("%s", b)
 		}
-		e = e.WithHint("stop the holders yourself (Berth never stops a process); berth vfio status names them")
+		e = e.WithHint("stop the holders yourself (Berth never stops a process); berth vfio status names them. " +
+			"An engine for another card opens this one too unless CUDA_VISIBLE_DEVICES names its own card's UUID")
 		return c.fail(e)
 	}
 

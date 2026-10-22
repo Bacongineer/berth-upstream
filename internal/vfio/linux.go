@@ -79,22 +79,25 @@ func (r Reader) Driver(addr string) (string, error) {
 	return filepath.Base(t), nil
 }
 
-// Openers lists the processes holding a device node of the card open: every
-// /dev/nvidia* and every DRM node of the card under /dev/dri, one entry per
-// process, sorted by PID. Berth's own probe (an nvidia-smi under the berth
-// process) is named as such, so the vfio commands can tell it apart from a
-// real holder.
+// Openers lists the processes holding a device node of the card open, one
+// entry per process, sorted by PID: the card's own /dev/nvidiaN, its DRM
+// nodes under /dev/dri, and the shared /dev/nvidia* nodes (nvidiactl,
+// nvidia-uvm) of a process that holds no other card's node. An engine on
+// another card keeps the shared nodes open and does not hold this one.
+// When the card's minor cannot be read, every /dev/nvidia* counts. Berth's
+// own probe (an nvidia-smi under the berth process) is named as such, so
+// the vfio commands can tell it apart from a real holder.
 func (r Reader) Openers(addr string) ([]Opener, error) {
 	drm, err := r.drmNodes(addr)
 	if err != nil {
 		return nil, err
 	}
+	minor := r.minor(addr)
 	entries, err := os.ReadDir(r.proc())
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", r.proc(), err)
 	}
 	var out []Opener
-	at := map[int]int{}
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
@@ -118,25 +121,25 @@ func (r Reader) Openers(addr string) ([]Opener, error) {
 			out = append(out, Opener{PID: pid, Name: r.comm(pid), Unreadable: true})
 			continue
 		}
+		var nodes []string
+		own, other := false, false
 		for _, f := range list {
 			t, err := os.Readlink(filepath.Join(fds, f.Name()))
 			if err != nil {
 				continue // the fd closed between listing and reading
 			}
-			if !holdsNode(t, drm) {
-				continue
-			}
-			i, ok := at[pid]
-			if !ok {
-				i = len(out)
-				at[pid] = i
-				out = append(out, Opener{PID: pid, Name: r.comm(pid), Probe: r.isProbe(pid)})
-			}
+			k := nodeOf(t, minor, drm)
+			own = own || k == nodeOwn
+			other = other || k == nodeOther
 			// One node opened many times reads once.
-			if !slices.Contains(out[i].Nodes, t) {
-				out[i].Nodes = append(out[i].Nodes, t)
+			if (k == nodeOwn || k == nodeShared) && !slices.Contains(nodes, t) {
+				nodes = append(nodes, t)
 			}
 		}
+		if !own && (other || len(nodes) == 0) {
+			continue
+		}
+		out = append(out, Opener{PID: pid, Name: r.comm(pid), Nodes: nodes, Probe: r.isProbe(pid)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
 	return out, nil
@@ -160,17 +163,55 @@ func (r Reader) drmNodes(addr string) (map[string]bool, error) {
 	return nodes, nil
 }
 
-// holdsNode reports whether an open fd's target is a device node of the
-// card: any /dev/nvidia* (nvidia0, nvidiactl, nvidia-modeset), or the
-// card's own DRM node under /dev/dri.
-func holdsNode(target string, drm map[string]bool) bool {
-	if strings.HasPrefix(target, "/dev/nvidia") {
-		return true
-	}
+// node is what an open fd's target is to the card being switched.
+type node int
+
+const (
+	nodeNone   node = iota
+	nodeOwn         // the card's /dev/nvidiaN or one of its DRM nodes
+	nodeOther       // another card's /dev/nvidiaM
+	nodeShared      // nvidiactl, nvidia-uvm, nvidia-modeset, nvidia-caps
+)
+
+// nodeOf sorts one fd target. minor is the card's /dev/nvidiaN number, -1
+// when unknown, and then every /dev/nvidia* is the card's own.
+func nodeOf(target string, minor int, drm map[string]bool) node {
 	if filepath.Dir(target) == "/dev/dri" && drm[filepath.Base(target)] {
-		return true
+		return nodeOwn
 	}
-	return false
+	rest, ok := strings.CutPrefix(target, "/dev/nvidia")
+	switch {
+	case !ok:
+		return nodeNone
+	case minor < 0:
+		return nodeOwn
+	}
+	n, err := strconv.Atoi(rest)
+	switch {
+	case err != nil:
+		return nodeShared
+	case n == minor:
+		return nodeOwn
+	}
+	return nodeOther
+}
+
+// minor is the card's /dev/nvidiaN number, from the NVIDIA driver's
+// information file for its PCI address; -1 when the driver does not list
+// the card (it is on another driver) or the file cannot be read.
+func (r Reader) minor(addr string) int {
+	b, err := os.ReadFile(filepath.Join(r.proc(), "driver", "nvidia", "gpus", addr, "information"))
+	if err != nil {
+		return -1
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "Device Minor:"); ok {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				return n
+			}
+		}
+	}
+	return -1
 }
 
 // comm is the process's command name; empty when unreadable.

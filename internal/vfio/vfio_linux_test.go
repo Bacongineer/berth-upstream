@@ -270,3 +270,37 @@ func TestOpenersWithoutDrm(t *testing.T) {
 		t.Fatalf("openers = %+v", ops)
 	}
 }
+
+// On a box with two NVIDIA cards, the card being switched is /dev/nvidia1.
+// An engine pinned to the other card keeps nvidiactl and nvidia-uvm open and
+// does not hold this card. An unpinned engine opens both cards and does.
+func TestOpenersCountsOnlyTheCardsOwnNodes(t *testing.T) {
+	tt := newTree(t)
+	tt.device(cardAddr, "nvidia")
+	tt.drm("card2", "renderD129")
+	info := filepath.Join(tt.proc, "driver", "nvidia", "gpus", cardAddr)
+	if err := os.MkdirAll(info, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(info, "information"), []byte("Model: \t\t NVIDIA GeForce RTX 4070\nBus Location: \t 0000:01:00.0\nDevice Minor: \t 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tt.process(200, "llama-server", 1, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia0")
+	tt.process(201, "ollama", 1, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia0", "/dev/nvidia1")
+	tt.process(202, "monitor", 1, "/dev/nvidiactl")
+	tt.process(203, "Xorg", 1, "/dev/dri/card2")
+
+	ops, err := tt.reader().Openers(cardAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := fmt.Sprint(ops)
+	want := fmt.Sprint([]Opener{
+		{PID: 201, Name: "ollama", Nodes: []string{"/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia1"}},
+		{PID: 202, Name: "monitor", Nodes: []string{"/dev/nvidiactl"}},
+		{PID: 203, Name: "Xorg", Nodes: []string{"/dev/dri/card2"}},
+	})
+	if got != want {
+		t.Fatalf("openers = %s, want %s", got, want)
+	}
+}

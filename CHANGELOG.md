@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On a box with two NVIDIA cards, `berth vfio run` no longer refuses because an engine on the other card
+  is running. The holder check counts the switched card's own `/dev/nvidiaN` and DRM nodes, and counts
+  the shared `/dev/nvidiactl` and `/dev/nvidia-uvm` only for a process that holds no other card. An
+  engine started without `CUDA_VISIBLE_DEVICES` opens both cards, so it is still named, and the refusal
+  says how to pin it.
 - On a box with more than one NVIDIA card, berthd keeps governing its own card when another card is passed
   through to a VM. nvidia-smi renumbers the cards that stay, so `--gpu N` now picks the card on the first reading
   only, and from then on berthd follows that card's PCI address. Before, the daemon for the card left on the host
