@@ -12,6 +12,9 @@ has a matching GitHub release whose body comes from its section below.
   `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
   granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.
   `card.passthrough` and `card.returned` events mark each change.
+- The harbor shows a card passed through to a VM (experimental): a GPU IN VM tag on every tab, the
+  card's panel and the departures board marked, the change named in the log, and the session left as a
+  gap in the tide.
 - `berth vfio status` and `berth vfio run` (experimental, Linux only) for passing the governed card to
   a VM. `status` shows IOMMU, the card's IOMMU group with each function's driver, and the processes
   holding the card. `run -- CMD` drains the card, stops berthd's own probe for the hold, refuses while
@@ -72,6 +75,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth vfio status ADDR` asks berthd for its view instead of calling it unreachable, and while the
+  card is in a VM it says so instead of printing the last memory reading as current.
 - The wake page and start errors show an engine's last log line without terminal color codes
   (`[32m[INFO][0m`), and a progress bar's line as its last redraw.
 - Windows: a process the GPU counters report but nvidia-smi does not list, such as dwm.exe
