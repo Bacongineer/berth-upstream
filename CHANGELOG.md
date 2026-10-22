@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth skill install --target hermes` installs the Berth skill for Hermes Agent, in
+  `$HERMES_HOME/skills/mlops/berth/` (`~/.hermes` when `HERMES_HOME` is unset). `--target all` includes
+  Hermes when its home exists, and never creates it.
 - `berth daemon --gpu` and `berth service install --gpu` take an NVIDIA card's PCI address
   (`--gpu 0000:02:00.0`) as well as an index. berthd follows that card from the first reading, and it
   starts while the card is bound to `vfio-pci`: it shows the card as passed through and governs it once

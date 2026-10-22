@@ -5,8 +5,6 @@ package cli
 
 import (
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/skill"
@@ -41,7 +39,7 @@ func (v skillInstallView) Human(c *Context, ok bool) error {
 
 func runSkillInstall(c *Context) int {
 	fs := c.FlagSet()
-	target := fs.String("target", "all", "claude, agents, opencode or all (comma-separated)")
+	target := fs.String("target", "all", "claude, agents, hermes, opencode or all (comma-separated; all includes hermes when its home exists)")
 	dir := fs.String("dir", "", "install into this skills directory instead (DIR/berth/SKILL.md)")
 	if code, done := c.Parse(fs); done {
 		return code
@@ -59,18 +57,15 @@ func runSkillInstall(c *Context) int {
 		}
 		names := strings.Split(*target, ",")
 		if *target == "all" {
-			names = names[:0]
-			for n := range skill.Targets {
-				names = append(names, n)
-			}
-			sort.Strings(names)
+			names = skill.All(home)
 		}
 		for _, n := range names {
-			rel, ok := skill.Targets[strings.TrimSpace(n)]
+			n = strings.TrimSpace(n)
+			dir, ok := skill.Dir(n, home)
 			if !ok {
-				return c.fail(Systemf("unknown target %q", n).WithHint("targets: claude, agents, opencode, all; or --dir"))
+				return c.fail(Systemf("unknown target %q", n).WithHint("targets: %s, all; or --dir", strings.Join(skill.Targets, ", ")))
 			}
-			places = append(places, skillPlace{Target: strings.TrimSpace(n), Path: filepath.Join(home, rel)})
+			places = append(places, skillPlace{Target: n, Path: dir})
 		}
 	}
 	var doc skillInstallDoc
