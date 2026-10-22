@@ -27,10 +27,12 @@ import (
 // it answers. A bookmark or a home-page tile can point there instead of at an
 // engine that may be stopped.
 //
-// It holds no key: it can only start an engine that has a start command and
-// a gui URL in berth.toml, which is what the operator asked for by writing
-// both. A start is a POST that must come from the page itself (same origin),
-// so another site cannot make a visitor's browser drain the card.
+// It holds no key: it can only start an engine that has a start command in
+// berth.toml, which is what the operator asked for by writing one. The index
+// launches any such engine, with a web UI or without one (Strata, a
+// llama-server), so a phone can switch the card. A start is a POST that must
+// come from the page itself (same origin), so another site cannot make a
+// visitor's browser drain the card.
 
 //go:embed gui
 var guiFS embed.FS
@@ -107,6 +109,17 @@ func (g *Gateway) guiEngine(name string) (*config.Engine, bool) {
 	for i := range g.Engines {
 		e := &g.Engines[i]
 		if e.Name == name && e.GUI != "" && len(e.Start) > 0 {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// launchable is the configured engine name, if Berth can start it.
+func (g *Gateway) launchable(name string) (*config.Engine, bool) {
+	for i := range g.Engines {
+		e := &g.Engines[i]
+		if e.Name == name && len(e.Start) > 0 {
 			return e, true
 		}
 	}
@@ -341,9 +354,9 @@ func names(card []guiHold) string {
 // polls /state. A second ask while a start is under way joins it. Only the
 // Start button asks: opening the page never takes the card.
 func (g *Gateway) guiWake(w http.ResponseWriter, r *http.Request) {
-	e, ok := g.guiEngine(r.PathValue("name"))
+	e, ok := g.launchable(r.PathValue("name"))
 	if !ok {
-		apiError(w, http.StatusNotFound, "no engine of that name has a gui and a start command in berth.toml")
+		apiError(w, http.StatusNotFound, "no engine of that name has a start command in berth.toml")
 		return
 	}
 	g.mu.Lock()
