@@ -84,6 +84,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- Windows: the host's CPU is read (GetSystemTimes), so the harbor's machine meter and `berth status` show real CPU
+  use instead of 0%. Windows has no load averages: the node now leaves them out of its JSON and the harbor and
+  `berth status` say n/a instead of three zeros. Reported by @azrael-229 (#139).
 - One empty `models--*` husk no longer makes a whole store read as an HF cache with no models,
   reported by @azrael-229 (#138). A root is an HF cache only when a `models--*` directory holds
   `snapshots`, so an abandoned download beside plain models keeps them listed.
