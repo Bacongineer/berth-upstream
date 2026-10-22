@@ -352,6 +352,10 @@ func TestScanDefaultRootsExist(t *testing.T) {
 		// os.UserHomeDir reads USERPROFILE there.
 		t.Setenv("USERPROFILE", home)
 	}
+	// A store the machine names in the environment wins over the home dir, and
+	// empty reads as unset.
+	t.Setenv("OLLAMA_MODELS", "")
+	t.Setenv("HF_HOME", "")
 	if got := DefaultRoots(); len(got) != 0 {
 		t.Errorf("DefaultRoots = %v over an empty home, want none", got)
 	}
