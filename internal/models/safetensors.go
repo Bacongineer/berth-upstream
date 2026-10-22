@@ -68,7 +68,7 @@ func ClassifyTensors(names []string) Shelf {
 		case strings.HasPrefix(l, "language_model."),
 			strings.HasPrefix(l, "model.language_model."),
 			strings.HasPrefix(l, "model.layers."):
-			return ShelfChat
+			return ShelfText
 		}
 	}
 	return ""

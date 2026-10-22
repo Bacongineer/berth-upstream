@@ -42,8 +42,8 @@ func TestModelsShelves(t *testing.T) {
 	if doc.Count != 3 {
 		t.Errorf("count = %d, want 3", doc.Count)
 	}
-	if u := doc.Shelves["chat"]; u == nil || u.Models != 1 || u.Bytes != 64<<10 {
-		t.Errorf("chat shelf = %+v, want one 64 MiB model", u)
+	if u := doc.Shelves["text"]; u == nil || u.Models != 1 || u.Bytes != 64<<10 {
+		t.Errorf("text shelf = %+v, want one 64 MiB model", u)
 	}
 	if u := doc.Shelves["image"]; u == nil || u.Models != 2 || u.Bytes != (32+16)<<10 {
 		t.Errorf("image shelf = %+v, want the config-declared two", u)
@@ -69,8 +69,20 @@ func TestModelsShelves(t *testing.T) {
 		t.Error("an unknown shelf must fail")
 	}
 
+	// "chat", the text shelf's old name, still filters to the text shelf.
+	code, out, errOut = runCLI(t, "models", "--shelf", "chat", "--format", "json")
+	if code != 0 {
+		t.Fatalf("--shelf chat: code %d\n%s%s", code, out, errOut)
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Count != 1 || doc.Shelf != "text" || doc.Models[0].Shelf != "text" {
+		t.Errorf("--shelf chat: count %d shelf %q", doc.Count, doc.Shelf)
+	}
+
 	// The human listing names the shelf it filtered on.
-	code, out, errOut = runCLI(t, "models", "--shelf", "chat")
+	code, out, errOut = runCLI(t, "models", "--shelf", "text")
 	if code != 0 {
 		t.Fatalf("human: code %d\n%s%s", code, out, errOut)
 	}

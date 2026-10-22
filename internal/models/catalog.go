@@ -77,6 +77,12 @@ func ReadCatalog(root string) (Catalog, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, fmt.Errorf("%s: %w", CatalogName, err)
 	}
+	// A machine on an older Berth writes the text shelf as "chat".
+	for i, m := range c.Models {
+		if sh, ok := ParseShelf(string(m.Shelf)); ok {
+			c.Models[i].Shelf = sh
+		}
+	}
 	return c, nil
 }
 

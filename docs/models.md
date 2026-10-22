@@ -17,8 +17,11 @@
   its files would leave the root under `[library] free_floor` (a tenth by default, `0`
   turns it off). A root whose space this platform cannot measure says the floor was not
   checked, and goes on: a guard that cannot measure does not claim to guard.
-- **Shelves.** `berth models` reads each model for which shelf it is: chat, image, audio,
-  or unshelved when the file states nothing. A root declared in `[library]` (say
+- **Shelves.** `berth models` reads each model for the kind of engine that loads it: text,
+  image, audio, or unshelved when the file states nothing. Text is what llama.cpp, vLLM or
+  Ollama loads: chat models, and also embedders, rerankers and vision or OCR models. Image
+  is a diffusion model for ComfyUI or a similar engine, audio a speech model. Before v0.3.4
+  the text shelf was called `chat`, and `shelf = "chat"` and `--shelf chat` still work. A root declared in `[library]` (say
   `shelf = "image"`) declares what it holds, and that beats a file's header. The SHELF
   column shows it, `--shelf image` lists one shelf, and the totals under the listing say
   how much of the library each shelf holds.

@@ -52,7 +52,8 @@ func runHarbor(c *Context) int {
 	var shelves []models.RootShelf
 	for _, r := range cfg.Library.Root {
 		if r.Shelf != "" {
-			shelves = append(shelves, models.RootShelf{Path: r.Path, Shelf: models.Shelf(r.Shelf)})
+			sh, _ := models.ParseShelf(r.Shelf)
+			shelves = append(shelves, models.RootShelf{Path: r.Path, Shelf: sh})
 		}
 	}
 	addr := resolveListen(*listen, cfg.Harbor.Listen, DefaultHarborListen)
