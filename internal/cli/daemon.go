@@ -32,7 +32,7 @@ import (
 func runDaemon(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "Unix socket to listen on ($BERTH_SOCKET)")
-	index := fs.Int("gpu", 0, "GPU index")
+	card := fs.String("gpu", "0", "GPU index, or an NVIDIA card's PCI address (0000:02:00.0), which berthd follows into and out of a VM")
 	backend := fs.String("gpu-backend", "auto", "GPU probe: auto, nvidia or amd (AMD --gpu is the DRM cardN number)")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
@@ -54,7 +54,11 @@ func runDaemon(c *Context) int {
 	if code, done := c.noArgs(); done {
 		return code
 	}
-	if err := gpu.ValidateSelection(*backend, *index); err != nil {
+	index, addr, err := gpu.ParseCard(*card)
+	if err != nil {
+		return c.fail(Failf("%v", err))
+	}
+	if err := gpu.ValidateSelection(*backend, index); err != nil {
 		return c.fail(Failf("%v", err))
 	}
 
@@ -88,7 +92,7 @@ func runDaemon(c *Context) int {
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
 
-	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: *index, Interval: *poll, Log: log})
+	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: index, Addr: addr, Interval: *poll, Log: log})
 	if err != nil {
 		return c.fail(Systemf("gpu backend: %v", err))
 	}
@@ -107,6 +111,7 @@ func runDaemon(c *Context) int {
 	comfy := comfyEngines(cfg)
 	b := broker.New(broker.Config{
 		Poll:           *poll,
+		CardAddr:       addr,
 		Reserve:        *reserve * gpu.MiB,
 		APUHeadroom:    *headroomMib * gpu.MiB,
 		ReleaseGrace:   *grace,
@@ -147,14 +152,9 @@ func runDaemon(c *Context) int {
 			}
 		})
 
-	// Inventory every card with its real limits before taking any lease, and
-	// refuse to schedule a card that does not exist.
-	snap, err := probe.Read(ctx)
+	snap, err := inventory(ctx, probe, addr, log)
 	if err != nil {
 		return c.fail(Systemf("gpu inventory: %v", err))
-	}
-	for _, d := range snap.Devices {
-		log.Info("gpu found", "index", d.Index, "name", d.Name, "pci", d.BusID, "total_mib", d.Total/gpu.MiB, "scheduled", d.Index == *index)
 	}
 	if len(snap.Unobserved) > 0 {
 		log.Warn("some same-user GPU process data is inaccessible; unknown allocations remain in the driver baseline", "pids", snap.Unobserved)
@@ -171,7 +171,7 @@ func runDaemon(c *Context) int {
 		return c.fail(Systemf("listen on %s: %v", *sock, err))
 	}
 	defer os.Remove(*sock)
-	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *index)
+	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *card)
 	if stream, ok := probe.(interface{ Run(context.Context) }); ok {
 		go stream.Run(ctx)
 	}
@@ -290,6 +290,24 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// inventory reads every card with its real limits before berthd takes any
+// lease, and refuses a card that does not exist. A card named by its
+// address and bound to vfio-pci exists: it is in a VM, and the broker
+// reports it passed through until it comes back.
+func inventory(ctx context.Context, probe gpu.Probe, addr string, log *slog.Logger) (gpu.Snapshot, error) {
+	snap, err := probe.Read(ctx)
+	if err != nil && (addr == "" || gpu.DriverFor(addr) != gpu.VFIODriver) {
+		return snap, err
+	}
+	if err != nil {
+		log.Info("gpu is passed through to a VM; berthd governs it when it comes back", "pci", addr)
+	}
+	for _, d := range snap.Devices {
+		log.Info("gpu found", "index", d.Index, "name", d.Name, "pci", d.BusID, "total_mib", d.Total/gpu.MiB, "scheduled", err == nil && d.Index == snap.Index)
+	}
+	return snap, nil
 }
 
 // parkFloorBytes is the RAM a park must leave the machine: the [park]

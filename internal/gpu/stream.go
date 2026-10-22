@@ -36,7 +36,7 @@ type Stream struct {
 
 	mu       sync.Mutex
 	devices  map[string]seen // by bus id; a card that stops reporting drops out
-	busID    string          // the scheduled card, pinned by the first reading that finds Index
+	busID    string          // the scheduled card: --gpu's address, or pinned by the first reading that finds Index
 	lastLine time.Time
 	procs    []Proc
 	procsAt  time.Time

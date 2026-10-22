@@ -74,6 +74,38 @@ is still in the VM. Both run with `sh -c`, the terminal attached and `BERTH_VFIO
 While the hold is granted, berthd stops opening the card and `berth status` shows it as passed through
 to a VM. Waiting requests are told why.
 
+## Two NVIDIA cards
+
+On a box with two NVIDIA cards, each card has its own berthd. Name each card by its PCI address, not its
+index. `nvidia-smi` renumbers the cards that stay on the host when one goes to a VM, so an index can
+point at the other card. An address cannot. To find the addresses, run
+`nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv` while both cards are on the host.
+
+`berth service install` writes one `berthd` unit, so install it for the card that stays on the host and
+run the second daemon yourself, with its own socket and state files:
+
+```sh
+berth service install --gpu 0000:01:00.0
+berth daemon --gpu 0000:02:00.0 \
+  --socket "$XDG_RUNTIME_DIR/berth-vm.sock" \
+  --counters ~/.local/state/berth/vm-counters.json --usage ~/.local/state/berth/vm-usage.json \
+  --footprint ~/.local/state/berth/vm-footprint.json --devices ""
+```
+
+Commands for the second card take its socket: `BERTH_SOCKET=$XDG_RUNTIME_DIR/berth-vm.sock berth vfio run
+...`. A berthd started with an address also starts while its card is bound to `vfio-pci`, shows it as
+passed through, and takes it over when it comes back. With an index, that berthd refuses to start until
+the card is back on its host driver.
+
+Engines on the other card can keep running through the switch. Start each one with
+`CUDA_VISIBLE_DEVICES` set to its own card's UUID (`nvidia-smi -L` lists them). An engine without it
+opens both cards, and `berth vfio run` names it as a holder.
+
+One gap remains. The other card's berthd runs `nvidia-smi` over both cards, and that can open the card
+being switched for a moment. If the unbind in your script hangs, stop the other berthd in `--before`
+and start it again in `--after`. One berthd for every card is planned for v0.4 and removes the second
+daemon.
+
 ## Examples to adapt
 
 [contrib/vfio](https://github.com/T-Crypt/berth/tree/main/contrib/vfio) has a complete launcher for a

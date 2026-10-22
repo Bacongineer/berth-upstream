@@ -172,3 +172,34 @@ func TestStreamRefusesTheCardThatTookItsIndex(t *testing.T) {
 		t.Fatalf("one-shot read the card that took index 0: snap=%+v", snap)
 	}
 }
+
+// A card named by its address at start is that card from the first read.
+// When it starts in a VM, the card left on the host holds index 0 and must
+// not be read in its place; when it comes back at index 1 it is read.
+func TestStreamNamedByAddressSkipsTheCardAtItsIndex(t *testing.T) {
+	bin, dir := fakeTwoCards(t)
+	put(t, dir, "devs", "0, RTX 6000, 00000000:01:00.0, 49140, 200, 48940\n")
+	p, err := Open(Options{Backend: "nvidia", Addr: "0000:02:00.0", Interval: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := p.(*Stream)
+	s.Bin = bin
+	if snap, err := s.Read(context.Background()); err == nil {
+		t.Fatalf("read the card at index 0 while its own was in a VM: snap=%+v", snap)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+	put(t, dir, "devs", "0, RTX 6000, 00000000:01:00.0, 49140, 200, 48940\n1, RTX 4070, 00000000:02:00.0, 12282, 100, 12182\n")
+	time.Sleep(300 * time.Millisecond)
+	snap, err := s.Read(ctx)
+	if err != nil || snap.Name != "RTX 4070" || snap.Index != 1 {
+		t.Fatalf("after the 4070 came back: snap=%+v err=%v", snap, err)
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args"))
+	if !strings.Contains(string(args), "-i 0000:02:00.0") {
+		t.Fatalf("process list asked for %q, want the card's address", args)
+	}
+}

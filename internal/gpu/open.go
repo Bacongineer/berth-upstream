@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,8 +20,12 @@ var ErrUnsafeRead = errors.New("GPU observation unavailable")
 // Options selects a backend and its card. AMD indices are DRM card numbers,
 // NVIDIA indices are nvidia-smi indices; neither is a HIP/CUDA ordinal.
 type Options struct {
-	Backend  string
-	Index    int
+	Backend string
+	Index   int
+	// Addr pins an NVIDIA card by its PCI address in sysfs form
+	// ("0000:02:00.0") from the first read, so berthd can start while the
+	// card is in a VM and Index is not read.
+	Addr     string
 	Interval time.Duration
 	Log      *slog.Logger
 	// Roots are injectable for fixtures; empty means the host's sysfs/procfs.
@@ -38,6 +44,22 @@ func ValidateSelection(backend string, index int) error {
 	default:
 		return fmt.Errorf("GPU backend must be auto, nvidia or amd, got %q", backend)
 	}
+}
+
+// ParseCard reads a --gpu value: a PCI address ("0000:02:00.0", or
+// nvidia-smi's "00000000:02:00.0"), returned in sysfs form, or an index.
+func ParseCard(s string) (index int, addr string, err error) {
+	if strings.Contains(s, ":") {
+		if addr = SysfsAddr(s); addr == "" {
+			return 0, "", fmt.Errorf("GPU address must be a PCI address with its domain, like 0000:02:00.0, got %q", s)
+		}
+		return 0, addr, nil
+	}
+	index, err = strconv.Atoi(s)
+	if err != nil {
+		return 0, "", fmt.Errorf("GPU must be an index or a PCI address like 0000:02:00.0, got %q", s)
+	}
+	return index, "", nil
 }
 
 // Open reuses Probe for both vendors. Auto keeps NVIDIA whenever nvidia-smi
@@ -62,10 +84,13 @@ func Open(o Options) (Probe, error) {
 		}
 	}
 	if backend == "amd" {
+		if o.Addr != "" {
+			return nil, fmt.Errorf("an AMD card is selected by its DRM cardN number, not a PCI address")
+		}
 		return openAMD(o)
 	}
 	if o.Interval > 0 {
-		return &Stream{Index: o.Index, Interval: o.Interval, Log: o.Log}, nil
+		return &Stream{Index: o.Index, Interval: o.Interval, Log: o.Log, busID: o.Addr}, nil
 	}
-	return NvidiaSMI{Index: o.Index, Log: o.Log}, nil
+	return NvidiaSMI{Index: o.Index, BusID: o.Addr, Log: o.Log}, nil
 }

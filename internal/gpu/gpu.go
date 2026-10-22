@@ -208,10 +208,11 @@ func BusID(s Snapshot) string {
 
 // pick finds the scheduled card: by bus id once it is known, so a card that
 // took the index of one passed through to a VM is never read in its place,
-// and by index before that.
+// and by index before that. A bus id matches in nvidia-smi's form or in
+// sysfs form, as --gpu takes it.
 func pick(devs []Device, index int, busID string) (Device, error) {
 	for _, d := range devs {
-		if busID != "" && strings.EqualFold(d.BusID, busID) || busID == "" && d.Index == index {
+		if busID != "" && sameBus(d.BusID, busID) || busID == "" && d.Index == index {
 			return d, nil
 		}
 	}
@@ -219,6 +220,15 @@ func pick(devs []Device, index int, busID string) (Device, error) {
 		return Device{}, fmt.Errorf("no GPU at %s (found %d)", busID, len(devs))
 	}
 	return Device{}, fmt.Errorf("no GPU with index %d (found %d)", index, len(devs))
+}
+
+// sameBus is whether two bus ids name one PCI function, whatever the width
+// of their domain.
+func sameBus(a, b string) bool {
+	if x, y := SysfsAddr(a), SysfsAddr(b); x != "" && y != "" {
+		return x == y
+	}
+	return strings.EqualFold(a, b)
 }
 
 // parseBusID splits a pci.bus_id like "00000000:01:00.0" into its PCI bus,
