@@ -23,6 +23,9 @@ func (c *guardedCard) Read(context.Context) (gpu.Snapshot, error) { return c.sna
 
 func guardedSetup(t *testing.T) (*Broker, *guardedCard) {
 	t.Helper()
+	// No host card in a VM may turn a failed read into passthrough.
+	gpu.SysfsRoot = t.TempDir()
+	t.Cleanup(func() { gpu.SysfsRoot = "/sys" })
 	b, _, _ := setup(t, parkTree(100, 101))
 	c := &guardedCard{}
 	c.set(0)

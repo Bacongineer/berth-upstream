@@ -40,28 +40,25 @@ func ValidateSelection(backend string, index int) error {
 	}
 }
 
-// Open reuses Probe for both vendors. Auto refuses an ambiguous mixed-vendor
-// host rather than silently choosing a different vendor's card zero.
+// Open reuses Probe for both vendors. Auto keeps NVIDIA whenever nvidia-smi
+// is installed, as before AMD support, so a unit without --gpu-backend on an
+// NVIDIA host with a Phoenix iGPU still starts; AMD is chosen only without it.
 func Open(o Options) (Probe, error) {
 	if err := ValidateSelection(o.Backend, o.Index); err != nil {
 		return nil, err
 	}
 	backend := o.Backend
 	if backend == "" || backend == "auto" {
-		amd, err := hasAMD(o)
-		if err != nil {
-			return nil, err
-		}
-		_, nvErr := exec.LookPath("nvidia-smi")
-		switch {
-		case amd && nvErr == nil:
-			return nil, fmt.Errorf("AMD GPUs and nvidia-smi found; select --gpu-backend amd or nvidia explicitly")
-		case amd:
+		backend = "nvidia"
+		if _, err := exec.LookPath("nvidia-smi"); err != nil {
+			amd, err := hasAMD(o)
+			if err != nil {
+				return nil, err
+			}
+			if !amd {
+				return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
+			}
 			backend = "amd"
-		case nvErr == nil:
-			backend = "nvidia"
-		default:
-			return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
 		}
 	}
 	if backend == "amd" {

@@ -168,8 +168,9 @@ berth service install --harbor --gpu-backend amd --gpu 0
 ```
 
 For AMD, `--gpu N` means Linux DRM **cardN**, not a HIP/ROCm ordinal. The probe matches
-processes by PCI address, not PID alone. On mixed NVIDIA/AMD installations, choose
-`--gpu-backend` explicitly; auto refuses ambiguity. This selects what Berth observes,
+processes by PCI address, not PID alone. When `nvidia-smi` is installed, `auto` keeps the
+NVIDIA probe, so on a machine with both vendors pass `--gpu-backend amd` to govern the AMD
+card. This selects what Berth observes,
 not where the engine loads: configure the engine's GPU placement separately.
 
 The AMD adapter reads kernel sysfs and DRM `fdinfo`; no ROCm installation, `amd-smi`,

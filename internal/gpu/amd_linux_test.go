@@ -237,8 +237,14 @@ func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(opts); err == nil {
-		t.Fatal("mixed host silently selected a backend")
+	// An NVIDIA card beside a supported AMD GPU (a Phoenix laptop with an
+	// RTX dGPU) keeps the NVIDIA probe every installed unit has used.
+	p, err = Open(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p.(*Stream); !ok {
+		t.Fatalf("auto on a mixed host chose %T, want the NVIDIA probe", p)
 	}
 	opts.Backend = "nvidia"
 	p, err = Open(opts)
