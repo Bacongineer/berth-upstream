@@ -263,6 +263,8 @@ type Passthrough struct {
 	// Driver is the kernel driver bound to the card's PCI function at the
 	// last look: vfio-pci, the host driver mid-switch, or "" unbound.
 	Driver string `json:"driver"`
+	// Addr is the card's PCI address in sysfs form, "" when unknown.
+	Addr string `json:"addr,omitempty"`
 }
 
 // EngineFootprint is what the broker learned from one engine's leases: the

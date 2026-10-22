@@ -52,7 +52,7 @@ func (b *Broker) Status() proto.Status {
 		st.ProbeErr = b.probeErr.Error()
 	}
 	if b.cardState != "" {
-		st.Passthrough = &proto.Passthrough{State: b.cardState, Driver: b.cardDriver}
+		st.Passthrough = &proto.Passthrough{State: b.cardState, Driver: b.cardDriver, Addr: b.cardAddr}
 	}
 	devs := b.snap.Devices
 	if len(devs) == 0 && b.snap.Total > 0 {

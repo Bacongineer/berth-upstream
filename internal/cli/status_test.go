@@ -355,3 +355,18 @@ func TestEventsBadSince(t *testing.T) {
 		t.Errorf("stderr = %q", errOut)
 	}
 }
+
+// A berthd that started with its card in a VM has no reading, so its index
+// is unknown and gpu0 may be another card: status names the address.
+func TestStatusNamesAnUnreadPassthroughCardByAddress(t *testing.T) {
+	var out, errOut bytes.Buffer
+	c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+	st := &proto.Status{API: proto.APIVersion, Version: "test",
+		Passthrough: &proto.Passthrough{State: proto.CardPassthrough, Driver: "vfio-pci", Addr: "0000:02:00.0"}}
+	if err := (statusView{st: st}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "gpu     0000:02:00.0: passed through to a VM (vfio-pci)") || strings.Contains(s, "gpu0") {
+		t.Fatalf("stdout = %q, want the card named by its address", s)
+	}
+}
