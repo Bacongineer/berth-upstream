@@ -55,6 +55,7 @@ type Watcher struct {
 	since   time.Time
 	found   []config.Engine      // engines discovery added, after the configured ones
 	lastUp  map[string]time.Time // engine -> last read that answered
+	held    map[string]heldRates // engine -> the rates its counters last measured
 }
 
 // all is the configured engines then the discovered ones. Called with w.mu held.
@@ -136,6 +137,7 @@ func (w *Watcher) Poll(ctx context.Context) {
 			cur.State = "down" // never confirmed up
 		}
 		rates(&cur, prev)
+		w.hold(&cur, prev)
 		w.attribute(cur, prev)
 		w.state[e.Name] = cur
 		w.mu.Unlock()
@@ -236,6 +238,45 @@ func rates(cur *proto.Engine, prev proto.Engine) {
 	}
 	cur.DecodeTPS = rate(m.OutputTokens, outSec, p.OutputTokens, pOutSec)
 	cur.PrefillTPS = rate(m.PromptTokens, promptSec, p.PromptTokens, pPromptSec)
+}
+
+// heldRates are the decode and prefill rates an engine's counters last
+// measured.
+type heldRates struct {
+	decode, prefill float64
+}
+
+// hold keeps an engine's last measured rates on show while it works.
+// llama.cpp adds a request's tokens to its counters only when the request
+// ends (issue 147), so every read inside a generation sees no change and
+// rates gives 0 t/s. While a request is in flight and a counter has not
+// moved, the engine shows the rate that counter last measured. An idle
+// engine still reads 0, and a restart or a down engine forgets the rates.
+func (w *Watcher) hold(cur *proto.Engine, prev proto.Engine) {
+	if w.held == nil {
+		w.held = map[string]heldRates{}
+	}
+	m, p := cur.Metrics, prev.Metrics
+	if !cur.Up || m.OutputTokens < p.OutputTokens || m.PromptTokens < p.PromptTokens {
+		delete(w.held, cur.Name)
+		return
+	}
+	h := w.held[cur.Name]
+	busy := m.Processing > 0
+	for _, s := range cur.Slots {
+		busy = busy || s.Processing
+	}
+	keep := func(rate *float64, last *float64, frozen bool) {
+		switch {
+		case *rate > 0:
+			*last = *rate
+		case busy && frozen:
+			*rate = *last
+		}
+	}
+	keep(&cur.DecodeTPS, &h.decode, m.OutputTokens == p.OutputTokens)
+	keep(&cur.PrefillTPS, &h.prefill, m.PromptTokens == p.PromptTokens)
+	w.held[cur.Name] = h
 }
 
 func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
