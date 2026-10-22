@@ -35,7 +35,9 @@ func (v statusView) Human(c *Context, ok bool) error {
 	c.Printf("%s\n", c.Style.Dim(fmt.Sprintf("berthd %s on %s (api %d)", st.Version, v.sock, st.API)))
 
 	if len(st.GPUs) == 0 {
-		if p := st.Passthrough; p != nil {
+		if p := st.Passthrough; p != nil && p.Addr != "" {
+			c.Printf("gpu     %s: %s\n", p.Addr, cardLine(p))
+		} else if p != nil {
 			c.Printf("gpu0    %s\n", cardLine(p))
 		} else {
 			c.Printf("gpu     no reading yet\n")
