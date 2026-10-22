@@ -148,7 +148,7 @@ line goes away.
   CSV or JSON.
 
 **Built for agents and scripts**
-- **`berth skill install`** teaches Claude Code, Codex, OpenCode and other agents to ask Berth
+- **`berth skill install`** teaches Claude Code, Codex, OpenCode, Hermes Agent and other agents to ask Berth
   for the card instead of killing GPU processes.
 - Every reporting command takes `--format json|yaml`. All of them keep results on stdout and
   diagnostics on stderr, and exit 0, 1 or 2 by one rule.

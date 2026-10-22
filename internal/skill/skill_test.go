@@ -37,3 +37,29 @@ func TestDocFrontMatter(t *testing.T) {
 		t.Fatal("SKILL.md front matter is malformed")
 	}
 }
+
+func TestHermesTarget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HERMES_HOME", "")
+	t.Setenv("LOCALAPPDATA", "")
+	if got := strings.Join(All(home), ","); got != "agents,claude,opencode" {
+		t.Fatalf("all without a Hermes home = %s", got)
+	}
+	if err := os.Mkdir(filepath.Join(home, ".hermes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(All(home), ","); got != "agents,claude,hermes,opencode" {
+		t.Fatalf("all with ~/.hermes = %s", got)
+	}
+	if dir, _ := Dir("hermes", home); dir != filepath.Join(home, ".hermes", "skills", "mlops") {
+		t.Fatalf("hermes dir = %s", dir)
+	}
+	profile := filepath.Join(home, "profiles", "coder")
+	t.Setenv("HERMES_HOME", profile)
+	if dir, _ := Dir("hermes", home); dir != filepath.Join(profile, "skills", "mlops") {
+		t.Fatalf("hermes dir under HERMES_HOME = %s", dir)
+	}
+	if _, ok := Dir("cursor", home); ok {
+		t.Fatal("an unknown target resolved")
+	}
+}
