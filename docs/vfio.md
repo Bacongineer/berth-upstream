@@ -91,10 +91,13 @@ that berthd refuses to start until the card is back on its host driver.
 To find the addresses, run `nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv` while both cards
 are on the host. `berth vfio status` prints the governed card's address on its first line.
 
-Two gaps remain on a two-card box. The holder check in `berth vfio run` counts every process that has
-`/dev/nvidiactl` or `/dev/nvidia-uvm` open, so an engine on the other card stops the run. And the
-other card's berthd runs `nvidia-smi` across both cards, which opens the card being switched. Both
-fixes are in progress.
+Engines on the other card can keep running through the switch. Start each one with
+`CUDA_VISIBLE_DEVICES` set to its own card's UUID (`nvidia-smi -L` lists them). An engine without it
+opens both cards, and `berth vfio run` names it as a holder.
+
+One gap remains. The other card's berthd runs `nvidia-smi` over both cards, and that can open the card
+being switched for a moment. If the unbind in your script hangs, stop the other berthd in `--before`
+and start it again in `--after`.
 
 ## Examples to adapt
 
