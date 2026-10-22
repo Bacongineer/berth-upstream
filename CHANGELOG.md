@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Linux AMD support (experimental), contributed by @jenerestain. `berth daemon --gpu-backend amd`
+  governs a discrete RDNA3 or RDNA4 card, or a Phoenix APU (Radeon 780M), read from sysfs and DRM
+  `fdinfo` with no ROCm. `--gpu N` names DRM cardN. On an APU, reserved VRAM and GTT (shared host
+  RAM) are tracked apart, only whole-card leases are granted, and parking is refused. `auto` keeps
+  NVIDIA whenever `nvidia-smi` is installed, so existing NVIDIA setups are unchanged.
 - Card passed through to a VM (experimental). While the governed card is bound to `vfio-pci`,
   `berth status` and its JSON show it as passed through to a VM, and waiters are told why nothing is
   granted. While a VFIO hold is granted, berthd does not open the card, so a driver switch can run.

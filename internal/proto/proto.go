@@ -259,6 +259,7 @@ type Claim struct {
 	Procs   string `json:"procs,omitempty"` // the matched process names, for people
 	Lease   string `json:"lease,omitempty"` // hold: the lease it holds or waits on
 	Used    uint64 `json:"used,omitempty"`  // track: card memory under the matches
+	GTTUsed uint64 `json:"gtt_used,omitempty"`
 }
 
 // PriorityStatus is how the node ranks engines when two at one priority
@@ -302,6 +303,15 @@ type GPU struct {
 	Free      uint64  `json:"free"`
 	Baseline  uint64  `json:"baseline"`
 	Age       float64 `json:"age_seconds"`
+	// UnobservedPIDs are same-user processes whose DRM fdinfo is inaccessible.
+	// Their unknown allocation remains in Baseline; absence is not a release.
+	UnobservedPIDs []int `json:"unobserved_pids,omitempty"`
+	// On APUs Total/Used/Free describe the reserved-UMA VRAM pool only.
+	// GTT capacity is shared system RAM, never additional dedicated VRAM.
+	APU         bool   `json:"apu,omitempty"`
+	GTTTotal    uint64 `json:"gtt_total,omitempty"`
+	GTTUsed     uint64 `json:"gtt_used,omitempty"`
+	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
 
 	// Telemetry as the driver reports it; -1 = not reported.
 	Util       float64 `json:"util_pct"`
@@ -388,6 +398,8 @@ type Lease struct {
 	ContainerName string  `json:"container_name,omitempty"`
 	GPUPIDs       []int   `json:"gpu_pids,omitempty"`
 	Used          uint64  `json:"used"`
+	GTTUsed       uint64  `json:"gtt_used,omitempty"`
+	GTTContested  uint64  `json:"gtt_contested,omitempty"`
 	Contested     uint64  `json:"contested,omitempty"`
 	Age           float64 `json:"age_seconds"`
 	Pinned        bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
@@ -411,6 +423,7 @@ type Squatter struct {
 	PIDStart uint64 `json:"pid_start,omitempty"`
 	Name     string `json:"name"`
 	Used     uint64 `json:"used"`
+	GTTUsed  uint64 `json:"gtt_used,omitempty"`
 	Run      string `json:"unprotected_run,omitempty"`
 	// Container is the runtime container the process holds memory in,
 	// shortened to the 12 characters people quote; empty for a host
