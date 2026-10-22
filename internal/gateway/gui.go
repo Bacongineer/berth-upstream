@@ -55,7 +55,7 @@ func (g *Gateway) GUIHandler() http.Handler {
 	// The static route beats GET /gui/{name} in Go's ServeMux, so an engine
 	// named "state" loses that one URL to the plane's state endpoint.
 	mux.HandleFunc("GET /gui/state", func(w http.ResponseWriter, r *http.Request) {
-		rows := g.guiStateAll(r.Context())
+		rows := g.guiRows(r.Context(), g.nodeStatus())
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(rows)
@@ -172,11 +172,10 @@ func (g *Gateway) guiIndex(w http.ResponseWriter, _ *http.Request) {
 	_ = guiPage.Execute(w, v)
 }
 
-// guiStateAll is the plane's state: one row per engine in config order.
+// guiRows is the plane's state: one row per engine in config order.
 // Up rows come from the probe; everything else reuses cardView, exactly like
 // the per-engine state handler.
-func (g *Gateway) guiStateAll(ctx context.Context) []guiRow {
-	node := g.nodeStatus()
+func (g *Gateway) guiRows(ctx context.Context, node *proto.Status) []guiRow {
 	rows := make([]guiRow, 0, len(g.Engines))
 	for i := range g.Engines {
 		e := &g.Engines[i]
