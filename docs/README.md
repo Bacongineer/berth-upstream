@@ -9,9 +9,10 @@ has the overview, the quick start and screenshots. These pages are the reference
 | [Install](install.md) | The agent prompt, manual install, `berth.toml`, uninstall |
 | [Engines](engines.md) | Every engine Berth reads, API keys, ComfyUI as a suite |
 | [Leasing, games and holds](leasing.md) | Priorities, drains, stuck releases, the juggle guard, minimum turns, claims and `berth hold` |
-| [VFIO passthrough](vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script |
+| [VFIO passthrough](vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script, a box with two NVIDIA cards |
 | [Models](models.md) | `berth pull`, integrity checks, shelves, `berth storage`, the page cache and `berth prefetch` |
 | [Gateway](gateway.md) | One OpenAI-compatible port, cold starts, fallbacks, KV snapshots, switch costs, wake pages, park in RAM |
+| [Hermes Agent](hermes.md) | Hermes on the gateway, auxiliary models, cold starts, the skill |
 | [The harbor and telemetry](harbor.md) | Stowaways, the collisions board, alerts, every harbor panel, what Berth measures |
 | [Interfaces](interfaces.md) | The CLI's output contract and exit codes, the harbor's options, Prometheus |
 | [Benchmarks](benchmarks.md) | Tested hardware and measured swap times |
