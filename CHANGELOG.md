@@ -80,6 +80,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The gateway's `/gui/` board launches an engine that has a `start` command but no `gui` URL (Strata, a
+  llama-server). Its Launch button answered 404 and stayed on "Launching..."; it now starts the engine under a
+  lease and shows Running once it answers. A refused start shows its reason instead of hanging.
 - `berth vfio status ADDR` asks berthd for its view instead of calling it unreachable, and while the
   card is in a VM it says so instead of printing the last memory reading as current.
 - The wake page and start errors show an engine's last log line without terminal color codes

@@ -270,7 +270,9 @@ Point the bookmark (or a home-page tile) at `http://127.0.0.1:9796/gui/comfyui` 
 - **After Launch:** the page says what the start waits for, in the broker's terms: "Waiting for strata release:
   finishing its current request", "Waiting for llama-swap (NInfer-27B) release: freeing its memory", then
   "loading comfyui". It opens the UI once ComfyUI answers. A failed start shows its reason code and a retry button.
-- `/gui/` lists every engine with a wake page.
+- `/gui/` lists every engine in `berth.toml` with its live state. Any engine with a `start` command gets a Launch
+  button there, with or without a `gui` URL, so a phone on the tailnet can switch the card to Strata or a
+  llama-server too. An engine with no web UI shows **Running** once it answers.
 
 <p align="center"><img src="https://raw.githubusercontent.com/T-Crypt/berth/main/assets/preview-wake.png" alt="The gateway's wake page for comfyui: comfyui is offline and the card is free, with a Launch comfyui button" width="560"></p>
 
@@ -279,7 +281,7 @@ slots are idle (`drain_post`), ComfyUI once its queue is empty (`drain_comfyui`)
 once its `/slots` show idle (`drain_slots`, below). A pinned holder (a game, a render, `berth hold`) is never stopped;
 the page says so and the start waits until it ends.
 
-The wake page needs no API key: it can only start an engine you gave both `start` and `gui`. It listens on
+The wake page needs no API key: it can only start an engine you gave a `start` command. It listens on
 loopback, accepts loopback Host names plus the gateway's `--allow-host` names (for `tailscale serve` in
 front), and takes a start only as a POST from its own page, so another site cannot make a visitor's
 browser drain the card.
