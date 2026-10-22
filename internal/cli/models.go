@@ -350,18 +350,19 @@ func runModels(c *Context) int {
 		"(the USED column always shows the last time the harbor saw a model serve anything)")
 	fs.BoolVar(&noUsage, "no-usage", false, "never open the harbor database")
 	noCache := fs.Bool("no-cache-check", false, "skip the page-cache check behind the CACHED column")
-	shelf := fs.String("shelf", "", "show only models on this shelf: chat, image or audio")
+	shelfArg := fs.String("shelf", "", "show only models on this shelf: text, image or audio")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
-	if *shelf != "" && !models.Shelf(*shelf).Valid() {
-		return c.fail(Failf("--shelf %q is not a shelf", *shelf).
-			WithHint("the shelves are chat, image and audio"))
+	shelf, ok := models.ParseShelf(*shelfArg)
+	if *shelfArg != "" && !ok {
+		return c.fail(Failf("--shelf %q is not a shelf", *shelfArg).
+			WithHint("the shelves are text, image and audio"))
 	}
 	if code, done := c.noArgs(); done {
 		return code
 	}
-	doc := modelsDoc{Status: "ok", Shelf: *shelf}
+	doc := modelsDoc{Status: "ok", Shelf: string(shelf)}
 	// The window is what a person types; 30d because that is how a retention is
 	// written everywhere else in Berth.
 	var since time.Time
@@ -405,7 +406,8 @@ func runModels(c *Context) int {
 	var declared []models.RootShelf
 	for _, r := range cfg.Library.Root {
 		if r.Shelf != "" {
-			declared = append(declared, models.RootShelf{Path: r.Path, Shelf: models.Shelf(r.Shelf)})
+			sh, _ := models.ParseShelf(r.Shelf)
+			declared = append(declared, models.RootShelf{Path: r.Path, Shelf: sh})
 		}
 	}
 	models.ApplyRootShelves(ms, declared)
@@ -437,10 +439,10 @@ func runModels(c *Context) int {
 		}
 		doc.Companions = len(seen)
 	}
-	if *shelf != "" {
+	if shelf != "" {
 		var filtered []models.Model
 		for _, m := range listed {
-			if m.Shelf == models.Shelf(*shelf) {
+			if m.Shelf == shelf {
 				filtered = append(filtered, m)
 			}
 		}

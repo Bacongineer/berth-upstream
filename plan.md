@@ -40,7 +40,7 @@ No subagents; each unit builds, tests, commits before the next.
 free_floor = 0.10          # fraction of a root's total space that stays free; 0 disables the guard
 [[library.root]]
 path  = "/mnt/windows/ComfyUI/models"
-shelf = "image"            # chat | image | audio; declared shelf beats inference for the whole root
+shelf = "image"            # text | image | audio; declared shelf beats inference for the whole root
 shared = "windows"         # the other OS this root is shared with; "" = local only
 ```
 

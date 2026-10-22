@@ -10,19 +10,31 @@ import (
 	"strings"
 )
 
-// Shelf is what a model is for: chat and text, image generation, or audio.
-// The empty shelf is no shelf: Berth could not tell, and it says so instead
-// of guessing.
+// Shelf is the kind of engine that loads a model. Text is what a language
+// engine (llama.cpp, vLLM, Ollama) loads: chat models, and also embedders,
+// rerankers and vision or OCR models (issue 148). Image is what a diffusion
+// engine loads, audio what a speech engine loads. The empty shelf is no
+// shelf: Berth could not tell, and it says so instead of guessing.
 type Shelf string
 
 const (
-	ShelfChat  Shelf = "chat"
+	ShelfText  Shelf = "text"
 	ShelfImage Shelf = "image"
 	ShelfAudio Shelf = "audio"
 )
 
 // Shelves is the declared set, for validation and listing order.
-var Shelves = []Shelf{ShelfChat, ShelfImage, ShelfAudio}
+var Shelves = []Shelf{ShelfText, ShelfImage, ShelfAudio}
+
+// ParseShelf reads a shelf from a config or a flag. "chat", the text
+// shelf's name before v0.3.4, still reads as text, so older configs keep
+// working.
+func ParseShelf(s string) (Shelf, bool) {
+	if s == "chat" {
+		return ShelfText, true
+	}
+	return Shelf(s), Shelf(s).Valid()
+}
 
 // Valid is whether s names one of the shelves.
 func (s Shelf) Valid() bool {
@@ -35,8 +47,10 @@ func (s Shelf) Valid() bool {
 }
 
 // imageGGUFArchs are the architectures a diffusion model reports inside a
-// GGUF. Every other readable GGUF architecture is a language model, which is
-// what the format exists for.
+// GGUF. Every other readable GGUF architecture is one llama.cpp loads, which
+// is what the format exists for, so it goes on the text shelf. A
+// safetensors model_type has no such default: the format carries any kind
+// of model, so a type no table names stays unknown.
 var imageGGUFArchs = map[string]bool{
 	"stable_diffusion": true, "stable-diffusion": true, "sdxl": true, "sd3": true,
 	"sd35": true, "flux": true, "stable_cascade": true, "omnigen": true, "wan": true,
@@ -56,7 +70,7 @@ var imageModelTypes = map[string]bool{
 var audioModelTypes = map[string]bool{"whisper": true}
 
 // chatModelTypes are the config.json model_type values of language models,
-// the ones Berth's own engines load. A value not in any of the three tables
+// the ones a language engine loads. A value not in any of the three tables
 // stays unknown.
 var chatModelTypes = map[string]bool{
 	"llama": true, "mistral": true, "mixtral": true, "qwen": true, "gemma": true,
@@ -81,7 +95,7 @@ var imageNameWords = []string{"lora", "vae", "upscaler", "unet", "sdxl", "flux",
 func ShelfOf(m *Model) Shelf {
 	switch m.Source {
 	case SourceOllama, SourceLMStudio:
-		return ShelfChat
+		return ShelfText
 	}
 	if m.Format == FormatGGUF && m.Arch != "" {
 		a := strings.ToLower(m.Arch)
@@ -91,7 +105,7 @@ func ShelfOf(m *Model) Shelf {
 		if imageGGUFArchs[a] {
 			return ShelfImage
 		}
-		return ShelfChat
+		return ShelfText
 	}
 	if m.Format == FormatSafetensors && m.Arch != "" {
 		a := strings.ToLower(m.Arch)
@@ -102,7 +116,7 @@ func ShelfOf(m *Model) Shelf {
 			return ShelfImage
 		}
 		if chatModelTypes[a] {
-			return ShelfChat
+			return ShelfText
 		}
 	}
 	if s := shelfByName(m.Name, m.Path); s != "" {

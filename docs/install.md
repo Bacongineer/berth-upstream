@@ -115,7 +115,7 @@ crit = 10
 
 [[library.root]]             # what a root holds and shares
 path   = "/mnt/d/models"
-shelf  = "image"             # chat | image | audio; beats what the files say
+shelf  = "image"             # text | image | audio; beats what the files say
 shared = "windows"           # the other side of a shared root, shown by berth storage
 ```
 

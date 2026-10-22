@@ -256,7 +256,7 @@ cache, LM Studio's model directories, Ollama's store and ~/models - plus any
 --dir you name, or the [models] dirs berth.toml names.
 
 One row per model: MODEL is the file's stem (the name that never collides - a
-model's quants all answer to the same name inside the file), SHELF (chat,
+model's quants all answer to the same name inside the file), SHELF (text,
 image, audio, or - when nothing in the file states one), then QUANT, SIZE,
 CACHED, PARAMS, CTX, ARCH, how many companion files belong to it (+COMP) and
 USED, when the harbor last saw it serve a request. CACHED is how much of the
@@ -532,7 +532,7 @@ reclaim that finishes the job.`,
 		Args:    "[--dir D]... [--format F]",
 		Help: `Check each model root: the filesystem it sits on, the space it has left,
 what it supports (hard links, symlinks, reflinks), which other operating
-systems it is shared with, and how much of it each shelf (chat, image,
+systems it is shared with, and how much of it each shelf (text, image,
 audio) holds. A root that is under its floor marks the check failed; the
 floor is [library] free_floor, a tenth of the root by default.
 

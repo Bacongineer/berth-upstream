@@ -30,7 +30,7 @@ func ggufShelf(t *testing.T, arch, name string) Shelf {
 }
 
 func TestShelfOfGGUFArch(t *testing.T) {
-	if s := ggufShelf(t, "llama", "qwen3-30b"); s != ShelfChat {
+	if s := ggufShelf(t, "llama", "qwen3-30b"); s != ShelfText {
 		t.Errorf("llama arch = %q, want chat", s)
 	}
 	if s := ggufShelf(t, "whisper", "whisper-large"); s != ShelfAudio {
@@ -102,8 +102,8 @@ func TestClassifyTensors(t *testing.T) {
 		{[]string{"model.diffusion_model.blocks.0.weight"}, ShelfImage},
 		{[]string{"first_stage_model.encoder.weight"}, ShelfImage},
 		{[]string{"text_model.encoder.weight"}, ShelfImage},
-		{[]string{"language_model.layers.0.weight"}, ShelfChat},
-		{[]string{"model.layers.0.mlp.weight"}, ShelfChat},
+		{[]string{"language_model.layers.0.weight"}, ShelfText},
+		{[]string{"model.layers.0.mlp.weight"}, ShelfText},
 		{[]string{"wte.weight", "attn.weight"}, ""},
 		{nil, ""},
 	} {
@@ -133,7 +133,7 @@ func TestShelfOfSafetensorsDir(t *testing.T) {
 	if s := mk(t, map[string]any{"model.diffusion_model.x": map[string]any{"dtype": "F16"}}, `{"model_type":"stable-diffusion"}`); s != ShelfImage {
 		t.Errorf("config stable-diffusion = %q, want image", s)
 	}
-	if s := mk(t, map[string]any{"model.diffusion_model.x": map[string]any{"dtype": "F16"}}, `{"model_type":"llama"}`); s != ShelfChat {
+	if s := mk(t, map[string]any{"model.diffusion_model.x": map[string]any{"dtype": "F16"}}, `{"model_type":"llama"}`); s != ShelfText {
 		t.Errorf("config llama = %q, want chat (the config outranks the tensors)", s)
 	}
 	if s := mk(t, map[string]any{"lora_down.weight": map[string]any{"dtype": "F16"}}, `{}`); s != ShelfImage {
@@ -143,7 +143,7 @@ func TestShelfOfSafetensorsDir(t *testing.T) {
 
 func TestApplyRootShelves(t *testing.T) {
 	ms := []Model{
-		{Path: "/mnt/windows/ComfyUI/models/checkpoints/x.safetensors", Shelf: ShelfChat},
+		{Path: "/mnt/windows/ComfyUI/models/checkpoints/x.safetensors", Shelf: ShelfText},
 		{Path: "/mnt/windows/other/y.gguf", Shelf: ShelfAudio},
 	}
 	ApplyRootShelves(ms, []RootShelf{
@@ -161,12 +161,12 @@ func TestApplyRootShelves(t *testing.T) {
 
 func TestShelfTotals(t *testing.T) {
 	got := ShelfTotals([]Model{
-		{Shelf: ShelfChat, Bytes: 100},
-		{Shelf: ShelfChat, Bytes: 50},
+		{Shelf: ShelfText, Bytes: 100},
+		{Shelf: ShelfText, Bytes: 50},
 		{Shelf: ShelfImage, Bytes: 7},
 		{Bytes: 3},
 	})
-	if got[ShelfChat] != 150 || got[ShelfImage] != 7 || got[""] != 3 {
+	if got[ShelfText] != 150 || got[ShelfImage] != 7 || got[""] != 3 {
 		t.Errorf("totals = %+v", got)
 	}
 }

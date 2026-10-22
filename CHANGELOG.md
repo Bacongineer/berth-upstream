@@ -74,6 +74,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- The `chat` shelf is now called `text`: the shelf names the kind of engine that loads a model, and
+  embedders, rerankers and vision or OCR models sit there too. `berth models`, its JSON and the
+  harbor say `text`. `shelf = "chat"` in berth.toml, `--shelf chat` and catalogs from older
+  machines still read as `text`. Asked by @azrael-229
+  ([#148](https://github.com/T-Crypt/berth/issues/148)).
 - The README keeps the overview, quick start and screenshots, and the reference moved to pages under
   `docs/`: install, engines, leasing, models, gateway, the harbor, interfaces, benchmarks, roadmap and
   FAQ. The README's old Tested hardware, Swap numbers and Roadmap headings link to their new pages.

@@ -105,7 +105,7 @@ func TestModelsEndpoint(t *testing.T) {
 	if m.Name == "" {
 		t.Fatalf("rows: %+v", doc.Models)
 	}
-	if m.Name != "synth-8b" || m.Shelf != "chat" || m.Quant != "Q4_K_M" {
+	if m.Name != "synth-8b" || m.Shelf != "text" || m.Quant != "Q4_K_M" {
 		t.Fatalf("row: %+v", m)
 	}
 	// the CACHED figures ride on the model itself; the share is the kernel

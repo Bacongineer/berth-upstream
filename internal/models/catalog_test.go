@@ -15,7 +15,7 @@ import (
 func TestCatalogRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	ms := []Model{
-		{Name: "qwen3-30b", Path: filepath.Join(root, "qwen3-30b.Q4_K_M.gguf"), Shelf: ShelfChat, Bytes: 17 << 30},
+		{Name: "qwen3-30b", Path: filepath.Join(root, "qwen3-30b.Q4_K_M.gguf"), Shelf: ShelfText, Bytes: 17 << 30},
 		{Name: "flux-lora", Path: filepath.Join(root, "lora", "flux.safetensors"), Shelf: ShelfImage, Bytes: 1 << 30},
 		{Name: "mystery", Path: filepath.Join(root, "mystery.gguf"), Bytes: 5},
 	}
@@ -32,7 +32,7 @@ func TestCatalogRoundTrip(t *testing.T) {
 	if len(c.Models) != 3 {
 		t.Fatalf("models = %d, want 3", len(c.Models))
 	}
-	if c.Models[0].Shelf != ShelfChat || c.Models[1].Shelf != ShelfImage || c.Models[2].Shelf != "" {
+	if c.Models[0].Shelf != ShelfText || c.Models[1].Shelf != ShelfImage || c.Models[2].Shelf != "" {
 		t.Errorf("shelves = %v %v %v, want chat, image, none", c.Models[0].Shelf, c.Models[1].Shelf, c.Models[2].Shelf)
 	}
 	// A re-scan rewrites the snapshot rather than appending to it.
@@ -95,7 +95,7 @@ func TestReadForeignCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Host != "galaxy" || len(c.Models) != 1 || c.Models[0].Shelf != ShelfChat {
+	if c.Host != "galaxy" || len(c.Models) != 1 || c.Models[0].Shelf != ShelfText {
 		t.Errorf("foreign catalog = %+v", c)
 	}
 	if err := os.WriteFile(CatalogPath(root), []byte("not json"), 0o644); err != nil {

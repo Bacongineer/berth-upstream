@@ -703,7 +703,7 @@ func (c *Config) Validate() error {
 			rootSeen[r.Path] = true
 		}
 		if r.Shelf != "" && !shelfValid(r.Shelf) {
-			errs = append(errs, fmt.Errorf("%s: shelf %q is not chat, image or audio", where, r.Shelf))
+			errs = append(errs, fmt.Errorf("%s: shelf %q is not text, image or audio", where, r.Shelf))
 		}
 	}
 	if f := c.Park.FloorGiB; f != nil && *f < 0 {
@@ -736,7 +736,7 @@ func Loopback(addr string) error {
 
 func shelfValid(s string) bool {
 	switch s {
-	case "chat", "image", "audio":
+	case "text", "chat", "image", "audio":
 		return true
 	}
 	return false

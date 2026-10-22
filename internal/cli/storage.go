@@ -199,7 +199,8 @@ func runStorage(c *Context) int {
 	var declared []models.RootShelf
 	for _, r := range cfg.Library.Root {
 		if r.Shelf != "" {
-			declared = append(declared, models.RootShelf{Path: r.Path, Shelf: models.Shelf(r.Shelf)})
+			sh, _ := models.ParseShelf(r.Shelf)
+			declared = append(declared, models.RootShelf{Path: r.Path, Shelf: sh})
 		}
 	}
 	models.ApplyRootShelves(ms, declared)
