@@ -180,6 +180,24 @@ APU admissions require host RAM above `--headroom-mib` (default 2048 MiB); parki
 not yet supported on APUs, so engines use the normal drain. Other APU generations and
 AMD Windows are not supported. See [scope and validation](contrib/amd/README.md).
 
+### Multiple GPUs (experimental)
+
+Today each card gets its own berthd, with its own socket and state files. Name the card by its PCI
+address, so berthd keeps the right card when `nvidia-smi` renumbers them:
+
+```sh
+berth daemon --gpu 0000:02:00.0 --socket "$XDG_RUNTIME_DIR/berth-gpu1.sock" ...   # state flags in the guide
+```
+
+Engines for that card take `BERTH_SOCKET` set to its socket, and `CUDA_VISIBLE_DEVICES` set to the
+card's UUID so they never open the other card. A berthd named by address starts while its card is in a
+VM and takes it over when it comes back. [Two NVIDIA cards](docs/vfio.md#two-nvidia-cards) has the full
+setup, state files included.
+
+Planned for v0.4 as preview tags: one berthd and one gateway for every card, cards named `gpu0` and
+`gpu1` (or a name you pick), an engine pinned to one card or holding two at once under one lease, and
+then "any card that fits".
+
 ## Quick start
 
 ```sh
@@ -239,7 +257,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | [Install](docs/install.md) | The agent prompt, manual install, `berth.toml`, uninstall |
 | [Engines](docs/engines.md) | Every engine Berth reads, API keys, ComfyUI as a suite |
 | [Leasing, games and holds](docs/leasing.md) | Priorities, drains, stuck releases, the juggle guard, minimum turns, claims and `berth hold` |
-| [VFIO passthrough](docs/vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script |
+| [VFIO passthrough](docs/vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script, a box with two NVIDIA cards |
 | [Models](docs/models.md) | `berth pull`, integrity checks, shelves, `berth storage`, the page cache and `berth prefetch` |
 | [Gateway](docs/gateway.md) | One OpenAI-compatible port, cold starts, fallbacks, KV snapshots, switch costs, wake pages, park in RAM |
 | [The harbor and telemetry](docs/harbor.md) | Stowaways, the collisions board, alerts, every harbor panel, what Berth measures |
@@ -256,7 +274,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
 | AMD on Linux | Experimental: discrete RDNA3/RDNA4 and Phoenix APUs through amdgpu sysfs/DRM. W7900 and 780M bounded allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APU leases are exclusive, with independent UMA/GTT accounting and host-RAM admission checks. [Scope and checks](contrib/amd/README.md). |
 | Intel, Apple | Not supported yet |
-| Multiple GPUs | Inventoried with real limits; leases schedule one card per daemon today |
+| Multiple GPUs | Experimental: one berthd per card, each named by its PCI address. One card can be passed through to a VM while the other keeps serving ([two NVIDIA cards](docs/vfio.md#two-nvidia-cards)). One berthd for every card, and one lease across two cards, are planned for v0.4. |
 
 ## Tested hardware
 
