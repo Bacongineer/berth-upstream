@@ -278,12 +278,15 @@ func capToTotal(dedicated map[int]uint64, total uint64) (map[int]uint64, []cappe
 
 // mergeProcs folds PDH's dedicated-memory figures into the compute-app
 // list. A listed process whose Used is 0 (WDDM reports [N/A]) takes the
-// PDH figure, and nvidia-smi's own number wins when it has one. A PID the
-// list lacks, a graphics client or a game, joins when its dedicated use
-// clears graphicsProcBytes; PDH does not say its name, so the process
-// table does when it can (names, read once per probe read) and a PID the
-// table does not know keeps an empty Name. Card totals still come from the
-// driver.
+// PDH figure, and nvidia-smi's own number wins when it has one. Under WDDM
+// nvidia-smi lists every graphics client too, with [N/A], so a process
+// either list names joins only when its dedicated use clears
+// graphicsProcBytes. The compositor never joins: it is the desktop, and its
+// PDH figure is a committed reservation far above what it holds (issue 149),
+// so its memory stays in the baseline as Xorg's does on Linux. PDH does not
+// say a PID's name, so the process table does when it can (names, read once
+// per probe read) and a PID the table does not know keeps an empty Name.
+// Card totals still come from the driver.
 func mergeProcs(procs []Proc, dedicated map[int]uint64, names map[int]string) []Proc {
 	if len(dedicated) == 0 {
 		return procs
@@ -292,16 +295,21 @@ func mergeProcs(procs []Proc, dedicated map[int]uint64, names map[int]string) []
 	out := make([]Proc, 0, len(procs)+len(dedicated))
 	for _, p := range procs {
 		listed[p.PID] = true
+		if compositor(p.Name) {
+			continue
+		}
 		if p.Used == 0 {
-			if d := dedicated[p.PID]; d > 0 {
+			if d := dedicated[p.PID]; d > graphicsProcBytes {
 				p.Used = d
+			} else {
+				continue
 			}
 		}
 		out = append(out, p)
 	}
 	var fresh []int
 	for pid, d := range dedicated {
-		if !listed[pid] && d > graphicsProcBytes {
+		if !listed[pid] && d > graphicsProcBytes && !compositor(names[pid]) {
 			fresh = append(fresh, pid)
 		}
 	}
@@ -310,6 +318,12 @@ func mergeProcs(procs []Proc, dedicated map[int]uint64, names map[int]string) []
 		out = append(out, Proc{PID: pid, Name: names[pid], Used: dedicated[pid]})
 	}
 	return out
+}
+
+// compositor is whether name, a bare exe name or a full Windows path, is
+// the Desktop Window Manager.
+func compositor(name string) bool {
+	return strings.EqualFold(name[strings.LastIndexAny(name, `\/`)+1:], "dwm.exe")
 }
 
 // Probe reads the card.
