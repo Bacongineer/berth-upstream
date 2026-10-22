@@ -354,14 +354,15 @@ type GPU struct {
 
 // Host is the machine the node runs on.
 type Host struct {
-	Supported bool       `json:"supported"`
-	CPU       float64    `json:"cpu_pct"`
-	Cores     int        `json:"cores"`
-	RAMTotal  uint64     `json:"ram_total"`
-	RAMUsed   uint64     `json:"ram_used"`
-	SwapTotal uint64     `json:"swap_total"`
-	SwapUsed  uint64     `json:"swap_used"`
-	Load      [3]float64 `json:"load"`
+	Supported bool    `json:"supported"`
+	CPU       float64 `json:"cpu_pct"`
+	Cores     int     `json:"cores"`
+	RAMTotal  uint64  `json:"ram_total"`
+	RAMUsed   uint64  `json:"ram_used"`
+	SwapTotal uint64  `json:"swap_total"`
+	SwapUsed  uint64  `json:"swap_used"`
+	// Load is absent where the platform has no load averages (Windows).
+	Load *[3]float64 `json:"load,omitempty"`
 }
 
 // Sample is one point of the node's in-memory history (the graphs).
@@ -476,6 +477,10 @@ type Engine struct {
 	Metrics    EngineMetrics `json:"metrics"`
 	DecodeTPS  float64       `json:"decode_tps"`
 	PrefillTPS float64       `json:"prefill_tps"`
+	// MetricsReported is true when this read got real counters from the
+	// engine. A zero rate beside it is an idle engine; without it the
+	// engine never answered its metrics endpoint and the rate is unknown.
+	MetricsReported bool `json:"metrics_reported"`
 	// Window is the engine-level context budget: the /props n_ctx for the
 	// llama.cpp family, the max model window for llama-swap. 0 = not reported.
 	Window int `json:"window,omitempty"`
