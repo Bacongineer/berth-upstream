@@ -75,6 +75,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth vfio status ADDR` asks berthd for its view instead of calling it unreachable, and while the
+  card is in a VM it says so instead of printing the last memory reading as current.
 - The wake page and start errors show an engine's last log line without terminal color codes
   (`[32m[INFO][0m`), and a progress bar's line as its last redraw.
 - Windows: a process the GPU counters report but nvidia-smi does not list, such as dwm.exe
