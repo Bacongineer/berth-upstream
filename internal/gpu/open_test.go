@@ -24,3 +24,29 @@ func TestValidateSelection(t *testing.T) {
 		t.Fatalf("one-shot NVIDIA probe changed: %T", p)
 	}
 }
+
+func TestParseCard(t *testing.T) {
+	for _, tc := range []struct {
+		in    string
+		index int
+		addr  string
+	}{
+		{"0", 0, ""},
+		{"2", 2, ""},
+		{"0000:02:00.0", 0, "0000:02:00.0"},
+		{"00000000:0A:00.0", 0, "0000:0a:00.0"},
+	} {
+		index, addr, err := ParseCard(tc.in)
+		if err != nil || index != tc.index || addr != tc.addr {
+			t.Fatalf("ParseCard(%q) = %d, %q, %v; want %d, %q", tc.in, index, addr, err, tc.index, tc.addr)
+		}
+	}
+	for _, in := range []string{"02:00.0", "gpu1", ""} {
+		if _, _, err := ParseCard(in); err == nil {
+			t.Fatalf("ParseCard(%q) accepted", in)
+		}
+	}
+	if _, err := Open(Options{Backend: "amd", Addr: "0000:02:00.0"}); err == nil {
+		t.Fatal("AMD accepted a PCI address")
+	}
+}

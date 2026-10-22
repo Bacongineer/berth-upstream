@@ -73,6 +73,28 @@ is still in the VM. Both run with `sh -c`, the terminal attached and `BERTH_VFIO
 While the hold is granted, berthd stops opening the card and `berth status` shows it as passed through
 to a VM. Waiting requests are told why.
 
+## Two NVIDIA cards
+
+On a box with two NVIDIA cards, each card has its own berthd. Name each card by its PCI address, not its
+index:
+
+```sh
+berth service install --gpu 0000:02:00.0
+```
+
+`nvidia-smi` renumbers the cards that stay on the host when one goes to a VM, so an index can point at
+the other card. An address cannot. A berthd started with an address also starts while its card is
+bound to `vfio-pci`, shows it as passed through, and takes it over when it comes back. With an index,
+that berthd refuses to start until the card is back on its host driver.
+
+To find the addresses, run `nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv` while both cards
+are on the host. `berth vfio status` prints the governed card's address on its first line.
+
+Two gaps remain on a two-card box. The holder check in `berth vfio run` counts every process that has
+`/dev/nvidiactl` or `/dev/nvidia-uvm` open, so an engine on the other card stops the run. And the
+other card's berthd runs `nvidia-smi` across both cards, which opens the card being switched. Both
+fixes are in progress.
+
 ## Examples to adapt
 
 [contrib/vfio](https://github.com/T-Crypt/berth/tree/main/contrib/vfio) has a complete launcher for a

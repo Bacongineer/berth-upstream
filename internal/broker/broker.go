@@ -96,6 +96,10 @@ type Config struct {
 	DefaultWait  time.Duration // how long Acquire waits when the request names no limit
 	Allow        []string      // process-name substrings that are never squatters
 	RunsDir      string        // where berth run records unprotected runs; "" = none
+	// CardAddr is the governed card's PCI address in sysfs form when
+	// --gpu named it, so a card that is in a VM at start is found by its
+	// own address, not by a scan that cannot choose between two.
+	CardAddr string
 	// CountersFile keeps the collisions board across restarts and reboots:
 	// read at start, rewritten after any tick that changed a count. "" = the
 	// board starts at zero with every daemon, as before.
@@ -598,6 +602,7 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	}
 	return &Broker{
 		cfg: cfg, probe: probe, tree: tree, log: log, runs: rs,
+		cardAddr:       cfg.CardAddr,
 		leases:         map[string]*lease{},
 		squatters:      map[ident]*squatter{},
 		containerNames: map[string]string{},

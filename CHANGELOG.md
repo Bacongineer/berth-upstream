@@ -6,6 +6,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- `berth daemon --gpu` and `berth service install --gpu` take an NVIDIA card's PCI address
+  (`--gpu 0000:02:00.0`) as well as an index. berthd follows that card from the first reading, and it
+  starts while the card is bound to `vfio-pci`: it shows the card as passed through and governs it once
+  the card is back. With an index, berthd still refuses to start without its card.
+
 ### Fixed
 
 - On a box with more than one NVIDIA card, berthd keeps governing its own card when another card is passed

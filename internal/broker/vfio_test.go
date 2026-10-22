@@ -324,6 +324,28 @@ func TestProbeFailureWithoutOneVFIOCardWarns(t *testing.T) {
 	}
 }
 
+// With two cards in VMs a scan cannot choose, so a daemon started with its
+// card's address reads that card's driver and reports it passed through.
+func TestCardAddrNamesItsCardAmongTwoInVMs(t *testing.T) {
+	skipNonLinux(t)
+	root := sysfsCard(t, "0000:01:00.0", "vfio-pci")
+	displayAttrs(t, root, "0000:01:00.0")
+	bindCard(t, root, "0000:02:00.0", "vfio-pci")
+	displayAttrs(t, root, "0000:02:00.0")
+	p := &fakeProbe{}
+	p.set(true, "")
+	b := New(Config{CardAddr: "0000:02:00.0", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}, p, procs.Map{})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if card := st.Passthrough; card == nil || card.State != proto.CardPassthrough {
+		t.Fatalf("card state = %+v, want passthrough", card)
+	}
+	if st.ProbeErr != "" {
+		t.Fatalf("probe error = %q, want none in passthrough", st.ProbeErr)
+	}
+}
+
 // A card remembered on nvidia whose probe then fails is an ordinary probe
 // failure: the warning stands.
 func TestProbeFailureOnNvidiaWarns(t *testing.T) {

@@ -141,7 +141,7 @@ func TestServiceInstallLinuxDryRun(t *testing.T) {
 
 func TestServiceInstallLinuxAMDSelection(t *testing.T) {
 	ops, calls := fakeOps(t, t.TempDir(), nil)
-	doc, e := serviceInstall(context.Background(), ops, serviceUnitsForGPU("/opt/berth", false, false, "amd", 10), true)
+	doc, e := serviceInstall(context.Background(), ops, serviceUnitsForGPU("/opt/berth", false, false, "amd", "10"), true)
 	if e != nil {
 		t.Fatal(e)
 	}

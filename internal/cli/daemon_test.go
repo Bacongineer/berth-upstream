@@ -57,6 +57,8 @@ func TestGPUSelectionValidationPrecedesHardwareAndServiceAccess(t *testing.T) {
 		{"daemon", "--gpu", "-1"},
 		{"service", "install", "--gpu-backend", "unknown", "--dry-run"},
 		{"service", "install", "--gpu", "-1", "--dry-run"},
+		{"daemon", "--gpu", "02:00.0"},
+		{"service", "install", "--gpu", "0000:02:00.0", "--gpu-backend", "amd", "--dry-run"},
 	} {
 		code, _, errOut := runCLI(t, args...)
 		if code != ExitFail {
