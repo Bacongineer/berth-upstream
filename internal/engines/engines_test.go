@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -482,5 +483,55 @@ func TestStrataKeyedInstallStaysUp(t *testing.T) {
 	}
 	if e.MetricsReported {
 		t.Fatal("metrics_reported = true while /metrics is refused")
+	}
+}
+
+// TestHeldRateDuringGeneration replays issue 147: llama.cpp adds a
+// request's tokens to its counters only when the request ends, so reads
+// inside a generation see frozen counters while requests_processing is 1.
+// The engine shows the rate the counters last measured while it works, 0
+// while idle, and forgets the rate when the counters go back (a restart).
+func TestHeldRateDuringGeneration(t *testing.T) {
+	var mu sync.Mutex
+	tokens, seconds, processing := 1000.0, 100.0, 1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(w, "llamacpp:tokens_predicted_total %g\nllamacpp:tokens_predicted_seconds_total %g\nllamacpp:requests_processing %d\n", tokens, seconds, processing)
+	}))
+	defer srv.Close()
+	set := func(tok, sec float64, proc int) {
+		mu.Lock()
+		tokens, seconds, processing = tok, sec, proc
+		mu.Unlock()
+	}
+	w := &Watcher{Engines: []config.Engine{{Name: "llama", Type: "llamacpp", URL: srv.URL}}}
+	decode := func() float64 {
+		w.Poll(context.Background())
+		return w.Snapshot()[0].DecodeTPS
+	}
+	for i, step := range []struct {
+		tok, sec float64
+		proc     int
+		want     float64
+	}{
+		{1000, 100, 1, 0},    // first read: nothing measured yet
+		{1000, 100, 1, 0},    // generating, no rate measured before
+		{1525, 150, 1, 10.5}, // the request ended: 525 tokens in 50 s
+		{1525, 150, 1, 10.5}, // the next request, counters frozen
+		{1525, 150, 1, 10.5}, // still frozen, still generating
+		{1525, 150, 0, 0},    // idle
+		{1525, 150, 1, 10.5}, // a new request after idle shows the last rate
+		{10, 1, 1, 0},        // a restart: the counters went back
+		{10, 1, 1, 0},        // and the old rate is gone
+	} {
+		set(step.tok, step.sec, step.proc)
+		if got := decode(); got != step.want {
+			t.Fatalf("step %d: decode = %v t/s, want %v", i, got, step.want)
+		}
 	}
 }

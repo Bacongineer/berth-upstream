@@ -29,6 +29,10 @@ detached gateway launches pass the source reference, never its contents. Other p
 use `api_key_env` and explicitly reject file credentials. An engine's figures are its
 own claims and are shown apart from what the driver measures.
 
+llama.cpp adds a request's tokens to its counters only when the request ends. While a
+request runs, an engine card shows the decode and prefill rates its last finished request
+measured, and 0 once the engine is idle.
+
 ## ComfyUI as a suite
 
 `berth engine install|show|update|rollback|remove` manages ComfyUI as a suite: the core,
