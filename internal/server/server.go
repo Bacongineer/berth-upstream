@@ -20,6 +20,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -110,6 +111,8 @@ type Extras struct {
 	// per sample and the UI repolls more often, so they re-align within
 	// one poll.
 	Alerts func() *proto.Alerts
+	// Pair is the harbor's device pairing; nil turns the OpPair* ops off.
+	Pair *pair.Store
 }
 
 // Serve answers clients on ln.
@@ -178,6 +181,8 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		reclaim(conn, log, first, b)
 	case proto.OpStop:
 		stop(conn, log, first, b)
+	case proto.OpPairCode, proto.OpPairRedeem, proto.OpPairCheck, proto.OpPairList, proto.OpPairRevoke:
+		pairing(conn, log, first, x.Pair)
 	case proto.OpResume:
 		resume(conn, log, first, b)
 	case proto.OpEvents:

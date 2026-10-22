@@ -1882,3 +1882,13 @@ body.reduced-motion .si-live, body.reduced-motion .si-connecting, body.reduced-m
   .panel { break-inside: avoid; box-shadow: none; }
   .log { max-height: none; overflow: visible; }
 }
+
+/* The pair page (GET /pair): one card, one button, readable on a phone. */
+.pair { max-width: 26rem; margin: 12vh auto; padding: 1.5rem; background: var(--panel); border: 1px solid var(--hair); border-radius: 8px; }
+.pair h1 { margin: 0 0 0.5rem; font-size: 1.25rem; color: var(--ink-strong); }
+.pair p { color: var(--dim); line-height: 1.5; }
+.pair form { display: grid; gap: 0.75rem; margin: 1rem 0; }
+.pair label { display: grid; gap: 0.35rem; color: var(--ink); }
+.pair input { padding: 0.6rem; font-size: 1rem; color: var(--ink-strong); background: var(--panel-3); border: 1px solid var(--edge); border-radius: 6px; }
+.pair button { padding: 0.75rem; font-size: 1rem; color: var(--ink-strong); background: var(--cyan-deep); border: 1px solid var(--cyan-dim); border-radius: 6px; }
+.pair a { color: var(--cyan); }

@@ -58,6 +58,18 @@ const (
 	OpParkFailed = "park_failed"
 	OpResume     = "resume"
 	OpAwake      = "awake"
+
+	// Device pairing for the harbor's actions; berthd owns the file. A
+	// client mints a code (OpPairCode, reply Code), the harbor trades one
+	// for a device token (OpPairRedeem: Code and DeviceName in, Token out)
+	// and checks a token on every write (OpPairCheck: Token in, Paired out).
+	// OpPairList answers Devices; OpPairRevoke unpairs Device ("" = all)
+	// and answers Revoked. A refusal is OpRefused with the reason.
+	OpPairCode   = "pair_code"
+	OpPairRedeem = "pair_redeem"
+	OpPairCheck  = "pair_check"
+	OpPairList   = "pair_list"
+	OpPairRevoke = "pair_revoke"
 )
 
 // Msg is every message in both directions; unused fields are omitted.
@@ -105,6 +117,21 @@ type Msg struct {
 	// back, so the runner knows to call the adapter's resume instead of
 	// starting anything.
 	Resume bool `json:"resume,omitempty"`
+	// Pairing (the OpPair* ops). Code and Token are secrets: never logged.
+	Code       string         `json:"code,omitempty"`
+	Token      string         `json:"token,omitempty"`
+	DeviceName string         `json:"device_name,omitempty"`
+	Device     string         `json:"device,omitempty"`
+	Devices    []PairedDevice `json:"devices,omitempty"`
+	Paired     bool           `json:"paired,omitempty"`
+	Revoked    int            `json:"revoked,omitempty"`
+}
+
+// PairedDevice is one browser paired to act on the node.
+type PairedDevice struct {
+	ID      string    `json:"id"`
+	Name    string    `json:"name"`
+	Created time.Time `json:"created"`
 }
 
 // Event is one thing berthd saw or did. Seq is gap-free and increases by one,

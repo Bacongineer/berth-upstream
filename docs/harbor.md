@@ -37,8 +37,29 @@ Then, on the iPhone:
 3. Name it (`berth` works) and tap **Add**.
 
 The Home Screen icon is Pilot, the harbor master llama, and the name under it is `berth`.
-The page stays read-only. The harbor has no login, so publish it only on a tailnet or a home
-network you trust.
+Reading the harbor needs no login, so publish it only on a tailnet or a home network you trust.
+
+### Pair a device
+
+Switching and stopping engines from the harbor will need a paired device. Pair one from the
+Berth machine:
+
+```sh
+berth pair --url https://<machine>.<tailnet>.ts.net
+```
+
+It prints a link and the same link as a QR code. Scan it with the phone, or open the link,
+and tap **Pair this device**. The browser keeps a device cookie for a year: `HttpOnly`,
+`SameSite=Lax`, and `Secure` over https. The code works once, for 15 minutes, and
+opening the link alone (a chat app's preview, say) does not use it. berthd keeps only hashes
+of codes and device tokens, in `~/.local/state/berth/harbor-devices.json`.
+
+- `berth pair --list` shows the paired devices.
+- `berth pair --revoke ID` unpairs one; `--revoke-all` unpairs every device.
+
+Anyone who opens a link first pairs their browser, so send it only to yourself. Over plain
+http on a LAN, the cookie crosses the network in the clear; use `tailscale serve` (https)
+for a phone.
 
 ## Visibility
 - **Stowaways:** every process holding VRAM without a lease, with memory, identity and
