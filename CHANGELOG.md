@@ -84,6 +84,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- One empty `models--*` husk no longer makes a whole store read as an HF cache with no models,
+  reported by @azrael-229 (#138). A root is an HF cache only when a `models--*` directory holds
+  `snapshots`, so an abandoned download beside plain models keeps them listed.
 - The gateway's `/gui/` board launches an engine that has a `start` command but no `gui` URL (Strata, a
   llama-server). Its Launch button answered 404 and stayed on "Launching..."; it now starts the engine under a
   lease and shows Running once it answers. A refused start shows its reason instead of hanging.
