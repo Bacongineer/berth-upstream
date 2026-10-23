@@ -78,7 +78,7 @@ func runGateway(c *Context) int {
 	}
 	g := &gateway.Gateway{Socket: *sock, Engines: cfg.Engine, Ready: *ready, Key: key, Log: log, HeadroomFloor: *headroomMiB << 20,
 		AllowHosts: allow, StateFile: defaultStateFile("gateway-engines.json"),
-		CostFile: defaultStateFile("swapcost.json"), ConfigPath: *cfgPath}
+		CostFile: defaultStateFile("swapcost.json"), DeferredFile: defaultStateFile("comfyui-queue.json"), ConfigPath: *cfgPath}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	srv := &http.Server{Addr: addr, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}

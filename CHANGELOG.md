@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- ComfyUI jobs wait for the card on disk: with `on_busy = "queue"`, a `/prompt` sent while the card is in a VM or
+  held by a game, a hold or a pinned app is answered at once with a `berth-` job id and submitted once the card is
+  free. `/history/<berth id>` reads the result. The queue survives a gateway restart.
 - Background engines: `background = true` on an engine makes the gateway run it at `batch` whenever the card has
   been free for `idle_after` (default 60 s), with no lease, waiter, stowaway or running claimed app on it. Any other
   request drains it, and it stays out until the card is free again, so a game or a hold keeps it out. A tagger or an

@@ -72,7 +72,9 @@ refusal and a failed `--before`. What `--before` stopped always comes back, and 
 is still in the VM. Both run with `sh -c`, the terminal attached and `BERTH_VFIO_DEVICES` set.
 
 While the hold is granted, berthd stops opening the card and `berth status` shows it as passed through
-to a VM. Waiting requests are told why.
+to a VM. Waiting requests are told why. ComfyUI jobs sent during the session can wait for the card's return
+on disk instead of on the connection (`on_busy = "queue"`, see [Gateway](gateway.md)), and a background
+engine starts once the card is back and free.
 
 ## Two NVIDIA cards
 
