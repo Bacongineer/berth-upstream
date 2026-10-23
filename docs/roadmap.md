@@ -28,7 +28,7 @@ per-process VRAM on Windows and the test suite on Windows in CI; and the proof k
 form and the [tested hardware](benchmarks.md#tested-hardware) table. v0.3.1 fixed `berth update` answering from
 a stale cache. The [CHANGELOG](https://github.com/T-Crypt/berth/blob/main/CHANGELOG.md) has every entry.
 
-## Shipped since: v0.3.4 (2026-10-22)
+## Shipped since: v0.3.5 (2026-10-22)
 
 v0.3.2 and v0.3.3 carried the first Windows testers' reports: the Epic launcher no longer holds the
 card from the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts only
@@ -47,6 +47,13 @@ or browser with the harbor, the groundwork for switching engines from it. Linux 
 generation ([#147](https://github.com/T-Crypt/berth/issues/147)), and the `chat` shelf is now `text`
 ([#148](https://github.com/T-Crypt/berth/issues/148)).
 
+v0.3.5 lets a box with two NVIDIA cards pass one to a VM while the other keeps serving: berthd follows
+its card by PCI address, starts while that card is in the VM, and `berth vfio run` ignores engines on
+the other card. Hermes Agent gets a `berth skill install` target and a [setup page](hermes.md), and the
+skill teaches agents to run workflows across engines on one card. On Windows, logon tasks start without
+a console window ([#165](https://github.com/T-Crypt/berth/issues/165)) and `berth service status` reads
+them right ([#166](https://github.com/T-Crypt/berth/issues/166)).
+
 ## Next: v0.3.x
 
 In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
@@ -56,12 +63,12 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
 - Parked resume numbers in [Swap numbers](benchmarks.md#swap-numbers), which take the vLLM and SGLang park
   adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
   CUDA engines on Linux.
-- VFIO on a box with two NVIDIA cards, experimental. Merged: berthd follows its card by PCI address,
-  starts while the card is in a VM, and `berth vfio run` ignores engines on the other card. Still to
-  do: keep the other card's berthd from opening the card being switched, after a measurement on a real
-  two-card box.
-- Hermes Agent as a gateway client: a `berth skill install` target, a setup page, and an overnight
-  recipe where Hermes and a ComfyUI batch queue share one card.
+- VFIO on a box with two NVIDIA cards: keep the other card's berthd from opening the card being
+  switched, after a measurement on a real two-card box.
+- Hermes Agent: an overnight recipe in the setup page, built on the gateway workflow test, where Hermes
+  hands work to other engines and ComfyUI renders on the same card.
+- Work that waits for a card's return from a VM: ComfyUI jobs queued during the passage run when the card
+  comes back.
 
 Not started, and in no release yet: `berth fit` and scenes, so engines that fit together never swap.
 

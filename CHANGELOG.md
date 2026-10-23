@@ -6,6 +6,16 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.5] - 2026-10-22
+
+A box with two NVIDIA cards can pass one card to a VM while the other keeps serving: berthd follows its
+card by PCI address (`--gpu 0000:02:00.0`), starts while that card is in the VM, and `berth vfio run` no
+longer counts engines on the other card as holders. Multi-GPU stays experimental, one berthd per card.
+Hermes Agent joins the agents `berth skill install` covers, with a setup page, and the skill now teaches
+any agent to run workflows across engines on one card. On Windows, logon tasks start without a console
+window and `berth service status` reads them right, both reported by @azrael-229. Run `berth service
+install` again on Windows to switch existing tasks.
+
 ### Added
 
 - The Berth skill teaches an agent to run workflows across engines through the gateway: hand a task to
@@ -26,9 +36,10 @@ has a matching GitHub release whose body comes from its section below.
 - On Windows, the logon tasks `berth service install` creates start without a console window. Each
   task runs a small wscript launcher in the state directory (`units\<unit>.vbs`), which starts berth
   hidden with its output on the unit's log. Run `berth service install` again to switch existing tasks
-  ([#165](https://github.com/T-Crypt/berth/issues/165)).
+  ([#165](https://github.com/T-Crypt/berth/issues/165), reported by @azrael-229).
 - On Windows, `berth service status` shows a running task as running. It read the next run time, which
-  is N/A for a logon task, instead of the status ([#166](https://github.com/T-Crypt/berth/issues/166)).
+  is N/A for a logon task, instead of the status ([#166](https://github.com/T-Crypt/berth/issues/166),
+  reported by @azrael-229).
 - A berthd that starts with its card already in a VM names the card by its PCI address in `berth status`
   and in what waiting requests read. Before, both said gpu0, which on a two-card box can be the other card.
 - On a box with two NVIDIA cards, `berth vfio run` no longer refuses because an engine on the other card
