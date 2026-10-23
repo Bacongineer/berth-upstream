@@ -249,9 +249,16 @@ func freeAddr(t *testing.T) string {
 
 func daemon(t *testing.T) (string, *broker.Broker) {
 	t.Helper()
+	return daemonWith(t, broker.Config{})
+}
+
+// daemonWith is daemon with cfg's fields on top of the test defaults.
+func daemonWith(t *testing.T, cfg broker.Config) (string, *broker.Broker) {
+	t.Helper()
 	sock := filepath.Join(t.TempDir(), "berth.sock")
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	b := broker.New(broker.Config{Poll: 20 * time.Millisecond, DefaultWait: 10 * time.Second, Log: log}, emptyCard{}, procs.System{})
+	cfg.Poll, cfg.DefaultWait, cfg.Log = 20*time.Millisecond, 10*time.Second, log
+	b := broker.New(cfg, emptyCard{}, procs.System{})
 	ln, err := server.Listen(sock)
 	if err != nil {
 		t.Fatal(err)
