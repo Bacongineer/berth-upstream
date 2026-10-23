@@ -55,6 +55,41 @@ do not assume any engine is protected.
 `foreground` drains `interactive` and `batch`; equal priorities follow "last switch wins" with
 the juggle guard; `hold` outranks all of them.
 
+## Workflows: several models and jobs on one card
+
+The gateway lets one agent chain work across engines on a single card, by hand or from a scheduled job
+(cron, a Hermes automation). Every request below needs `Authorization: Bearer $(berth key)` and goes to
+`http://127.0.0.1:9799`. Each step takes its turn on the card; nothing collides.
+
+| Step | Request |
+|---|---|
+| Hand a task to another model | `POST /v1/chat/completions` with that model's name (`"model": "router-strata"`). The gateway drains the holder at its boundary, starts the engine, and answers. Send `"stream": true` for long work: the connection gets a keepalive comment every 10 s while the engine loads |
+| Come back to your own model | a request naming your model: the same switch the other way. With `kv_snapshots` on its engine, its long context returns without a prefill |
+| Render with ComfyUI | `POST /prompt` with `{"prompt": <API-format workflow>}`: the gateway starts ComfyUI under a lease when it is down, and the answer is ComfyUI's own, with a `prompt_id` |
+| Collect the render | poll `GET /history/<prompt_id>` until it lists outputs, then `GET /view?filename=...&type=output` |
+| See who holds the card | `GET /v1/berth/board` |
+| Switch or give the card back without a prompt | `POST /v1/berth/switch` or `/v1/berth/stop` with `{"engine": "NAME"}` |
+| Estimate a chain before running it | `POST /v1/berth/plan` (the measured cost of each switch) |
+
+Rules for a workflow:
+
+- **Group the work by model.** Every switch reloads an engine (seconds to minutes). Send all of strata's tasks, then
+  review them all, not one task and one review at a time.
+- **Give the card back when a model's part is done.** An engine stays on the card after its last reply. A request at
+  the same or a higher priority drains it, but a `batch` job waits behind it, all the way to its own wait limit. Call
+  `POST /v1/berth/stop` with `{"engine": "NAME"}` before you hand off to lower-priority work.
+- **Collect ComfyUI results before you switch away.** When the next request drains ComfyUI, its `/history` and
+  `/view` stop answering (503), unless its engine entry sets `keep_comfyui_up`. The files stay in ComfyUI's output
+  folder either way.
+- **ComfyUI needs `drain_comfyui`** on its engine entry, or a handoff stops it with jobs still queued (`berth config
+  check` warns). With it, the next model waits until ComfyUI's whole queue has rendered, so a long queue keeps
+  everyone else off the card. When anything else may need the card between renders, submit one job, collect it,
+  then submit the next.
+- **A refusal is not a failure to fix by force.** A request can come back 503 after its wait when a game, a hold or a
+  pinned job has the card. Retry later. Never kill the holder, and never start an engine outside the gateway.
+- **Unattended work runs at `batch`.** Give a render or overnight engine `priority = "batch"` in its entry, so a
+  person's request at `interactive` or `foreground` is next in line instead of behind the next overnight job.
+
 ## Reading the card's state
 
 - Lease states: `waiting` (with its place in line), `active` (HOT), `draining`, `parking`, `parked` (WARM: the

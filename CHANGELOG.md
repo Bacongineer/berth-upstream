@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The Berth skill teaches an agent to run workflows across engines through the gateway: hand a task to
+  another model by name, give the card back with `/v1/berth/stop` when that part is done, render with
+  ComfyUI and collect the result from `/history`, and run unattended work at `batch`. A gateway test runs
+  that loop (an agent's model, strata, ComfyUI, the agent's model again) and checks three clean handoffs.
 - `berth skill install --target hermes` installs the Berth skill for Hermes Agent, in
   `$HERMES_HOME/skills/mlops/berth/` (`~/.hermes` when `HERMES_HOME` is unset). `--target all` includes
   Hermes when its home exists, and never creates it. [Hermes Agent](https://github.com/T-Crypt/berth/blob/main/docs/hermes.md) shows Hermes's
