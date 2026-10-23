@@ -211,14 +211,16 @@ type ClaimsConfig struct {
 // ClaimRule is one [[claim]]: work Berth does not run that holds the card
 // (action "hold", the default) or has its card memory named ("track").
 type ClaimRule struct {
-	Name     string   `toml:"name" json:"name" yaml:"name"`
-	Exe      []string `toml:"exe,omitempty" json:"exe,omitempty" yaml:"exe,omitempty"`
-	Cmdline  string   `toml:"cmdline,omitempty" json:"cmdline,omitempty" yaml:"cmdline,omitempty"`
-	Not      string   `toml:"not_cmdline,omitempty" json:"not_cmdline,omitempty" yaml:"not_cmdline,omitempty"`
-	Parent   []string `toml:"parent,omitempty" json:"parent,omitempty" yaml:"parent,omitempty"`
-	Action   string   `toml:"action,omitempty" json:"action,omitempty" yaml:"action,omitempty"`
-	NeedsMiB uint64   `toml:"needs_mib,omitzero" json:"needs_mib,omitempty" yaml:"needs_mib,omitempty"`
-	Linger   Duration `toml:"linger,omitempty" json:"linger,omitempty" yaml:"linger,omitempty"`
+	Name    string   `toml:"name" json:"name" yaml:"name"`
+	Exe     []string `toml:"exe,omitempty" json:"exe,omitempty" yaml:"exe,omitempty"`
+	Cmdline string   `toml:"cmdline,omitempty" json:"cmdline,omitempty" yaml:"cmdline,omitempty"`
+	Not     string   `toml:"not_cmdline,omitempty" json:"not_cmdline,omitempty" yaml:"not_cmdline,omitempty"`
+	Parent  []string `toml:"parent,omitempty" json:"parent,omitempty" yaml:"parent,omitempty"`
+	// ParentCmdline is a regex the matched parent's command line must match too.
+	ParentCmdline string   `toml:"parent_cmdline,omitempty" json:"parent_cmdline,omitempty" yaml:"parent_cmdline,omitempty"`
+	Action        string   `toml:"action,omitempty" json:"action,omitempty" yaml:"action,omitempty"`
+	NeedsMiB      uint64   `toml:"needs_mib,omitzero" json:"needs_mib,omitempty" yaml:"needs_mib,omitempty"`
+	Linger        Duration `toml:"linger,omitempty" json:"linger,omitempty" yaml:"linger,omitempty"`
 }
 
 // ClaimRules is the rule list berthd runs: the configured rules first (a
@@ -228,7 +230,7 @@ func (c *Config) ClaimRules() ([]claims.Rule, error) {
 	var out []claims.Rule
 	names := map[string]bool{}
 	for _, r := range c.Claim {
-		rule := claims.Rule{Name: r.Name, Exe: r.Exe, Cmdline: r.Cmdline, Not: r.Not, Parent: r.Parent,
+		rule := claims.Rule{Name: r.Name, Exe: r.Exe, Cmdline: r.Cmdline, Not: r.Not, Parent: r.Parent, ParentCmdline: r.ParentCmdline,
 			Action: r.Action, NeedsMiB: r.NeedsMiB, Linger: r.Linger.Duration}
 		if err := rule.Compile(); err != nil {
 			return nil, err
