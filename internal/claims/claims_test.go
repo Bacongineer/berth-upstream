@@ -27,11 +27,17 @@ func compiled(t *testing.T, rs ...Rule) []Rule {
 }
 
 // A Steam session: steam -> reaper -> proton -> the game. Only the game side
-// of reaper is the game; steam and reaper themselves are not.
+// of reaper is the game; steam and reaper themselves are not. Beside it the
+// REAPER DAW, also "reaper", starts GTK's sandboxed image loader (#171):
+// none of that is a game.
 var steam = []Proc{
 	{PID: 1, Name: "systemd"},
 	{PID: 10, Name: "steam", Parent: 1},
-	{PID: 20, Name: "reaper", Parent: 10},
+	{PID: 20, Name: "reaper", Argv0: "reaper", Parent: 10,
+		Cmdline: "/home/u/.local/share/Steam/ubuntu12_32/reaper SteamLaunch AppId=1245620 -- /home/u/.local/share/Steam/ubuntu12_32/steam-launch-wrapper -- proton waitforexitandrun eldenring.exe"},
+	{PID: 70, Name: "reaper", Argv0: "reaper", Parent: 1, Cmdline: "reaper -nosplash"},
+	{PID: 80, Name: "bwrap", Argv0: "bwrap", Parent: 70, Cmdline: "bwrap --unshare-all --die-with-parent glycin-image-rs"},
+	{PID: 90, Name: "glycin-image-rs", Argv0: "glycin-image-rs", Parent: 80, Cmdline: "glycin-image-rs --dbus-fd 3"},
 	{PID: 30, Name: "proton", Parent: 20},
 	{PID: 40, Name: "eldenring.exe", Argv0: "eldenring.exe", Parent: 30, Cmdline: `Z:\game\eldenring.exe`},
 	{PID: 50, Name: "blender", Argv0: "blender", Parent: 1},
@@ -69,6 +75,8 @@ func TestCompileRejects(t *testing.T) {
 		{Name: "x", Exe: []string{"a"}, Action: "kill"},
 		{Name: "x", Cmdline: "("},
 		{Name: "x", Exe: []string{"["}},
+		{Name: "x", Exe: []string{"a"}, ParentCmdline: "SteamLaunch"},
+		{Name: "x", Parent: []string{"reaper"}, ParentCmdline: "("},
 	} {
 		if err := r.Compile(); err == nil {
 			t.Errorf("%+v compiled", r)

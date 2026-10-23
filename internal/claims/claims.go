@@ -39,18 +39,23 @@ const (
 
 // Rule is one [[claim]] entry, or a built-in.
 type Rule struct {
-	Name     string        // shown on the lease: "claim:<name>"
-	Exe      []string      // globs on the process name (comm) or argv[0]'s base name; case-insensitive
-	Cmdline  string        // regex on the full command line (on Windows: the executable's full path)
-	Not      string        // regex on the same; a match here excludes the process (a launcher beside its games)
-	Parent   []string      // globs on any ancestor's name: the launcher (Steam's reaper, lutris-wrapper)
-	Action   string        // hold | track
-	NeedsMiB uint64        // hold only: 0 = the whole card
-	Linger   time.Duration // hold only: 0 = DefaultLinger
-	Builtin  bool
+	Name    string   // shown on the lease: "claim:<name>"
+	Exe     []string // globs on the process name (comm) or argv[0]'s base name; case-insensitive
+	Cmdline string   // regex on the full command line (on Windows: the executable's full path)
+	Not     string   // regex on the same; a match here excludes the process (a launcher beside its games)
+	Parent  []string // globs on any ancestor's name: the launcher (Steam's reaper, lutris-wrapper)
+	// ParentCmdline is a regex the matched ancestor's command line must also
+	// match, for a launcher whose name another program shares (Steam's
+	// reaper and the REAPER DAW are both "reaper").
+	ParentCmdline string
+	Action        string        // hold | track
+	NeedsMiB      uint64        // hold only: 0 = the whole card
+	Linger        time.Duration // hold only: 0 = DefaultLinger
+	Builtin       bool
 
-	cmdline *regexp.Regexp
-	not     *regexp.Regexp
+	cmdline       *regexp.Regexp
+	not           *regexp.Regexp
+	parentCmdline *regexp.Regexp
 }
 
 // Proc is one process as the scanner reads it.
@@ -67,8 +72,10 @@ type Proc struct {
 // turns it off). Games hold the card; creative and capture apps are tracked.
 func Builtin() []Rule {
 	return []Rule{
-		// Every Steam game, native or Proton, runs under Steam's reaper.
-		{Name: "steam-game", Parent: []string{"reaper"}, Action: ActionHold, Builtin: true},
+		// Every Steam game, native or Proton, runs under Steam's reaper,
+		// which Steam starts as "reaper SteamLaunch AppId=N -- ..."; the
+		// REAPER DAW is also "reaper" and never passes SteamLaunch (#171).
+		{Name: "steam-game", Parent: []string{"reaper"}, ParentCmdline: `(^|\s)SteamLaunch(\s|$)`, Action: ActionHold, Builtin: true},
 		{Name: "lutris-game", Parent: []string{"lutris-wrapper*"}, Action: ActionHold, Builtin: true},
 		{Name: "gamescope", Exe: []string{"gamescope"}, Action: ActionHold, Builtin: true},
 		// Windows (and Proton, whose paths look the same): games by install folder.
@@ -125,6 +132,16 @@ func (r *Rule) Compile() error {
 		}
 		r.not = re
 	}
+	if r.ParentCmdline != "" {
+		if len(r.Parent) == 0 {
+			return fmt.Errorf("claim %q: parent_cmdline needs parent", r.Name)
+		}
+		re, err := regexp.Compile(r.ParentCmdline)
+		if err != nil {
+			return fmt.Errorf("claim %q: parent_cmdline: %v", r.Name, err)
+		}
+		r.parentCmdline = re
+	}
 	if r.Linger <= 0 {
 		r.Linger = DefaultLinger
 	}
@@ -152,7 +169,8 @@ func (r *Rule) Matches(p Proc, table map[int]Proc) bool {
 			if !ok {
 				break
 			}
-			if globAny(r.Parent, a.Name) || globAny(r.Parent, a.Argv0) {
+			if (globAny(r.Parent, a.Name) || globAny(r.Parent, a.Argv0)) &&
+				(r.parentCmdline == nil || r.parentCmdline.MatchString(a.Cmdline)) {
 				found = true
 				break
 			}

@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The built-in `steam-game` claim no longer drains engines when the REAPER DAW runs. Steam's launcher and the
+  DAW are both named `reaper`, and the rule matched any child of either, such as GTK's sandboxed image loader
+  (`bwrap`, `glycin-image-rs`). The rule now also needs the launcher's command line to carry `SteamLaunch`, which
+  Steam passes on every game launch. A `[[claim]]` can do the same with the new `parent_cmdline`
+  ([#171](https://github.com/T-Crypt/berth/issues/171)).
 - A parked engine that holds the whole card (ComfyUI with `keep_comfyui_up`) comes back when asked. Its resume
   waited on its own parked residual ("waiting for comfyui [waiting] to free memory") until something released it.
   A resume released while it waited (the gateway gave up on the wake) could then be granted anyway, as a lease with
