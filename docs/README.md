@@ -9,6 +9,7 @@ has the overview, the quick start and screenshots. These pages are the reference
 | [Install](install.md) | The agent prompt, manual install, `berth.toml`, uninstall |
 | [Engines](engines.md) | Every engine Berth reads, API keys, ComfyUI as a suite |
 | [Leasing, games and holds](leasing.md) | Priorities, drains, stuck releases, the juggle guard, minimum turns, claims and `berth hold` |
+| [Design](design.md) | The lease model parks, lends, many cards and many machines follow, the rules none may break, and the order they ship in |
 | [VFIO passthrough](vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script, a box with two NVIDIA cards |
 | [Models](models.md) | `berth pull`, integrity checks, shelves, `berth storage`, the page cache and `berth prefetch` |
 | [Gateway](gateway.md) | One OpenAI-compatible port, cold starts, fallbacks, KV snapshots, switch costs, wake pages, park in RAM |
