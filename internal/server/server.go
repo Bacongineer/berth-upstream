@@ -231,6 +231,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		Wait:      time.Duration(req.Wait * float64(time.Second)),
 		Pinned:    req.Pinned,
 		Switched:  req.Switched,
+		Parked:    req.Parked,
 		MinTurn:   time.Duration(req.MinTurn * float64(time.Second)),
 		ParkTTL:   time.Duration(req.ParkTTL * float64(time.Second)),
 		Container: req.Container,

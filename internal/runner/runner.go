@@ -290,7 +290,7 @@ func Run(o Options) int {
 			say("UNPROTECTED: lost berthd (%v); %s keeps running without a lease, retrying", err, o.Engine)
 			remove := record(o, cmd, runs.ReasonLost)
 			var lease string
-			conn, raw, lease = reattach(o, cmd, done, &cid)
+			conn, raw, lease = reattach(o, cmd, done, &cid, line.isParked())
 			remove()
 			if conn == nil {
 				return
@@ -330,7 +330,8 @@ func listen(conn *proto.Conn, onMsg func(proto.Msg)) error {
 // card again, or the engine exits. A daemon that refuses (an older one that
 // does not know reattach, or a PID that is no longer this engine) ends the
 // attempts: the engine stays on record as unprotected until it exits.
-func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef) (*proto.Conn, net.Conn, string) {
+// parked tells the daemon the engine's weights are parked in RAM.
+func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef, parked bool) (*proto.Conn, net.Conn, string) {
 	every := o.pollEvery()
 	pid := cmd.Process.Pid
 	start := procs.System{}.StartTime(pid)
@@ -344,7 +345,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef)
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id()})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id(), Parked: parked})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()

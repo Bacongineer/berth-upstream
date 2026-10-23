@@ -189,6 +189,10 @@ type Request struct {
 	// juggle, and inside the juggle window a request no person made does
 	// not take the card back from it.
 	Switched bool
+	// Parked: a re-attach of an engine whose weights are parked in RAM. Its
+	// lease comes back parked, so a waiter builds beside its residual and a
+	// resume wakes it, as before the daemon restarted.
+	Parked bool
 	// MinTurn is a minimum turn: while the lease is younger than it after
 	// the grant, no waiter drains it, whatever the waiter's priority,
 	// except a hold (a game, a call, the operator's own berth hold). When
@@ -1524,10 +1528,17 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	l.grantedN = b.order()
 	l.releaseBaseline = b.snap.Baseline()
 	l.releaseGTTBaseline = b.snap.GTTBaseline()
+	detail := l.prio.String()
+	if r.Parked {
+		l.state = parked
+		l.parkedAt = now
+		l.parkedN = b.order()
+		detail += ", parked"
+	}
 	close(l.grantCh)
 	b.leases[l.id] = l
-	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid)
-	b.emit(proto.Event{Kind: proto.EvReattached, Lease: l.id, Engine: l.engine, PID: pid, Detail: l.prio.String()})
+	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid, "parked", r.Parked)
+	b.emit(proto.Event{Kind: proto.EvReattached, Lease: l.id, Engine: l.engine, PID: pid, Detail: detail})
 	b.schedule(now)
 	return &Lease{b: b, l: l}, nil
 }
