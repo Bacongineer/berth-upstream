@@ -712,7 +712,8 @@ func TestTailBufKeepsTheEnd(t *testing.T) {
 
 // comfyMux is the ComfyUI stand-in both the fake child and the tests serve:
 // the queue and prompt endpoints plus the read-only surface, each answering
-// a marker the tests assert was proxied unchanged.
+// a marker the tests assert was proxied unchanged. Like ComfyUI, it refuses
+// a request whose Origin names another host than its Host.
 func comfyMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/queue", func(w http.ResponseWriter, r *http.Request) {
@@ -756,7 +757,13 @@ func comfyMux() http.Handler {
 		rw.Flush()
 		_, _ = io.Copy(rw, rw) // echo raw frames back
 	})
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o := r.Header.Get("Origin"); o != "" && strings.TrimPrefix(strings.TrimPrefix(o, "http://"), "https://") != r.Host {
+			http.Error(w, "origin does not match host", http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func fakeComfy(addr string) {
@@ -848,6 +855,7 @@ func TestComfyUIPortStartsOnPromptAndPassesTheRest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		req.Host = "10.0.0.200:8188"
 		req.Header.Set("Origin", "http://10.0.0.200:8188")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
