@@ -61,6 +61,14 @@ func (c *parkCard) Read(context.Context) (gpu.Snapshot, error) {
 func parkDaemon(t *testing.T, card gpu.Probe, avail uint64) (string, *broker.Broker) {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "berth.sock")
+	b, _ := parkDaemonAt(t, sock, card, avail)
+	return sock, b
+}
+
+// parkDaemonAt is parkDaemon on a given socket, with a stop that returns
+// once the daemon has let go of it, so a test can restart berthd there.
+func parkDaemonAt(t *testing.T, sock string, card gpu.Probe, avail uint64) (*broker.Broker, func()) {
+	t.Helper()
 	h := &slog.HandlerOptions{}
 	if os.Getenv("BERTH_PARK_DEBUG") != "" {
 		h.Level = slog.LevelDebug
@@ -74,10 +82,13 @@ func parkDaemon(t *testing.T, card gpu.Probe, avail uint64) (string, *broker.Bro
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	done := make(chan struct{})
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{}, log)
-	return sock, b
+	go func() { _ = server.Serve(ctx, ln, b, server.Extras{}, log); close(done) }()
+	var once sync.Once
+	stop := func() { once.Do(func() { cancel(); <-done }) }
+	t.Cleanup(stop)
+	return b, stop
 }
 
 type syncBuf struct {
@@ -583,5 +594,47 @@ func TestDrainOfAParkedEngineSaysWhy(t *testing.T) {
 	want := "stopping parked comfyui instead of parking it again: evicted: parked 12h0m1s, past the ttl\n"
 	if !strings.Contains(log.String(), want) {
 		t.Fatalf("log = %q, want the line %q", log.String(), want)
+	}
+}
+
+// A parked engine whose daemon restarts comes back parked: the new daemon
+// grants a whole-card waiter beside its residual, and the engine is never
+// drained, where an active lease would be drained and stopped.
+func TestParkedEngineReattachesParked(t *testing.T) {
+	card := &parkCard{total: 24 << 30}
+	sock := filepath.Join(t.TempDir(), "berth.sock")
+	b, stop := parkDaemonAt(t, sock, card, 16<<30)
+	stub := &parkStub{}
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+	exited, log := runPark(t, sock, "vllm", srv.URL, false)
+	pid := attachAndMeasure(t, b, card)
+	stopAtEnd(t, pid, exited)
+
+	holder := acquireIn(b, broker.Request{Engine: "game", Priority: broker.Foreground})
+	waitFor(t, "the park call", func() bool { return stub.count("sleep") == 1 })
+	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 512 << 20})
+	waitFor(t, "parked", func() bool { return b.Status().Leases[0].State == "parked" })
+	(<-holder).Release()
+
+	stop()
+	before := len(log.String())
+	b2, _ := parkDaemonAt(t, sock, card, 16<<30)
+	waitFor(t, "the re-attach", func() bool { return strings.Contains(log.String(), "re-attached vllm") })
+	if st := b2.Status().Leases; len(st) != 1 || st[0].Engine != "vllm" || st[0].State != "parked" {
+		t.Fatalf("leases after the restart = %+v", st)
+	}
+	hold := <-acquireIn(b2, broker.Request{Engine: "game2", Priority: broker.Foreground})
+	if hold == nil {
+		t.Fatalf("the waiter was never granted beside the parked engine; log:\n%s", log.String())
+	}
+	hold.Release()
+	select {
+	case code := <-exited:
+		t.Fatalf("the parked engine exited with %d after the restart; log:\n%s", code, log.String())
+	default:
+	}
+	if strings.Contains(log.String()[before:], "draining vllm") {
+		t.Fatalf("the parked engine was drained after the restart; log:\n%s", log.String())
 	}
 }

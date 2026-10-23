@@ -83,6 +83,7 @@ type Msg struct {
 	PID      int     `json:"pid,omitempty"`
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
 	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
+	Parked   bool    `json:"parked,omitempty"`    // OpReattach: the engine's weights are parked in RAM; its lease comes back parked
 	// Switched marks a person's switch (the wake page's Launch,
 	// /v1/berth/switch): it wins a juggle. OpAcquire and OpResume.
 	Switched bool `json:"switched,omitempty"`
