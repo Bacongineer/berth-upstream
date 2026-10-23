@@ -41,7 +41,7 @@ func (g *Gateway) switchTo(e *config.Engine) {
 		// still leaves the engine coming up, bounded by the gateway's ready.
 		ctx, cancel := context.WithTimeout(context.Background(), g.ready())
 		defer cancel()
-		err := g.ensure(ctx, e)
+		err := g.ensure(ctx, e, true)
 		if err != nil {
 			g.log().Warn("switch failed", "engine", e.Name, "err", err)
 		}

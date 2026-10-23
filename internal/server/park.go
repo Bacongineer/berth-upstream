@@ -16,7 +16,7 @@ import (
 )
 
 func resume(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker) {
-	err := b.Resume(req.Engine)
+	err := b.Resume(req.Engine, req.Switched)
 	switch {
 	case err == nil:
 		reply(conn, log, proto.Msg{Op: proto.OpGranted, Engine: req.Engine, Reason: "queued at its own priority"})

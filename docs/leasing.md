@@ -40,7 +40,10 @@
   is still busy (a request in flight, a ComfyUI job queued, a model loading). The engine ranking
   decides a juggle: the winner keeps or takes the card, and the loser waits for it instead of
   draining it back. An idle holder hands over at once, so chat, then an image, then chat again
-  is three clean handoffs.
+  is three clean handoffs. A person's switch (Launch on the gateway's wake page, or
+  `/v1/berth/switch`) is never a juggle: it takes the card whatever the ranking says, and inside
+  the window a request no person made (a chat client's background call) does not take it back.
+  To keep it longer, give the engine a `min_turn`.
 
   ```toml
   [priority]

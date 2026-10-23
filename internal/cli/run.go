@@ -21,6 +21,7 @@ func runRun(c *Context) int {
 	group := fs.String("group", "", "engine family for juggles and the usage ranking, e.g. llama-swap for each of its models (default: --as)")
 	prio := fs.String("priority", "interactive", "batch, interactive, foreground or hold")
 	pinned := fs.Bool("pinned", false, "never drained: the card stays CMD's until it exits (for apps like Blender, not engines)")
+	switched := fs.Bool("switched", false, "a person's switch (the gateway sets it for the wake page's Launch and /v1/berth/switch): wins a juggle")
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
 	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default; negative = no deadline")
 	drainPost := fs.String("drain-post", "", "URL to POST when asked to drain, before signalling (e.g. llama-swap's unload)")
@@ -88,7 +89,7 @@ func runRun(c *Context) int {
 	// Nothing here goes to stdout: the engine owns it. berth's own notices are
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.OptionsFor(&e, runner.Over{
-		Socket: *sock, Group: *group, Pinned: *pinned, Wait: *wait, Grace: *grace,
+		Socket: *sock, Group: *group, Pinned: *pinned, Switched: *switched, Wait: *wait, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err, Log: c.Log(),
 	}))
 }

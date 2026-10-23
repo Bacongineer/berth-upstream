@@ -325,14 +325,14 @@ func TestResumeGrantsTheParkedLease(t *testing.T) {
 
 	// An engine that is not parked is refused, so the caller starts it
 	// the normal way.
-	if err := b.Resume("nobody"); err == nil || !strings.Contains(err.Error(), "not parked") {
+	if err := b.Resume("nobody", false); err == nil || !strings.Contains(err.Error(), "not parked") {
 		t.Fatalf("resume = %v", err)
 	}
 
 	// Priorities still apply: a foreground holder keeps the card from a
 	// batch resume.
 	game := must(t, acquire(b, Request{Engine: "game", Priority: Foreground}))
-	if err := b.Resume("vllm"); err != nil {
+	if err := b.Resume("vllm", false); err != nil {
 		t.Fatal(err)
 	}
 	if st := b.Status(); len(st.Waiting) != 1 || st.Waiting[0].Engine != "vllm" {
@@ -359,7 +359,7 @@ func TestParkAndResumeCycleTwice(t *testing.T) {
 	l := warmLease(t, b, c, "vllm", 8*GiB, 100, 101)
 
 	for cycle := 1; cycle <= 2; cycle++ {
-		if err := b.Resume("vllm"); err != nil {
+		if err := b.Resume("vllm", false); err != nil {
 			t.Fatalf("cycle %d: resume: %v", cycle, err)
 		}
 		select {
@@ -464,7 +464,7 @@ func TestResumeOfAWholeCardEngineDoesNotWaitOnItself(t *testing.T) {
 	chat.Release()
 	b.Tick(context.Background())
 
-	if err := b.Resume("comfyui"); err != nil {
+	if err := b.Resume("comfyui", false); err != nil {
 		t.Fatal(err)
 	}
 	b.Tick(context.Background())
@@ -480,7 +480,7 @@ func TestResumeOfAWholeCardEngineDoesNotWaitOnItself(t *testing.T) {
 func TestReleasedResumeIsNeverGranted(t *testing.T) {
 	b, c, _ := parkSetup(t, parkTree(100, 101), 16*GiB, 0)
 	comfy, chat := parkWholeCard(t, b, c)
-	if err := b.Resume("comfyui"); err != nil {
+	if err := b.Resume("comfyui", false); err != nil {
 		t.Fatal(err)
 	}
 	b.Tick(context.Background())

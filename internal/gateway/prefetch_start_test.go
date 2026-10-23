@@ -49,7 +49,7 @@ func TestStartPrefetchesTheEnginesFiles(t *testing.T) {
 			mu.Unlock()
 			return errors.New("the disk said no")
 		}}
-	if err := g.ensure(context.Background(), &e); err != nil {
+	if err := g.ensure(context.Background(), &e, false); err != nil {
 		t.Fatalf("a failing ask failed the start: %v", err)
 	}
 	want := []string{filepath.Join(dir, "one.gguf"), filepath.Join(dir, "two.gguf")}

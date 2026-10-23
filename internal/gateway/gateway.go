@@ -652,7 +652,7 @@ func (g *Gateway) wait(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !t.live {
-		if err := g.ensure(r.Context(), t.engine); err != nil {
+		if err := g.ensure(r.Context(), t.engine, false); err != nil {
 			g.startFailed(w, t.engine.Name, model, err)
 			return
 		}
@@ -720,7 +720,7 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !t.live {
-		if err := g.ensure(r.Context(), t.engine); err != nil {
+		if err := g.ensure(r.Context(), t.engine, false); err != nil {
 			g.startFailed(w, t.engine.Name, "prompt", err)
 			return
 		}
@@ -760,7 +760,8 @@ func (g *Gateway) comfyProxyTo(t target, w http.ResponseWriter, r *http.Request)
 
 // ensure starts e under a lease unless this gateway already has, then waits
 // until it answers. A start the broker refuses comes back as the reason.
-func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
+// switched marks a person's switch, which wins a juggle.
+func (g *Gateway) ensure(ctx context.Context, e *config.Engine, switched bool) error {
 	// ComfyUI answers no /v1/models; its queue endpoint is the liveness
 	// probe instead, so a cold start waits for the real server.
 	probe := g.answers
@@ -770,7 +771,7 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 	// A parked engine answers while the weights sit in RAM: the resume
 	// goes before any probe, or the request is proxied to RAM.
 	if parks(e) {
-		switch err := g.resume(ctx, e); {
+		switch err := g.resume(ctx, e, switched); {
 		case err == nil:
 			return nil
 		case !errors.Is(err, errNotParked):
@@ -830,7 +831,7 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine) error {
 			// restore below reads the page cache where it can.
 			go g.kvWarm(e, ready)
 		}
-		go g.run(e, s, ready)
+		go g.run(e, s, ready, switched)
 	}
 
 	deadline := time.Now().Add(ready)
@@ -910,8 +911,8 @@ func (g *Gateway) memAvailable() (uint64, bool) {
 // adopts the engine instead of starting it again. The start waits for
 // the berth no longer than the request that asked for it, so a start
 // the client gave up on cannot fire hours later and take the card.
-func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration) {
-	o := runner.OptionsFor(e, runner.Over{Socket: g.Socket, Group: e.Name, Wait: wait})
+func (g *Gateway) run(e *config.Engine, s *started, wait time.Duration, switched bool) {
+	o := runner.OptionsFor(e, runner.Over{Socket: g.Socket, Group: e.Name, Wait: wait, Switched: switched})
 	code, err := g.spawnRun(e.Name, s, o)
 	if err != nil {
 		g.log().Error("gateway could not start the engine process", "engine", e.Name, "err", err)

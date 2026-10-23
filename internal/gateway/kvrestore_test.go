@@ -150,7 +150,7 @@ func TestStartRestoresOnlyTheEnginesModel(t *testing.T) {
 	e := engineEntry(t, addr, snapDir)
 	g := &Gateway{Socket: sock, Ready: 15 * time.Second, Key: testKey, Log: discard(),
 		Engines: []config.Engine{*e}}
-	if err := g.ensure(context.Background(), e); err != nil {
+	if err := g.ensure(context.Background(), e, false); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 	var got []string
@@ -178,7 +178,7 @@ func TestStartWithoutKVSnapshotsAsksNothing(t *testing.T) {
 	e.KVSnapshots = ""
 	g := &Gateway{Socket: sock, Ready: 15 * time.Second, Key: testKey, Log: discard(),
 		Engines: []config.Engine{*e}}
-	if err := g.ensure(context.Background(), e); err != nil {
+	if err := g.ensure(context.Background(), e, false); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 	for _, l := range kvLines(t, kvlog) {

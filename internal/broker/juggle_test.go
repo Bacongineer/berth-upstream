@@ -258,3 +258,62 @@ func TestSameEngineIsNotAJuggle(t *testing.T) {
 		t.Fatalf("waiting = %+v (%q), want the second lease waiting without a juggle", st.Waiting, lastWaiting(b))
 	}
 }
+
+// jugglingBroker ranks llama-swap first and decides juggles for a minute,
+// with no engine reader: a fresh holder is neither busy nor idle.
+func jugglingBroker(t *testing.T) *Broker {
+	t.Helper()
+	b, _, _ := setup(t, procs.Map{})
+	b.cfg.JuggleWindow = time.Minute
+	b.cfg.Order = []string{"llama-swap", "comfyui"}
+	return b
+}
+
+// A person's switch is the last switch: it drains a fresh holder the order
+// ranks first instead of losing the juggle.
+func TestPersonsSwitchWinsAJuggle(t *testing.T) {
+	b := jugglingBroker(t)
+	chat := must(t, acquire(b, Request{Engine: "llama-swap", Priority: Foreground}))
+	w := acquire(b, Request{Engine: "comfyui", Priority: Foreground, Switched: true})
+	drained(t, chat)
+	chat.Release()
+	must(t, w).Release()
+	if c := b.Status().Counters; c.JugglesStopped != 0 {
+		t.Fatalf("juggles stopped = %d, want 0", c.JugglesStopped)
+	}
+}
+
+// Inside the window, a holder a person switched to keeps the card from a
+// request no person made, even one the order ranks first and even when the
+// holder reads idle (ComfyUI just launched, nothing submitted yet).
+func TestSwitchedHolderKeepsTheCardInTheWindow(t *testing.T) {
+	b := jugglingBroker(t)
+	b.cfg.Busy = func(string) (bool, bool) { return false, true }
+	comfy := must(t, acquire(b, Request{Engine: "comfyui", Priority: Foreground, Switched: true}))
+	defer comfy.Release()
+	w := acquire(b, Request{Engine: "llama-swap", Priority: Foreground})
+	pending(t, w)
+	b.Tick(context.Background())
+	if why := lastWaiting(b); !strings.Contains(why, "comfyui was switched to by hand") {
+		t.Fatalf("wait reason = %q", why)
+	}
+	if c := b.Status().Counters; c.JugglesStopped != 0 || c.Drains != 0 {
+		t.Fatalf("counters = %+v, want no juggle and no drain", c)
+	}
+}
+
+// An engine that lost a juggle earlier does not make a person's later
+// switch to it lose too (on aphotic comfyui-5 inherited comfyui-2's loss
+// and waited nine minutes behind an idle llama-swap).
+func TestSwitchOutlivesAnEarlierJuggleLoss(t *testing.T) {
+	b := jugglingBroker(t)
+	chat := must(t, acquire(b, Request{Engine: "llama-swap", Priority: Foreground}))
+	lost := acquire(b, Request{Engine: "comfyui", Priority: Foreground, Wait: 200 * time.Millisecond})
+	if r := <-lost; r.err == nil {
+		t.Fatal("the unswitched request won the juggle")
+	}
+	w := acquire(b, Request{Engine: "comfyui", Priority: Foreground, Switched: true})
+	drained(t, chat)
+	chat.Release()
+	must(t, w).Release()
+}

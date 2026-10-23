@@ -102,6 +102,7 @@ func testRun(argv []string) {
 	fs.String("api-key-env", "", "")
 	fs.String("api-key-file", "", "")
 	fs.Bool("pinned", false, "")
+	switched := fs.Bool("switched", false, "")
 	fs.Bool("fail-closed", false, "")
 	fs.Bool("exit-comfyui-idle", false, "")
 	fs.Duration("exit-comfyui-idle-after", 0, "")
@@ -110,7 +111,7 @@ func testRun(argv []string) {
 	}
 	os.Exit(runner.Run(runner.Options{
 		Socket: *socket, Engine: *as, Group: *group, Priority: *prio, Needs: *needs << 20,
-		Wait: *wait, Grace: *grace, Argv: fs.Args(), Stderr: os.Stderr,
+		Switched: *switched, Wait: *wait, Grace: *grace, Argv: fs.Args(), Stderr: os.Stderr,
 	}))
 }
 

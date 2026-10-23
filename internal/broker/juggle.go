@@ -88,6 +88,9 @@ func orderIndex(order []string, k string) int {
 // keeps decides an equal-priority waiter w against holder h: true means h
 // keeps the card and w waits, with the reason w is told.
 func (b *Broker) keeps(h, w *lease, now time.Time) (bool, string) {
+	if w.switched {
+		return false, "" // a person's switch is the last switch: it wins
+	}
 	if w.lostTo == h.id {
 		return true, w.lostWhy
 	}
@@ -98,6 +101,12 @@ func (b *Broker) keeps(h, w *lease, now time.Time) (bool, string) {
 	win := b.juggleWindow()
 	if win == 0 || h.granted.IsZero() || h.reattach || now.Sub(h.granted) >= win {
 		return false, "" // a switch, not a juggle: last switch wins
+	}
+	if h.switched {
+		// A person just switched to the holder; a request no person made
+		// does not take it back inside the window, busy or not (a start
+		// that is still loading reads as neither).
+		return true, fmt.Sprintf("%s was switched to by hand %s ago", h.key(), now.Sub(h.granted).Round(time.Second))
 	}
 	if b.cfg.Busy != nil {
 		if busy, known := b.cfg.Busy(h.key()); known && !busy {
