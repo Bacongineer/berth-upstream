@@ -57,6 +57,8 @@ local proof command green before opening a PR; CI must end green at merge.
 - `internal/kvsnap` — llama.cpp slot snapshots: the slot client and the budgeted snapshot index.
 - `internal/insights` — request KPIs, token ledger, leaderboard; one implementation
   over the node's in-memory log and the harbor's SQLite rows.
+- `internal/notify` — `berth notify`: which events become desktop notifications at each level,
+  the burst gate, `notify-send` on Linux and the Win32 tray on Windows.
 - `internal/pagecache` — how much of a file the page cache holds (mincore), and prefetch.
 - `internal/park` — park and resume adapters (ComfyUI, vLLM, SGLang, custom hooks, the Berth park
   protocol) and the RAM admission and eviction rules. The lease state lives in the broker.
@@ -68,6 +70,10 @@ local proof command green before opening a PR; CI must end green at merge.
 - `internal/runs` — unprotected-run records (daemon down, or gone mid-run).
 - `internal/server` — the Unix socket server: leases, event log fan-out, stowaway
   notifications, the loopback `/metrics` listener.
+- `internal/skill` — the agent skills `berth skill install` writes: `SKILL.md` (berth) and
+  `comfyui/SKILL.md`. Users' agents act on every command in them, so a change to a flag, a
+  route or a default that a skill names updates the skill in the same PR. Skills are public
+  text: write them like the docs.
 - `internal/store` — the harbor's SQLite store (modernc.org/sqlite; pure Go, no CGO).
 - `internal/storage` — model roots: filesystem, free space, the free-space floor.
 - `internal/swapcost` — measured switch times per engine and tier, and chain plans.

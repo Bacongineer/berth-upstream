@@ -149,7 +149,7 @@ line goes away.
 
 **Built for agents and scripts**
 - **`berth skill install`** teaches Claude Code, Codex, OpenCode, Hermes Agent and other agents to ask Berth
-  for the card instead of killing GPU processes.
+  for the card instead of killing GPU processes, and to set up and run ComfyUI image generation through Berth.
 - Every reporting command takes `--format json|yaml`. All of them keep results on stdout and
   diagnostics on stderr, and exit 0, 1 or 2 by one rule.
 

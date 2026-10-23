@@ -33,14 +33,14 @@ func (v skillInstallView) Human(c *Context, ok bool) error {
 		}
 		c.Printf("%s %s: %s (%s)\n", c.Style.OK(markOK), p.Target, p.Path, word)
 	}
-	c.Bullet("Agents load it on their next session; it tells them to ask Berth for the card instead of killing GPU processes")
+	c.Bullet("Agents load them on their next session: berth tells them to ask Berth for the card instead of killing GPU processes, comfyui how to generate through Berth")
 	return nil
 }
 
 func runSkillInstall(c *Context) int {
 	fs := c.FlagSet()
 	target := fs.String("target", "all", "claude, agents, hermes, opencode or all (comma-separated; all includes hermes when its home exists)")
-	dir := fs.String("dir", "", "install into this skills directory instead (DIR/berth/SKILL.md)")
+	dir := fs.String("dir", "", "install into this skills directory instead (DIR/berth/SKILL.md, DIR/comfyui/SKILL.md)")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
@@ -70,11 +70,13 @@ func runSkillInstall(c *Context) int {
 	}
 	var doc skillInstallDoc
 	for _, p := range places {
-		path, changed, err := skill.Install(p.Path)
-		if err != nil {
-			return c.fail(Systemf("install the skill for %s: %v", p.Target, err))
+		for _, s := range skill.Skills {
+			path, changed, err := skill.Install(p.Path, s)
+			if err != nil {
+				return c.fail(Systemf("install the %s skill for %s: %v", s.Name, p.Target, err))
+			}
+			doc.Installed = append(doc.Installed, skillPlace{Target: p.Target, Path: path, Changed: changed})
 		}
-		doc.Installed = append(doc.Installed, skillPlace{Target: p.Target, Path: path, Changed: changed})
 	}
 	return c.Write(skillInstallView{doc: doc}, nil)
 }
@@ -84,9 +86,18 @@ func runSkillShow(c *Context) int {
 	if code, done := c.Parse(fs); done {
 		return code
 	}
-	if code, done := c.noArgs(); done {
-		return code
+	name := "berth"
+	switch args := fs.Args(); len(args) {
+	case 0:
+	case 1:
+		name = args[0]
+	default:
+		return c.fail(Failf("skill show takes one skill name"))
 	}
-	_, _ = c.Out.Write(skill.Doc)
+	s, ok := skill.Find(name)
+	if !ok {
+		return c.fail(Failf("no skill named %q", name).WithHint("skills: berth, comfyui"))
+	}
+	_, _ = c.Out.Write(s.Doc)
 	return 0
 }

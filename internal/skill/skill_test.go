@@ -19,22 +19,40 @@ func TestInstallIsIdempotentAndKeepsTheOld(t *testing.T) {
 	if err := os.WriteFile(dst, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, changed, err := Install(dir); err != nil || !changed {
+	if _, changed, err := Install(dir, Skills[0]); err != nil || !changed {
 		t.Fatalf("first install: changed=%v err=%v", changed, err)
 	}
 	if b, _ := os.ReadFile(dst + ".bak"); string(b) != "old" {
 		t.Fatalf("backup = %q", b)
 	}
-	if _, changed, err := Install(dir); err != nil || changed {
+	if _, changed, err := Install(dir, Skills[0]); err != nil || changed {
 		t.Fatalf("second install: changed=%v err=%v", changed, err)
 	}
 }
 
-// The skill must load in agents: front matter with a name and a description.
+// Every skill must load in agents: front matter whose name is the folder
+// it installs into, and a description.
 func TestDocFrontMatter(t *testing.T) {
-	s := string(Doc)
-	if !strings.HasPrefix(s, "---\nname: berth\ndescription: ") || !strings.Contains(s[4:], "\n---\n") {
-		t.Fatal("SKILL.md front matter is malformed")
+	for _, sk := range Skills {
+		s := string(sk.Doc)
+		if !strings.HasPrefix(s, "---\nname: "+sk.Name+"\ndescription: ") || !strings.Contains(s[4:], "\n---\n") {
+			t.Errorf("%s/SKILL.md front matter is malformed", sk.Name)
+		}
+	}
+}
+
+// Install writes each skill under its own folder.
+func TestInstallWritesEachSkillInItsFolder(t *testing.T) {
+	dir := t.TempDir()
+	for _, sk := range Skills {
+		path, _, err := Install(dir, sk)
+		if err != nil || path != filepath.Join(dir, sk.Name, "SKILL.md") {
+			t.Fatalf("install %s = %s %v", sk.Name, path, err)
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "comfyui", "SKILL.md"))
+	if err != nil || !strings.HasPrefix(string(got), "---\nname: comfyui\n") {
+		t.Fatalf("comfyui/SKILL.md = %.40q %v", got, err)
 	}
 }
 

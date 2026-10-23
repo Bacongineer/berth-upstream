@@ -57,6 +57,9 @@ goes there while the card loads. [Gateway](gateway.md) covers both settings.
 berth skill install --target hermes
 ```
 
-This writes the Berth skill to `~/.hermes/skills/mlops/berth/SKILL.md` (under `$HERMES_HOME` when it is
-set). Hermes loads it in its next session. The skill tells it to ask Berth before it starts, stops or
-switches anything that uses the GPU, instead of killing the process that holds it.
+This writes the Berth skill to `~/.hermes/skills/mlops/berth/SKILL.md` and the ComfyUI skill to
+`~/.hermes/skills/mlops/comfyui/SKILL.md` (under `$HERMES_HOME` when it is set). Hermes loads them in its
+next session. The Berth skill tells it to ask Berth before it starts, stops or switches anything that
+uses the GPU, instead of killing the process that holds it. The ComfyUI skill tells it how to set up
+ComfyUI under Berth and generate through Berth's ComfyUI port, so a render never lands on a card a chat
+model holds.
