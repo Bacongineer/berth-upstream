@@ -19,6 +19,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On Windows, `berth service status` shows a running task as running. It read the next run time, which
+  is N/A for a logon task, instead of the status ([#166](https://github.com/T-Crypt/berth/issues/166)).
 - A berthd that starts with its card already in a VM names the card by its PCI address in `berth status`
   and in what waiting requests read. Before, both said gpu0, which on a two-card box can be the other card.
 - On a box with two NVIDIA cards, `berth vfio run` no longer refuses because an engine on the other card
