@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ type Tool func(ctx context.Context, argv ...string) (string, error)
 // binary, since a service that runs berth (llama-swap's) often has a PATH
 // without the user's own bin directory. The error says where to get it.
 func Find() (Tool, error) {
+	if runtime.GOOS != "linux" {
+		return nil, errors.New("cuda-checkpoint runs on Linux only")
+	}
 	bin, err := exec.LookPath("cuda-checkpoint")
 	if err != nil {
 		if exe, xerr := os.Executable(); xerr == nil {
