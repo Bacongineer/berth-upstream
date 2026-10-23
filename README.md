@@ -42,7 +42,7 @@ claim. When another engine holds it, Berth:
 The numbered markers on the timeline are those four steps. A process that holds VRAM without a lease
 shows up as a stowaway: Berth reports its PID and memory and leaves it running.
 
-> **Status: alpha, v0.3.4.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
+> **Status: alpha, v0.3.5.** Runs daily on an RTX 4090 workstation beside llama-swap, NInfer,
 > Strata, ComfyUI and games, and testers run it on Windows. The [docs](docs/README.md) cover what works and has tests; the
 > [roadmap](docs/roadmap.md) lists the phases and what is still missing.
 
