@@ -6,6 +6,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- Background engines: `background = true` on an engine makes the gateway run it at `batch` whenever the card has
+  been free for `idle_after` (default 60 s), with no lease, waiter, stowaway or running claimed app on it. Any other
+  request drains it, and it stays out until the card is free again, so a game or a hold keeps it out. A tagger or an
+  indexer in Docker uses `start = ["docker", "start", "-a", NAME]` and `container = NAME`
+  ([#172](https://github.com/T-Crypt/berth/issues/172)).
+
 ### Fixed
 
 - A person's switch wins: Launch on the wake page and `/v1/berth/switch` take the card from an equal-priority

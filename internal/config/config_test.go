@@ -834,3 +834,30 @@ func TestEngineParkTTL(t *testing.T) {
 		t.Errorf("a negative park_ttl: %v", err)
 	}
 }
+
+// A background engine needs a start command, runs at batch only, and
+// idle_after belongs to it alone.
+func TestBackgroundEngine(t *testing.T) {
+	const entry = `[[engine]]
+name = "tagger"
+type = "custom"
+url  = "http://127.0.0.1:8000"
+health = "/health"
+`
+	c, err := Load(write(t, entry+`start = ["docker", "start", "-a", "tagger"]
+background = true
+idle_after = "2m"
+`))
+	if err != nil || !c.Engine[0].Background || c.Engine[0].IdleAfter.Duration != 2*time.Minute {
+		t.Fatalf("a valid background engine: %+v err=%v", c.Engine[0], err)
+	}
+	for _, tc := range []struct{ keys, wantErr string }{
+		{"background = true\n", "background needs start"},
+		{"start = [\"x\"]\nbackground = true\npriority = \"foreground\"\n", "runs at batch priority, not foreground"},
+		{"start = [\"x\"]\nidle_after = \"1m\"\n", "idle_after needs background"},
+	} {
+		if _, err := Load(write(t, entry+tc.keys)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%q: error lacks %q: %v", tc.keys, tc.wantErr, err)
+		}
+	}
+}
