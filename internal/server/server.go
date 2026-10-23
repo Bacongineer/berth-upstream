@@ -292,7 +292,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			case m.Op == proto.OpParked:
 				lease.Parked()
 			case m.Op == proto.OpParkFailed:
-				lease.ParkFailed()
+				lease.ParkFailed(m.Reason)
 			case m.Op == proto.OpAwake:
 				lease.Awake()
 			case m.Op == proto.OpAttach && m.PID > 0:

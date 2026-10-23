@@ -34,7 +34,6 @@ func TestDrainPathNeverCutsJobOnDeadHistory(t *testing.T) {
 	defer close(done)
 	logs := &strings.Builder{}
 	say := func(f string, a ...any) { fmt.Fprintf(logs, f+"\n", a...) }
-	start := time.Now()
 	result := make(chan bool, 1)
 	go func() {
 		// ExitComfyUIIdle=false: the plain drain boundary.
@@ -43,10 +42,12 @@ func TestDrainPathNeverCutsJobOnDeadHistory(t *testing.T) {
 	}()
 	select {
 	case ok := <-result:
-		spent := time.Since(start)
-		if spent < 2500*time.Millisecond {
-			t.Fatalf("boundary fired at %v while the queue reported a running job: %q",
-				spent.Round(time.Millisecond), logs.String())
+		// The queue reports the job until busyUntil, so the boundary may
+		// fire at that instant and no earlier. A stopwatch started after
+		// busyUntil was set measured a hair under it on a coarse clock.
+		if early := time.Until(busyUntil); early > 0 {
+			t.Fatalf("boundary fired %v before the queue emptied, while it reported a running job: %q",
+				early.Round(time.Millisecond), logs.String())
 		}
 		if !ok {
 			t.Fatalf("fail-open drain refused after the queue emptied: %q", logs.String())

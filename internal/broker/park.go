@@ -37,13 +37,23 @@ func (l *Lease) Parked() {
 }
 
 // ParkFailed puts a lease whose park call failed back on today's ladder:
-// draining, and the runner stops it as any other.
-func (l *Lease) ParkFailed() {
+// draining, and the runner stops it as any other. The why goes on the
+// event stream, so a park that never works (a missing tool, an engine
+// that refuses) shows in berth events, the harbor and berth notify
+// instead of only in the run's own log.
+func (l *Lease) ParkFailed(why string) {
 	l.b.mu.Lock()
 	defer l.b.mu.Unlock()
-	if l.l.state == parking {
-		l.l.state = draining
+	if l.l.state != parking {
+		return
 	}
+	l.l.state = draining
+	detail := "park failed; stopping it instead"
+	if why != "" {
+		detail = "park failed: " + why + "; stopping it instead"
+	}
+	l.b.log.Warn("park failed", "lease", l.l.id, "engine", l.l.engine, "why", why)
+	l.b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: l.l.id, Engine: l.l.engine, Detail: detail})
 }
 
 // Waits delivers the reasons while a resumed lease waits in the queue.

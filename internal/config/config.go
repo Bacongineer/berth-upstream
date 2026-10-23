@@ -650,6 +650,11 @@ func (c *Config) Validate() error {
 		}
 		switch e.Park {
 		case "", "off", "hook":
+		case "checkpoint":
+			// A checkpointed engine needs a front that holds its requests
+			// (docs/design.md, rule 3), and a front is one run's own
+			// address: only the berth run line can name it.
+			errs = append(errs, fmt.Errorf("%s: park = \"checkpoint\" goes on the engine's berth run line with --front, which names its door", where))
 		default:
 			errs = append(errs, fmt.Errorf("%s: park %q is not off or hook", where, e.Park))
 		}

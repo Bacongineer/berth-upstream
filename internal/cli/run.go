@@ -4,8 +4,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/broker"
@@ -34,6 +37,8 @@ func runRun(c *Context) int {
 	idle := fs.Bool("exit-comfyui-idle", false, "release a ComfyUI session after its first completed job; with it set, --drain-max no longer bounds the wait: a session with no completed job holds the card")
 	after := fs.Duration("exit-comfyui-idle-after", 0, "with --exit-comfyui-idle: release an unused session after this interval; 0 = no deadline")
 	keyEnv := fs.String("api-key-env", "", "environment variable holding the bearer token for engine drain requests")
+	parkMode := fs.String("park", "", "off, hook or checkpoint (cuda-checkpoint moves the engine's VRAM into RAM on a drain; needs --front), over the entry's park")
+	frontAddr := fs.String("front", "", "loopback address the engine's requests come to (llama-swap's ${PORT}); the engine takes a free port at "+runner.PortPlaceholder+" in its command, and requests wait here while it sleeps")
 	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD without berthd or stop it without a safe boundary")
@@ -79,6 +84,12 @@ func runRun(c *Context) int {
 	if e.ExitComfyUIIdleAfter.Duration < 0 || (e.ExitComfyUIIdleAfter.Duration > 0 && !e.ExitComfyUIIdle) {
 		return c.fail(Systemf("exit_comfyui_idle_after needs exit_comfyui_idle and must not be negative"))
 	}
+	if c.Changed("park") {
+		e.Park = *parkMode
+	}
+	if err := checkFront(e.Park, *frontAddr, c.Args); err != nil {
+		return c.fail(Systemf("%v", err))
+	}
 	e.Name = *engine
 	if _, err := broker.ParsePriority(e.Priority); err != nil {
 		return c.fail(Systemf("%v", err))
@@ -89,9 +100,36 @@ func runRun(c *Context) int {
 	// Nothing here goes to stdout: the engine owns it. berth's own notices are
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.OptionsFor(&e, runner.Over{
-		Socket: *sock, Group: *group, Pinned: *pinned, Switched: *switched, Wait: *wait, Grace: *grace,
+		Socket: *sock, Front: *frontAddr, Group: *group, Pinned: *pinned, Switched: *switched, Wait: *wait, Grace: *grace,
 		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err, Log: c.Log(),
 	}))
+}
+
+// checkFront holds a run to rule 3 of docs/design.md: a checkpointed
+// engine sleeps only behind a front, and a front needs the engine's port
+// placeholder and a loopback address.
+func checkFront(parkMode, frontAddr string, argv []string) error {
+	switch parkMode {
+	case "", "off", "hook", "checkpoint":
+	default:
+		return fmt.Errorf("--park %q is not off, hook or checkpoint", parkMode)
+	}
+	if parkMode == "checkpoint" && frontAddr == "" {
+		return errors.New("--park checkpoint needs --front: a checkpointed engine may only sleep behind a door that holds its requests")
+	}
+	if frontAddr == "" {
+		return nil
+	}
+	if parkMode != "checkpoint" {
+		return errors.New("--front is for --park checkpoint")
+	}
+	if err := config.Loopback(frontAddr); err != nil {
+		return fmt.Errorf("--front: %w", err)
+	}
+	if !slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, runner.PortPlaceholder) }) {
+		return fmt.Errorf("--front needs %s in the engine's command, where its port goes", runner.PortPlaceholder)
+	}
+	return nil
 }
 
 // engineEntry is the [[engine]] block a run reads its defaults from: the block

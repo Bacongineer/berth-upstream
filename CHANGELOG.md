@@ -6,6 +6,16 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- Engines with no offload call of their own (llama.cpp, NInfer, any llama-swap model) park in RAM through NVIDIA's
+  `cuda-checkpoint`: `berth run --park checkpoint --front 127.0.0.1:${PORT}` with `--port {{BERTH_PORT}}` in the
+  engine's command. The front takes the requests llama-swap sends, waits for the ones in flight before the
+  checkpoint, holds new ones while the engine sleeps, and asks berthd for the card on the first, so no request
+  hangs on a checkpointed engine. A 23.1 GB NInfer comes back in 3.3 s instead of a 14 s reload. `park =
+  "checkpoint"` on an engine entry is refused: a front is one run's address. docs/design.md is the model this and
+  the coming lends, multi-card leases and networked nodes follow.
+
 ## [v0.3.6] - 2026-10-23
 
 A parked ComfyUI now survives the two things that killed it: a client that renders on ComfyUI's own port,
