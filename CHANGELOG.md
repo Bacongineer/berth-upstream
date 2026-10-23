@@ -19,6 +19,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On Windows, the logon tasks `berth service install` creates start without a console window. Each
+  task runs a small wscript launcher in the state directory (`units\<unit>.vbs`), which starts berth
+  hidden with its output on the unit's log. Run `berth service install` again to switch existing tasks
+  ([#165](https://github.com/T-Crypt/berth/issues/165)).
 - On Windows, `berth service status` shows a running task as running. It read the next run time, which
   is N/A for a logon task, instead of the status ([#166](https://github.com/T-Crypt/berth/issues/166)).
 - A berthd that starts with its card already in a VM names the card by its PCI address in `berth status`
