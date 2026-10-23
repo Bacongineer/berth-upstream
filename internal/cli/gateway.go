@@ -44,6 +44,7 @@ func runGateway(c *Context) int {
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines with start/serves can be started on demand ($BERTH_CONFIG)")
 	ready := fs.Duration("ready", 10*time.Minute, "how long a start may wait for a berth and then to answer")
 	headroomMiB := fs.Uint64("headroom-mib", 2048, "RAM kept for the machine on a cold start; a start leaving less available is refused")
+	comfyListen := fs.String("comfyui-listen", "", "serve ComfyUI's own port behind Berth on this loopback address (web UI, API, websocket; a queued prompt wakes or starts ComfyUI first); empty = off")
 	guiListen := fs.String("gui-listen", "", "serve the gui plane (/gui/ lists every engine with its state and one button; /gui/<engine> starts an engine with a gui URL, then opens its web UI) on this loopback address; empty = off")
 	keyFile := fs.String("key-file", apikey.DefaultPath(), "the node's API key, created on first start ($BERTH_API_KEY_FILE)")
 	var allow hostList
@@ -66,6 +67,11 @@ func runGateway(c *Context) int {
 	if *guiListen != "" {
 		if err := config.Loopback(*guiListen); err != nil {
 			return c.fail(Systemf("the gui plane listens on loopback only: %v", err))
+		}
+	}
+	if *comfyListen != "" {
+		if err := config.Loopback(*comfyListen); err != nil {
+			return c.fail(Systemf("the ComfyUI port listens on loopback only: %v", err))
 		}
 	}
 	for _, w := range warns {
@@ -94,6 +100,17 @@ func runGateway(c *Context) int {
 			}
 		}()
 		log.Info("gui plane up", "url", "http://"+*guiListen+"/gui/")
+	}
+	if *comfyListen != "" {
+		comfy := &http.Server{Addr: *comfyListen, Handler: g.ComfyUIHandler(), ReadHeaderTimeout: 10 * time.Second}
+		go func() { <-ctx.Done(); _ = comfy.Close() }()
+		go func() {
+			if err := comfy.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("ComfyUI port stopped", "err", err)
+				stop()
+			}
+		}()
+		log.Info("ComfyUI port up", "url", "http://"+*comfyListen+"/")
 	}
 	log.Info("gateway up", "listen", "http://"+addr+"/v1", "startable", len(cfg.Engine), "key_file", *keyFile)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

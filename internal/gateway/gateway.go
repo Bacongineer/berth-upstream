@@ -220,7 +220,7 @@ func (g *Gateway) Handler() http.Handler {
 	for _, p := range []string{"/v1/chat/completions", "/v1/completions", "/v1/embeddings"} {
 		mux.HandleFunc("POST "+p, g.forward)
 	}
-	mux.HandleFunc("POST /prompt", g.comfyPrompt)
+	mux.HandleFunc("POST /prompt", func(w http.ResponseWriter, r *http.Request) { g.comfyPrompt(w, r, false) })
 	mux.HandleFunc("/ws", g.comfyProxy)
 	mux.HandleFunc("/queue", g.comfyProxy)
 	mux.HandleFunc("/history/", g.comfyProxy)
@@ -717,10 +717,27 @@ func (g *Gateway) comfyAnswers(ctx context.Context, base string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// ComfyUIHandler is ComfyUI's own port behind Berth: the web UI, its API
+// and websocket pass through unchanged, and a queued workflow (/prompt, or
+// /api/prompt from the web UI) first wakes or starts ComfyUI under its
+// lease as a person's switch, so a client here never meets a parked
+// ComfyUI with no card. It takes no key: it serves what ComfyUI's own
+// port served.
+func (g *Gateway) ComfyUIHandler() http.Handler {
+	g.adoptOnce.Do(g.adopt)
+	prompt := func(w http.ResponseWriter, r *http.Request) { g.comfyPrompt(w, r, true) }
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /prompt", prompt)
+	mux.HandleFunc("POST /api/prompt", prompt)
+	mux.HandleFunc("/", g.comfyProxy)
+	return mux
+}
+
 // comfyPrompt queues a workflow: it makes sure ComfyUI is up under a lease
 // (draining the holder like any other request, holding this request until
-// the engine answers), then proxies the prompt unchanged.
-func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
+// the engine answers), then proxies the prompt unchanged. switched marks a
+// person's switch, as ensure takes it.
+func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request, switched bool) {
 	t, ok := g.comfyTarget(r.Context())
 	if !ok {
 		apiError(w, http.StatusNotFound, "no ComfyUI engine on this node (configure an engine of type comfyui)")
@@ -733,7 +750,7 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !t.live {
-		if err := g.ensure(r.Context(), t.engine, false); err != nil {
+		if err := g.ensure(r.Context(), t.engine, switched); err != nil {
 			g.startFailed(w, t.engine.Name, "prompt", err)
 			return
 		}
