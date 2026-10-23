@@ -284,7 +284,16 @@ The table of cards Berth has run on, and how to add yours, is in
 
 ## Swap numbers
 
-Measured switch times on the reference RTX 4090 are in [Benchmarks](docs/benchmarks.md#swap-numbers).
+On the reference RTX 4090 with 62.5 GiB of RAM, one chat request through llama-swap, from the
+request to the reply, lease included (2026-10-23):
+
+| Switch | Time |
+|---|---|
+| A 21 GB chat model, file in the page cache | 5.6 s |
+| ComfyUI parks in RAM | under 1 s |
+| ComfyUI to a 27B chat model | 13.6 to 16.3 s |
+
+Strata's numbers and the method are in [Benchmarks](docs/benchmarks.md#swap-numbers).
 
 ## Roadmap
 
