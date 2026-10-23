@@ -498,6 +498,25 @@ residual_max_gib = 2   # card memory a parked engine may keep
   card. Restarting its unit (`systemctl --user start comfyui-berth`) does
   nothing while the park holds the lease, because the `berth run` wrapper is
   still running.
-- **Who sits out.** llama.cpp and llama-swap have no offload call upstream
-  yet, so they run today's drain; a park hook there waits for an upstream
-  endpoint or a patched route.
+- **Engines with no offload call.** llama.cpp, NInfer and other llama-swap
+  models park through NVIDIA's `cuda-checkpoint` (driver 550 or later, on
+  `PATH`), which moves the engine's device memory into its own RAM and back
+  with no change to the engine. A checkpointed engine blocks inside CUDA, so
+  it may only sleep behind a front: `berth run --front` takes the port
+  llama-swap assigns, starts the engine on a free port at `{{BERTH_PORT}}`,
+  holds requests while the engine sleeps, and asks for the card back on the
+  first one. Before the checkpoint the front waits for the requests in
+  flight. In a llama-swap entry:
+
+  ```yaml
+  cmd: >
+    berth run --as NInfer-27B --group llama-swap --priority foreground
+    --park checkpoint --front 127.0.0.1:${PORT} --
+    ninfer-serve --host 127.0.0.1 --port {{BERTH_PORT}} ...
+  ```
+
+  On an RTX 4090 the restore of a 23.1 GB NInfer takes 3.3 s, where a reload
+  takes 14 s; for a llama-server that loads from the page cache in 5 s the
+  gain is small. llama-swap still stops an idle model after its `ttl`, so set
+  the ttl longer than the time you spend in the other engine. A missing
+  `cuda-checkpoint` leaves the drain as it was, with a warning.

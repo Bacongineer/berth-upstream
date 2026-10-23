@@ -16,7 +16,10 @@ import (
 // flag carries on `berth run`, and the writers and windows an internal
 // caller owns. The zero value defers to the engine's entry.
 type Over struct {
-	Socket     string
+	Socket string
+	// Front is berth run --front: the engine's door, for park =
+	// "checkpoint". It is a run's own address, so no entry carries it.
+	Front      string
 	Group      string
 	Pinned     bool
 	Switched   bool
@@ -98,6 +101,12 @@ func OptionsFor(e *config.Engine, o Over) Options {
 			opts.Hook = true
 		}
 		opts.ParkBase, opts.ParkProbe = base, probe
+	}
+	// park = "checkpoint" moves the engine's device memory into its RAM
+	// with cuda-checkpoint. The front picks the engine's base; the probe
+	// says when a restore serves again.
+	if e.Park == "checkpoint" {
+		opts.Checkpoint, opts.Front, opts.ParkProbe = true, o.Front, probe
 	}
 	return opts
 }

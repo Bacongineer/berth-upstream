@@ -515,3 +515,29 @@ func TestReleasedResumeIsNeverGranted(t *testing.T) {
 		}
 	}
 }
+
+// A park call that fails puts the lease back on the drain and says why on
+// the event stream, so a park that never works is seen.
+func TestParkFailedSaysWhy(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	l := must(t, acquire(b, Request{Engine: "ninfer", Needs: 8 * GiB}))
+	l.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer", Used: 8 * GiB})
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "comfyui", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park refused: %s", why)
+	}
+	l.ParkFailed("cuda-checkpoint is not on PATH")
+	if st := b.Status(); st.Leases[0].State != "draining" {
+		t.Fatalf("state = %s, want draining", st.Leases[0].State)
+	}
+	evs, _, _ := b.Events(0, false)
+	last := evs[len(evs)-1]
+	if last.Kind != proto.EvParkRefused || last.Detail != "park failed: cuda-checkpoint is not on PATH; stopping it instead" {
+		t.Fatalf("last event = %+v", last)
+	}
+}

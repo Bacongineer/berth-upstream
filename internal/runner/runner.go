@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ import (
 	"github.com/T-Crypt/berth/internal/comfy"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/engines"
+	"github.com/T-Crypt/berth/internal/front"
 	"github.com/T-Crypt/berth/internal/httpauth"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
@@ -105,6 +107,17 @@ type Options struct {
 	// Hook marks park = "hook" when the entry gave no adapter: the first
 	// drain probes Berth's own park protocol once.
 	Hook bool
+	// Front is the address of the run's front (berth run --front): the
+	// engine's only door, which holds requests while the engine sleeps.
+	// The engine listens on a port the run picks, written into its
+	// command at PortPlaceholder.
+	Front string
+	// Checkpoint parks the engine with cuda-checkpoint (park =
+	// "checkpoint"): its device memory moves into its own RAM and back.
+	// It needs Front, so no request reaches the engine while it sleeps.
+	Checkpoint bool
+	// front is the open front, set by Run.
+	front *front.Front
 	// Container is the container the engine runs in (berth run
 	// --container NAME, the name of `docker run --name`): the drain stops
 	// it through the runtime CLI instead of signalling this process
@@ -160,6 +173,16 @@ func Run(o Options) int {
 		o.APIKey = key
 	}
 
+	if o.Front != "" {
+		var stop func()
+		var err error
+		if o, stop, err = openFront(o); err != nil {
+			say("%v; not starting %s", err, o.Engine)
+			return ExitRefused
+		}
+		defer stop()
+	}
+
 	conn, raw, err := server.Dial(o.Socket)
 	if err != nil {
 		if o.FailClosed {
@@ -205,6 +228,9 @@ func Run(o Options) int {
 	}
 	afterStart(cmd)
 	_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid})
+	if o.Checkpoint {
+		o.Park = checkpointPark(o, cmd.Process.Pid, say)
+	}
 
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)
@@ -667,6 +693,15 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 // (llama-swap unloads the model and stops us itself, past its slot
 // boundary), then a terminate to the process group, then a kill. Each step
 // gets Grace to work.
+// drainWait is how long a drain waits at its boundary: --drain-max, or
+// for as long as a request takes when it is unset.
+func drainWait(o Options) time.Duration {
+	if o.DrainMax > 0 {
+		return o.DrainMax
+	}
+	return time.Duration(math.MaxInt64)
+}
+
 func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reason string, say func(string, ...any)) {
 	say("draining %s: %s", o.Engine, reason)
 	if o.DrainComfyUI != "" {
@@ -696,11 +731,21 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			return false
 		}
 	}
-	if o.DrainSlots != "" && o.DrainPost == "" {
+	switch {
+	case o.front != nil:
+		// A front is its engine's boundary: it holds new requests and
+		// waits for the ones in flight, as long as --drain-max allows. An
+		// engine whose request outlived that wait is never parked
+		// mid-request (docs/design.md, rule 3): this drain stops it.
+		if !o.front.Sleep(drainWait(o)) {
+			say("a request to %s outlived --drain-max %s; stopping it instead of parking it", o.Engine, o.DrainMax)
+			o.Park, o.Hook = nil, false
+		}
+	case o.DrainSlots != "" && o.DrainPost == "":
 		if !slotBoundaryAt(o, drainPostBase(o.DrainSlots), done, say) {
 			return
 		}
-	} else if o.DrainPost != "" {
+	case o.DrainPost != "":
 		if !slotBoundaryAt(o, drainPostBase(o.DrainPost), done, say) {
 			return
 		}

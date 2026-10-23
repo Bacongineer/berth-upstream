@@ -283,3 +283,30 @@ func TestRunFailsOnAnInvalidConfig(t *testing.T) {
 		t.Errorf("stderr = %q, want the config failure", errOut)
 	}
 }
+
+// A checkpointed engine sleeps only behind a front (docs/design.md, rule 3).
+func TestCheckFront(t *testing.T) {
+	engine := []string{"llama-server", "--port", "{{BERTH_PORT}}"}
+	for _, tc := range []struct {
+		park, front string
+		argv        []string
+		want        string
+	}{
+		{"checkpoint", "127.0.0.1:5800", engine, ""},
+		{"", "", []string{"llama-server"}, ""},
+		{"hook", "", []string{"llama-server"}, ""},
+		{"checkpoint", "", engine, "--park checkpoint needs --front: a checkpointed engine may only sleep behind a door that holds its requests"},
+		{"hook", "127.0.0.1:5800", engine, "--front is for --park checkpoint"},
+		{"checkpoint", "127.0.0.1:5800", []string{"llama-server", "--port", "5801"}, "--front needs {{BERTH_PORT}} in the engine's command, where its port goes"},
+		{"checkpoint", "0.0.0.0:5800", engine, "--front: "},
+		{"sleep", "", engine, `--park "sleep" is not off, hook or checkpoint`},
+	} {
+		err := checkFront(tc.park, tc.front, tc.argv)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("checkFront(%q, %q) = %v, want nil", tc.park, tc.front, err)
+		case tc.want != "" && (err == nil || !strings.HasPrefix(err.Error(), tc.want)):
+			t.Errorf("checkFront(%q, %q) = %v, want %q", tc.park, tc.front, err, tc.want)
+		}
+	}
+}

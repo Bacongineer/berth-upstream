@@ -168,7 +168,7 @@ func (l *leaseLine) park(o Options, say func(string, ...any)) bool {
 	reply, ok := l.waitReply()
 	if !ok {
 		say("berthd never answered the park request; draining the usual way")
-		_ = l.send(proto.Msg{Op: proto.OpParkFailed})
+		_ = l.send(proto.Msg{Op: proto.OpParkFailed, Reason: "berthd never answered the park request"})
 		return false
 	}
 	if reply.Op != proto.OpParkOK {
@@ -181,7 +181,7 @@ func (l *leaseLine) park(o Options, say func(string, ...any)) bool {
 	cancel()
 	if err != nil {
 		say("park call failed (%v); draining the usual way", err)
-		_ = l.send(proto.Msg{Op: proto.OpParkFailed})
+		_ = l.send(proto.Msg{Op: proto.OpParkFailed, Reason: err.Error()})
 		return false
 	}
 	// Parked is believed before the reservation rides out: the broker can
@@ -229,6 +229,9 @@ func (l *leaseLine) resume(o Options, cmd *exec.Cmd, done <-chan struct{}, say f
 		say("%s never answered after the wake; stopping it", o.Engine)
 		stopNow(o, cmd, done, say)
 		return
+	}
+	if o.front != nil {
+		o.front.Open()
 	}
 	say("resumed %s in %s", o.Engine, time.Since(start).Round(100*time.Millisecond))
 	if err := l.send(proto.Msg{Op: proto.OpAwake, Lease: o.Engine}); err != nil {

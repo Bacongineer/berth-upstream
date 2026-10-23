@@ -898,3 +898,12 @@ func TestNotifyKeys(t *testing.T) {
 		t.Fatalf("load err = %v", err)
 	}
 }
+
+// park = "checkpoint" belongs on a berth run line, where --front names the
+// engine's door; an entry would hand one front address to every run.
+func TestParkCheckpointIsARunFlag(t *testing.T) {
+	_, err := Load(write(t, "[[engine]]\nname = \"llama-swap\"\ntype = \"llama-swap\"\nurl = \"http://127.0.0.1:9090\"\npark = \"checkpoint\"\n"))
+	if err == nil || !strings.Contains(err.Error(), `park = "checkpoint" goes on the engine's berth run line with --front`) {
+		t.Fatalf("load err = %v", err)
+	}
+}
