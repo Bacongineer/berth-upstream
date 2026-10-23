@@ -191,6 +191,17 @@ needs the key. The gateway listens
 on loopback only, refuses a Host that is not a loopback name (DNS rebinding) and refuses any request that
 carries a browser `Origin`, so a web page cannot start an engine. ComfyUI already hands off at a job boundary under a lease (`--drain-comfyui`); a drain first unloads its models via `POST /free`, and `--keep-comfyui-up` leaves the server on its port for OpenWebUI instead of stopping it.
 
+### ComfyUI's own port behind Berth
+
+`berth gateway --comfyui-listen 127.0.0.1:8189` serves a second port that looks like ComfyUI's own:
+the web UI, its API, the websocket and any custom node's routes pass through unchanged, with no key,
+and a browser may use it. A queued workflow (`POST /prompt`, or `POST /api/prompt` from the web UI)
+first wakes a parked ComfyUI or starts a stopped one under its lease, as a person's switch, so it wins
+the card from an engine of equal priority. Point clients, and anything that forwards ComfyUI to the
+LAN, at this port instead of ComfyUI's, and none of them can send work to a ComfyUI that has no card.
+The port serves only ComfyUI's routes: the gateway's `/v1/berth/switch` and the chat routes stay on
+the keyed port. Like the gateway, it listens on loopback only.
+
 ## What a switch costs
 
 The gateway runs a start and sees both ends of it: the grant its run printed, which is

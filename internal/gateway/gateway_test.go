@@ -718,13 +718,18 @@ func comfyMux() http.Handler {
 	mux.HandleFunc("/queue", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"queue_running":[],"queue_pending":[]}`)
 	})
-	mux.HandleFunc("/prompt", func(w http.ResponseWriter, r *http.Request) {
+	prompt := func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		if !strings.Contains(string(b), `"class_type"`) {
 			http.Error(w, "not a workflow", http.StatusBadRequest)
 			return
 		}
 		fmt.Fprint(w, `{"prompt_id":"gw-test-1","number":1,"node_errors":{}}`)
+	}
+	mux.HandleFunc("/prompt", prompt)
+	mux.HandleFunc("/api/prompt", prompt)
+	mux.HandleFunc("/system_stats", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"system":{"os":"stats-marker"}}`)
 	})
 	mux.HandleFunc("/history/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"gw-test-1":{"marker":"history-marker"}}`)
@@ -809,6 +814,67 @@ func TestComfyPromptColdStartsAndProxies(t *testing.T) {
 	}
 	if len(st.Leases) != 1 || st.Leases[0].Engine != "comfyui" {
 		t.Fatalf("leases = %+v", st.Leases)
+	}
+}
+
+// ComfyUI's own port behind Berth answers a browser with no key, the way
+// ComfyUI's port did: the web UI's /api/prompt starts ComfyUI under a
+// lease, draining the holder, and the rest of the surface passes through.
+func TestComfyUIPortStartsOnPromptAndPassesTheRest(t *testing.T) {
+	sock, b := daemon(t)
+	holderOut := &syncBuf{}
+	holder := make(chan int, 1)
+	go func() {
+		holder <- runner.Run(runner.Options{Socket: sock, Engine: "llama-swap", Priority: "batch",
+			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: holderOut})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(holderOut.String(), "granted") {
+		if time.Now().After(deadline) {
+			t.Fatalf("holder never granted: %s", holderOut.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_COMFY", addr)
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{{Name: "comfyui", Type: "comfyui", URL: "http://" + addr,
+			Start: []string{os.Args[0]}, Priority: "interactive"}}}
+	front := httptest.NewServer(g.ComfyUIHandler())
+	defer front.Close()
+	browser := func(method, path, body string) (int, string) {
+		req, err := http.NewRequest(method, front.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Origin", "http://10.0.0.200:8188")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	if code, body := browser("POST", "/api/prompt", `{"prompt":{"3":{"class_type":"KSampler"}}}`); code != http.StatusOK ||
+		body != `{"prompt_id":"gw-test-1","number":1,"node_errors":{}}` {
+		t.Fatalf("/api/prompt %d: %s", code, body)
+	}
+	select {
+	case code := <-holder:
+		if code != 128+15 {
+			t.Fatalf("holder exit %d, want 143 (drained)", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder was not drained")
+	}
+	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].Engine != "comfyui" {
+		t.Fatalf("leases = %+v", st.Leases)
+	}
+	if code, body := browser("GET", "/system_stats", ""); code != http.StatusOK || body != `{"system":{"os":"stats-marker"}}` {
+		t.Fatalf("/system_stats %d: %s", code, body)
 	}
 }
 

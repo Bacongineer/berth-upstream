@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth gateway --comfyui-listen ADDR` serves ComfyUI's own port behind Berth: the web UI, API, websocket and
+  custom node routes pass through with no key, and a queued workflow (`/prompt` or the web UI's `/api/prompt`)
+  first wakes or starts ComfyUI under its lease as a person's switch. A client or a LAN forwarder pointed there
+  never sends work to a parked ComfyUI that has no card ([#179](https://github.com/T-Crypt/berth/issues/179)).
 - ComfyUI jobs wait for the card on disk: with `on_busy = "queue"`, a `/prompt` sent while the card is in a VM or
   held by a game, a hold or a pinned app is answered at once with a `berth-` job id and submitted once the card is
   free. `/history/<berth id>` reads the result. The queue survives a gateway restart.
