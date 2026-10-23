@@ -861,3 +861,24 @@ idle_after = "2m"
 		}
 	}
 }
+
+// on_busy = "queue" is for a ComfyUI engine the gateway can start.
+func TestOnBusyQueue(t *testing.T) {
+	const comfy = `[[engine]]
+name = "comfyui"
+type = "comfyui"
+url  = "http://127.0.0.1:8188"
+`
+	if _, err := Load(write(t, comfy+"start = [\"comfy\"]\non_busy = \"queue\"\n")); err != nil {
+		t.Fatalf("a queueing ComfyUI was refused: %v", err)
+	}
+	for _, tc := range []struct{ entry, wantErr string }{
+		{comfy + "start = [\"comfy\"]\non_busy = \"drop\"\n", `on_busy "drop" is not wait or queue`},
+		{comfy + "on_busy = \"queue\"\n", `on_busy = "queue" needs start`},
+		{"[[engine]]\nname = \"chat\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8080\"\nstart = [\"x\"]\nserves = [\"m\"]\non_busy = \"queue\"\n", `is for ComfyUI engines`},
+	} {
+		if _, err := Load(write(t, tc.entry)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("error lacks %q: %v", tc.wantErr, err)
+		}
+	}
+}

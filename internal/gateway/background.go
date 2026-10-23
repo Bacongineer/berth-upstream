@@ -38,8 +38,9 @@ func cardFree(st *proto.Status) bool {
 }
 
 // Background starts the background engines while ctx lives, checking the
-// card every `every` (0 = 5 s). One background engine runs at a time, the
-// first in berth.toml whose card has been free for its idle_after.
+// card every `every` (0 = 5 s): queued ComfyUI jobs as soon as the card is
+// free, then one background engine at a time, the first in berth.toml whose
+// card has been free for its idle_after.
 func (g *Gateway) Background(ctx context.Context, every time.Duration) {
 	var bg []*config.Engine
 	for i := range g.Engines {
@@ -47,7 +48,7 @@ func (g *Gateway) Background(ctx context.Context, every time.Duration) {
 			bg = append(bg, &g.Engines[i])
 		}
 	}
-	if len(bg) == 0 {
+	if len(bg) == 0 && g.queueingComfy() == nil {
 		return
 	}
 	if every <= 0 {
@@ -65,6 +66,14 @@ func (g *Gateway) Background(ctx context.Context, every time.Duration) {
 		if !cardFree(g.nodeStatus()) {
 			freeSince = time.Time{}
 			continue
+		}
+		// Work someone asked for while the card was out of reach goes
+		// first, as soon as the card is free, before any background engine.
+		if g.submitting.CompareAndSwap(false, true) {
+			go func() {
+				defer g.submitting.Store(false)
+				g.submitDeferred(ctx)
+			}()
 		}
 		now := time.Now()
 		if freeSince.IsZero() {

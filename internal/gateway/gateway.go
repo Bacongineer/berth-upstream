@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/apikey"
@@ -68,6 +69,10 @@ type Gateway struct {
 	// processes, so the next gateway adopts the ones still running
 	// instead of starting them again. Empty disables the record.
 	StateFile string
+	// DeferredFile keeps the ComfyUI jobs queued while the card was out of
+	// reach (on_busy = "queue"), so they survive a gateway restart. Empty
+	// keeps them in memory only.
+	DeferredFile string
 	// CostFile is where the gateway's book of measured switch times
 	// lives, so the times survive a restart of the gateway. Empty keeps
 	// the book in memory only.
@@ -78,11 +83,13 @@ type Gateway struct {
 	// LogMax caps an engine's log file before it starts over; 0 = 64 MiB.
 	LogMax int64
 
-	mu      sync.Mutex
-	running map[string]*started // engines this gateway started, by name
-	failed  map[string]*failure // engines whose last start died before answering
-	lists   map[string]cached   // engine URL -> its /v1/models, briefly cached
-	wakes   map[string]*wake    // the wake page's last start, by engine name
+	mu         sync.Mutex
+	deferred   *deferredBook       // loaded on first use from DeferredFile
+	submitting atomic.Bool         // a submit of the queued ComfyUI jobs is running
+	running    map[string]*started // engines this gateway started, by name
+	failed     map[string]*failure // engines whose last start died before answering
+	lists      map[string]cached   // engine URL -> its /v1/models, briefly cached
+	wakes      map[string]*wake    // the wake page's last start, by engine name
 
 	adoptOnce sync.Once
 	stateMu   sync.Mutex
@@ -719,6 +726,12 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusNotFound, "no ComfyUI engine on this node (configure an engine of type comfyui)")
 		return
 	}
+	if e := g.queueingComfy(); e != nil {
+		if why := outOfReach(g.nodeStatus()); why != "" {
+			g.deferPrompt(w, r, e, why)
+			return
+		}
+	}
 	if !t.live {
 		if err := g.ensure(r.Context(), t.engine, false); err != nil {
 			g.startFailed(w, t.engine.Name, "prompt", err)
@@ -733,6 +746,10 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request) {
 // point that starts a down engine; these answer 503 naming it instead, so
 // a thumbnail fetch never cold-starts a 12 GB server by accident.
 func (g *Gateway) comfyProxy(w http.ResponseWriter, r *http.Request) {
+	if id, ok := strings.CutPrefix(r.URL.Path, "/history/"); ok && strings.HasPrefix(id, deferredPrefix) {
+		g.deferredHistory(w, r, id)
+		return
+	}
 	t, ok := g.comfyTarget(r.Context())
 	if !ok {
 		apiError(w, http.StatusNotFound, "no ComfyUI engine on this node (configure an engine of type comfyui)")

@@ -295,6 +295,27 @@ idle_after = "60s"                 # how long the card must stay free first (def
 - A card back from a VM is a free card, so a background engine also picks up after a VFIO session.
 - A background engine needs `start`, runs at `batch` only, and needs no `serves`.
 
+## Queue ComfyUI jobs while the card is away
+
+With `on_busy = "queue"` on the ComfyUI engine, a workflow posted to `/prompt` while the card is out of reach (passed
+through to a VM, or held by a game, a `berth hold` or a pinned app) does not wait on the connection. The gateway keeps
+it on disk and answers at once, the way ComfyUI does, with a job id that starts with `berth-` and the reason in an
+`X-Berth-Deferred` header:
+
+```toml
+[[engine]]
+name     = "comfyui"
+type     = "comfyui"
+url      = "http://127.0.0.1:8188"
+start    = ["comfy", "--workspace", "/path/to/comfy", "launch", "--", "--port", "8188"]
+on_busy  = "queue"
+```
+
+Once the card is free, the gateway starts ComfyUI and submits the queued jobs in the order they came. Poll
+`GET /history/<berth id>`: it answers `{}` while the job waits and ComfyUI's entry, under the berth id, once it has
+run. The queue survives a gateway restart (`comfyui-queue.json` in the state directory). With the default,
+`on_busy = "wait"`, a `/prompt` waits under a lease like any other request.
+
 ## Open a stopped engine's web UI
 
 A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a

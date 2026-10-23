@@ -61,6 +61,11 @@ type Engine struct {
 	// lease, and it stays out until the card is free that long again.
 	Background bool     `toml:"background,omitempty" json:"background,omitempty" yaml:"background,omitempty"`
 	IdleAfter  Duration `toml:"idle_after,omitzero" json:"idle_after,omitempty" yaml:"idle_after,omitempty"` // 0 = 60 s
+	// OnBusy is what a ComfyUI /prompt does while the card is out of reach
+	// (in a VM, or held by a game, a hold or a pinned app): "wait" (the
+	// default) waits under a lease as any request, "queue" keeps the job on
+	// disk and submits it once the card is free.
+	OnBusy string `toml:"on_busy,omitempty" json:"on_busy,omitempty" yaml:"on_busy,omitempty"`
 	// NeedsRAMMiB estimates the engine's host RAM spike at cold start, for
 	// the gateway headroom guard. 0 = unknown, and the guard fails open.
 	NeedsRAMMiB uint64 `toml:"needs_ram_mib,omitzero" json:"needs_ram_mib,omitempty" yaml:"needs_ram_mib,omitempty"`
@@ -659,6 +664,14 @@ func (c *Config) Validate() error {
 		}
 		if e.Background && e.Priority != "" && e.Priority != "batch" {
 			errs = append(errs, fmt.Errorf("%s: a background engine runs at batch priority, not %s: it must never drain anything", where, e.Priority))
+		}
+		switch {
+		case e.OnBusy != "" && e.OnBusy != "wait" && e.OnBusy != "queue":
+			errs = append(errs, fmt.Errorf("%s: on_busy %q is not wait or queue", where, e.OnBusy))
+		case e.OnBusy == "queue" && e.Type != "comfyui":
+			errs = append(errs, fmt.Errorf("%s: on_busy = \"queue\" is for ComfyUI engines, whose /prompt answers with an id to read back", where))
+		case e.OnBusy == "queue" && len(e.Start) == 0:
+			errs = append(errs, fmt.Errorf("%s: on_busy = \"queue\" needs start, the command the gateway submits the queue with", where))
 		}
 		if e.IdleAfter.Duration < 0 || (e.IdleAfter.Duration > 0 && !e.Background) {
 			errs = append(errs, fmt.Errorf("%s: idle_after needs background and must not be negative", where))
