@@ -268,6 +268,33 @@ free, held, draining, in a VM or failing its probe), then every engine in `berth
 waiting, starting, failed), whether it can be switched to (`launch`) or stopped (`stoppable`), and its models with a
 `loaded` flag from the engine's own reader. `cards` is a list so a node with more cards needs no new shape.
 
+## Run an engine whenever the card is free
+
+Some work has no request to start it: a photo tagger on a schedule, an indexer, a transcription queue. Mark its
+engine `background` and the gateway runs it whenever the card is free, at `batch` priority:
+
+```toml
+[[engine]]
+name       = "pet-tagger"
+type       = "custom"
+url        = "http://127.0.0.1:8000"
+health     = "/health"
+start      = ["docker", "start", "-a", "immich-pet-tagger"]
+container  = "immich-pet-tagger"   # the drain runs docker stop (Linux)
+needs_mib  = 2560
+background = true
+idle_after = "60s"                 # how long the card must stay free first (default 60 s)
+```
+
+- **Free** means the card serves this machine (not in a VM, its probe answering), and no lease, waiter, stowaway or
+  running claimed app is on it. A parked engine counts as holding it, so a background start never evicts what you
+  parked in RAM.
+- Once the card has been free for `idle_after`, the gateway starts the first background engine in `berth.toml`.
+- Any other request drains it, as it drains any `batch` lease. It stays out until the card has been free for
+  `idle_after` again, so a game, a `berth hold` or an engine that stays loaded keeps it out for as long as they last.
+- A card back from a VM is a free card, so a background engine also picks up after a VFIO session.
+- A background engine needs `start`, runs at `batch` only, and needs no `serves`.
+
 ## Open a stopped engine's web UI
 
 A bookmark to ComfyUI or Strata's chat page is a dead link while that engine is stopped. Give the engine a

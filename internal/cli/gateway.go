@@ -83,6 +83,7 @@ func runGateway(c *Context) int {
 	defer stop()
 	srv := &http.Server{Addr: addr, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-ctx.Done(); _ = srv.Close() }()
+	go g.Background(ctx, 0)
 	if *guiListen != "" {
 		gui := &http.Server{Addr: *guiListen, Handler: g.GUIHandler(), ReadHeaderTimeout: 10 * time.Second}
 		go func() { <-ctx.Done(); _ = gui.Close() }()

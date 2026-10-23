@@ -55,6 +55,12 @@ type Engine struct {
 	Serves   []string `toml:"serves,omitempty" json:"serves,omitempty" yaml:"serves,omitempty"`         // model names this engine answers for
 	Priority string   `toml:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`   // batch, interactive (default) or foreground
 	NeedsMiB uint64   `toml:"needs_mib,omitzero" json:"needs_mib,omitempty" yaml:"needs_mib,omitempty"` // 0 = the whole card
+	// Background: the gateway starts this engine at batch priority whenever
+	// the card has been free (no lease, no waiter, the card serving this
+	// machine) for IdleAfter. Any other request drains it as any batch
+	// lease, and it stays out until the card is free that long again.
+	Background bool     `toml:"background,omitempty" json:"background,omitempty" yaml:"background,omitempty"`
+	IdleAfter  Duration `toml:"idle_after,omitzero" json:"idle_after,omitempty" yaml:"idle_after,omitempty"` // 0 = 60 s
 	// NeedsRAMMiB estimates the engine's host RAM spike at cold start, for
 	// the gateway headroom guard. 0 = unknown, and the guard fails open.
 	NeedsRAMMiB uint64 `toml:"needs_ram_mib,omitzero" json:"needs_ram_mib,omitempty" yaml:"needs_ram_mib,omitempty"`
@@ -584,7 +590,8 @@ func (c *Config) Validate() error {
 				served[m] = e.Name
 			}
 		}
-		if len(e.Start) > 0 && len(e.Serves) == 0 && e.Type != "comfyui" {
+		// A background engine starts when the card is free, not for a model.
+		if len(e.Start) > 0 && len(e.Serves) == 0 && e.Type != "comfyui" && !e.Background {
 			errs = append(errs, fmt.Errorf("%s: start needs serves, the models the gateway may start it for", where))
 		}
 		for _, p := range e.Prefetch {
@@ -646,6 +653,15 @@ func (c *Config) Validate() error {
 		}
 		if e.ExitComfyUIIdleAfter.Duration < 0 || (e.ExitComfyUIIdleAfter.Duration > 0 && !e.ExitComfyUIIdle) {
 			errs = append(errs, fmt.Errorf("%s: exit_comfyui_idle_after needs exit_comfyui_idle and must not be negative", where))
+		}
+		if e.Background && len(e.Start) == 0 {
+			errs = append(errs, fmt.Errorf("%s: background needs start, the command the gateway starts it with", where))
+		}
+		if e.Background && e.Priority != "" && e.Priority != "batch" {
+			errs = append(errs, fmt.Errorf("%s: a background engine runs at batch priority, not %s: it must never drain anything", where, e.Priority))
+		}
+		if e.IdleAfter.Duration < 0 || (e.IdleAfter.Duration > 0 && !e.Background) {
+			errs = append(errs, fmt.Errorf("%s: idle_after needs background and must not be negative", where))
 		}
 		switch e.Priority {
 		case "", "batch", "interactive", "foreground":

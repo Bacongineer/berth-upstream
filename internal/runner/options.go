@@ -36,7 +36,10 @@ type Over struct {
 // drain grace, the engine's own start command.
 func OptionsFor(e *config.Engine, o Over) Options {
 	prio := e.Priority
-	if prio == "" {
+	switch {
+	case prio == "" && e.Background:
+		prio = "batch"
+	case prio == "":
 		prio = "interactive"
 	}
 	grace := o.Grace
