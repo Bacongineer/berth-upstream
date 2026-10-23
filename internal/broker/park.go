@@ -159,6 +159,28 @@ func (b *Broker) parkingTick(key string, l *lease, now time.Time, read uint64) {
 	}
 }
 
+// parkedTick catches a parked engine that loaded back onto the card with
+// no resume: a client sent it work directly. It holds the card again, so
+// its lease is active again and its runner hears the wake as a resume;
+// the next drain parks it again, where an eviction would stop it as an
+// oversized residual. Called with b.mu held, from Tick.
+func (b *Broker) parkedTick(key string, l *lease, now time.Time) {
+	if l.used() <= b.cfg.ParkResidualMax {
+		return
+	}
+	l.state = active
+	l.granted = now
+	l.grantedN = b.order()
+	select {
+	case l.resumeCh <- struct{}{}:
+	default:
+	}
+	b.log.Warn("parked engine loaded back onto the card", "lease", key, "engine", l.engine, "holding", sizeHuman(l.used()))
+	b.emit(proto.Event{Kind: proto.EvUnparked, Lease: key, Engine: l.engine, Bytes: l.used(),
+		Detail: fmt.Sprintf("%s loaded %s back onto the card while parked, without a resume (a client used it directly)",
+			l.engine, sizeHuman(l.used()))})
+}
+
 // evictParked asks the eviction table which parked engines to stop this
 // tick: past their ttl, for the RAM floor, or under memory pressure. Each
 // named lease goes draining and its runner hears OpDrain with the why.

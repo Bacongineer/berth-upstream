@@ -473,6 +473,20 @@ residual_max_gib = 2   # card memory a parked engine may keep
   when it passes its ttl, when the machine's available RAM falls under the
   floor, or one step at a time under memory pressure. Stopping a parked
   engine is a drain, and its run is Berth's own, so the stop is graceful.
+  The engine's log says why first: `stopping parked comfyui instead of
+  parking it again: evicted: ...`.
+- **Woken directly.** A parked engine still answers on its own port. A
+  client that sends it work there (a ComfyUI `/prompt` on :8188) loads the
+  weights back onto the card with no resume. Once the card shows more than
+  `residual_max_gib` for that engine, berthd treats it as awake:
+  `lease.unparked` names what it loaded, the lease is active again, and the
+  next drain parks it again. A load while another engine holds the card can
+  still fail for lack of memory, so send work through the gateway, which
+  resumes the lease first.
+- **Waking by hand.** `berth resume ENGINE` puts a parked engine back on the
+  card. Restarting its unit (`systemctl --user start comfyui-berth`) does
+  nothing while the park holds the lease, because the `berth run` wrapper is
+  still running.
 - **Who sits out.** llama.cpp and llama-swap have no offload call upstream
   yet, so they run today's drain; a park hook there waits for an upstream
   endpoint or a patched route.

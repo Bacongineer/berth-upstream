@@ -843,8 +843,11 @@ func (b *Broker) Tick(ctx context.Context) {
 		// its lease back without the wrapper's disconnect. One the reaper
 		// released is on its way out, so it skips the park tick.
 		b.reapAttached(key, l, now)
-		if l.state == parking {
+		switch l.state {
+		case parking:
 			b.parkingTick(key, l, now, read)
+		case parked:
+			b.parkedTick(key, l, now)
 		}
 	}
 	b.claimed = claimed

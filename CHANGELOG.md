@@ -19,6 +19,12 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A parked engine that a client wakes directly is no longer killed by the next drain
+  ([#179](https://github.com/T-Crypt/berth/issues/179)). A ComfyUI `/prompt` sent to :8188 while ComfyUI was parked
+  loaded its models back onto the card without telling Berth, so the next request saw an oversized parked residual,
+  evicted it, and the unit exited 143 with no reason in its log. berthd now records the load as `lease.unparked`,
+  treats the lease as active again, and the next drain parks it again. A parked engine that Berth does stop (ttl,
+  RAM floor, pressure) logs `stopping parked ENGINE instead of parking it again: WHY` first.
 - A person's switch wins: Launch on the wake page and `/v1/berth/switch` take the card from an equal-priority
   holder whatever the juggle ranking says, and a request no person made (a chat client's background call) does
   not take it back inside the juggle window. Before, Launch of ComfyUI lost to llama-swap whenever

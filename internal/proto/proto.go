@@ -174,6 +174,7 @@ const (
 	EvClaimEnded     = "claim.ended"        // its matches are gone (past the linger, for a hold)
 	EvParked         = "lease.parked"       // the engine's weights are in RAM and its residual is on the card
 	EvResumed        = "lease.resumed"      // a parked engine was granted the card back
+	EvUnparked       = "lease.unparked"     // a parked engine loaded back onto the card with no resume; it is active again
 	EvParkRefused    = "lease.park_refused" // the RAM could not take the park; the drain runs as before
 	EvParkEvicted    = "lease.park_evicted" // the parked engine is being stopped: ttl, RAM floor or pressure
 	// EvFootprint: a freed run measured far more VRAM than the engine's
