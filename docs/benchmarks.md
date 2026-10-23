@@ -45,3 +45,22 @@ shows it as COOL, `berth prefetch` warms it), the disk part of a reload comes fr
 an engine that parks ([park in RAM](gateway.md#park-in-ram-warm-switch)) skips the reload. Neither number
 is measured yet: the reference machine has no RAM to spare beside Strata. If you run 128 GB or
 more, run the bench with park on and add a row.
+
+### Page cache and park, 2026-10-23
+
+With Strata off the card, the same machine keeps llama-swap's model files in the page cache and
+parks ComfyUI in RAM. Each time is one chat request through llama-swap, from the request to the
+end of an 8-token reply, with Berth's drain and lease included.
+
+| Switch | Time |
+|---|---|
+| CyberTiel-IQ4 (21.2 GB, llama-server), file read from disk | 13.7 s |
+| CyberTiel-IQ4, file in the page cache | 5.6 s |
+| NInfer-HauHauCS-27B (23.1 GB), file in the page cache | 13.7 to 14.6 s |
+| ComfyUI with SDXL loaded to NInfer-HauHauCS-27B, ComfyUI parks | 13.6 to 16.3 s |
+| A request to the model already on the card | 0.07 to 0.17 s |
+
+ComfyUI's park takes under a second (`parked comfyui in RAM in 0s`), so NInfer's load is the rest
+of that switch. NInfer spends about 10 s of its load on its own start-up: NVIDIA's
+`cuda-checkpoint` moved the same 23.1 GB from VRAM to RAM in 5.1 s and back in 3.3 s, and
+CyberTiel's 21.2 GB in 5.1 s and 3.2 s. Berth does not use `cuda-checkpoint` yet.
