@@ -352,11 +352,13 @@ func TestServiceStatusWindows(t *testing.T) {
 		if a.args[0] == "/Query" {
 			switch a.args[2] {
 			case `\Berth\berthd`:
-				return `"\Berth\berthd","Running","N/A","N/A","N/A","N/A"`, nil
+				// schtasks /FO CSV /NH prints TaskName, Next Run Time,
+				// Status; a logon task has no next run time (issue 166).
+				return `"\Berth\berthd","N/A","Running"`, nil
 			case `\Berth\berth-gateway`:
 				return `ERROR: The system cannot find the file specified.`, errors.New("exit status 1")
 			case `\Berth\berth-harbor`:
-				return `"\Berth\berth-harbor","Ready","N/A","N/A","N/A","N/A"`, nil
+				return `"\Berth\berth-harbor","N/A","Ready"`, nil
 			}
 		}
 		return "", errors.New("unexpected call " + a.String())
