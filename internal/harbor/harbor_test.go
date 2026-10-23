@@ -407,7 +407,10 @@ func TestSpansEndpoint(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	if err := db.IngestSpans([]proto.Sample{
 		{T: now.Add(-2 * time.Hour), Models: map[string][]string{"llama-swap": {"A-27B"}, "ollama": {"qwen3:8b"}}},
-		{T: now.Add(-1 * time.Hour), Models: map[string][]string{"llama-swap": {"A-27B"}, "ollama": {"qwen3:8b"}}},
+		// Half a minute inside the hour, not on its edge: the server reads its
+		// own clock for range=1h, and a slow runner that crosses a second
+		// after now was taken pushed this sample out of the window.
+		{T: now.Add(-time.Hour + 30*time.Second), Models: map[string][]string{"llama-swap": {"A-27B"}, "ollama": {"qwen3:8b"}}},
 		{T: now.Add(-30 * time.Minute), Models: map[string][]string{"llama-swap": {"B-8B"}, "ollama": {}}},
 	}); err != nil {
 		t.Fatal(err)
