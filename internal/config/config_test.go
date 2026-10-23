@@ -882,3 +882,19 @@ url  = "http://127.0.0.1:8188"
 		}
 	}
 }
+
+// [notify] decodes for berth notify, and a level it does not know is
+// refused at load.
+func TestNotifyKeys(t *testing.T) {
+	c, err := Load(write(t, "[notify]\nenabled = false\nlevel = \"info\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Notify.Enabled == nil || *c.Notify.Enabled || c.Notify.Level != "info" {
+		t.Fatalf("notify = %+v", c.Notify)
+	}
+	_, err = Load(write(t, "[notify]\nlevel = \"loud\"\n"))
+	if err == nil || !strings.Contains(err.Error(), `notify.level: notify level "loud": use error or info`) {
+		t.Fatalf("load err = %v", err)
+	}
+}

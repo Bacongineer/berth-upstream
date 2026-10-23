@@ -111,6 +111,14 @@ for a phone.
   colors the same state the node notifies on: KPI tiles and GPU cells, a strip of the
   currently-breaching keys, and an overall LIVE / DEGRADED / OFFLINE state beside the
   connection pill.
+- **Desktop notifications:** `berth notify` follows the node's events and shows the ones
+  worth a look on your desktop, without the harbor open. The default level, `error`, shows
+  refused requests, memory that never came back, stowaways, an engine that exited under its
+  lease, a refused park and a parked engine loaded behind Berth's back. `level = "info"`
+  adds every switch, drain, park, resume and VM handoff. A burst of one event shows once.
+  Set it in `berth.toml` (`[notify] enabled = false` turns it off) or with `--level`.
+  `berth service install --notify` runs it as a user unit. It is Linux only for now and
+  uses `notify-send`, so any desktop or notification daemon shows it.
 
 ## The harbor's views
 Everything the node collects shows in one of three tabs, and every panel answers a

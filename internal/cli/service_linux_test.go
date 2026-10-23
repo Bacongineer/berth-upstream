@@ -241,7 +241,7 @@ func TestServiceStatusLinux(t *testing.T) {
 			switch a.args[2] {
 			case "berthd":
 				return "active\n", nil
-			case "berth-gateway", "berth-harbor":
+			case "berth-gateway", "berth-harbor", "berth-notify":
 				return "inactive\n", errors.New("exit status 3")
 			}
 		}
@@ -276,5 +276,28 @@ func TestServiceStatusLinuxSystemctlMissing(t *testing.T) {
 	_, e := serviceStatus(context.Background(), ops, allUnits())
 	if e == nil || e.Code != ExitSystem {
 		t.Errorf("a missing systemctl is a system failure, got %+v", e)
+	}
+}
+
+// --notify adds berth notify as a user unit beside the node's, started
+// like the others.
+func TestServiceInstallLinuxNotify(t *testing.T) {
+	dir := t.TempDir()
+	const exe = "/opt/berth/berth"
+	ops, calls := fakeOps(t, dir, nil)
+
+	units := append(serviceUnits(exe, false, false), notifyUnit(exe))
+	if _, e := serviceInstall(context.Background(), ops, units, false); e != nil {
+		t.Fatalf("install failed: %v", e)
+	}
+	wrote, err := os.ReadFile(filepath.Join(dir, "berth-notify.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(wrote), "\nExecStart="+exe+" notify\n") {
+		t.Errorf("the notify unit runs the user's binary:\n%s", wrote)
+	}
+	if got := (*calls)[len(*calls)-1].String(); got != "systemctl --user enable --now berth-notify" {
+		t.Errorf("last call = %q", got)
 	}
 }

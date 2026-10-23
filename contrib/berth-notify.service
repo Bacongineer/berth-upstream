@@ -1,0 +1,18 @@
+# systemd user unit: desktop notifications for what berthd does, on the desktop of the user who runs it.
+# Install: cp contrib/berth-notify.service ~/.config/systemd/user/ && systemctl --user enable --now berth-notify
+# Undo:    systemctl --user disable --now berth-notify && rm ~/.config/systemd/user/berth-notify.service
+[Unit]
+Description=berth notify - desktop notifications for what berthd does
+After=berthd.service
+Wants=berthd.service
+
+[Service]
+# [notify] enabled and level in ~/.config/berth/berth.toml choose what shows
+# (error by default), so a change is a config edit and a restart here.
+ExecStart=%h/.local/bin/berth notify
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=default.target

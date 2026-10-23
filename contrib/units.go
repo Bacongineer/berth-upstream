@@ -20,13 +20,17 @@ var berthGateway string
 //go:embed berth-harbor.service
 var berthHarbor string
 
+//go:embed berth-notify.service
+var berthNotify string
+
 var texts = map[string]string{
 	"berthd":        berthd,
 	"berth-gateway": berthGateway,
 	"berth-harbor":  berthHarbor,
+	"berth-notify":  berthNotify,
 }
 
-// Text returns the unit file's text for one of the three unit names.
+// Text returns the unit file's text for one of the unit names.
 func Text(name string) (string, bool) {
 	t, ok := texts[name]
 	return t, ok
