@@ -321,7 +321,8 @@ func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dry
 
 // serviceStatus asks schtasks for each task. A task schtasks cannot find
 // is not installed; any other failure of the query is a system failure. An
-// installed task names the log file its output appends to.
+// installed task names the log file its output appends to. The CSV row is
+// TaskName, Next Run Time, Status, and Status is the last field.
 func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serviceDoc, *Error) {
 	doc := &serviceDoc{Units: make([]serviceUnit, 0, len(unitsList)), Commands: []string{}}
 	for _, u := range unitsList {
@@ -337,8 +338,8 @@ func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serv
 		}
 		row.Installed = true
 		row.Log = unitLogPath(u.Name)
-		if fields, err := csvFields(out); err == nil && len(fields) >= 2 {
-			row.Running = fields[1] == "Running"
+		if fields, err := csvFields(out); err == nil && len(fields) >= 3 {
+			row.Running = fields[len(fields)-1] == "Running"
 		}
 		doc.Units = append(doc.Units, row)
 	}
