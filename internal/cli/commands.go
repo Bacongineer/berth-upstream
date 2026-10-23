@@ -195,6 +195,18 @@ exits; with it, new events stream until you interrupt it.`,
 		Run:     runEvents,
 	},
 	{
+		Name:    "notify",
+		Summary: "desktop notifications for what berthd does",
+		Args:    "[--level error|info] [--socket P] [--config P]",
+		Help: `Follow berthd's events and show the ones worth a look as desktop
+notifications. The error level, the default, shows refused requests, memory
+that never came back, stowaways and a parked engine loaded behind Berth's
+back. info adds every switch, drain, park and resume. [notify] enabled = false
+in berth.toml turns it off; [notify] level sets the level. Linux only for now:
+it uses notify-send, so any desktop or notification daemon shows it.`,
+		Run: runNotify,
+	},
+	{
 		Name:    "export",
 		Summary: "dump the harbor's stored history: requests and samples",
 		Args:    "[--db P] [--range R] [--as csv|json] [--out DIR] [--format F]",

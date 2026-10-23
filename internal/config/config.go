@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/T-Crypt/berth/internal/claims"
+	"github.com/T-Crypt/berth/internal/notify"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -176,6 +177,16 @@ type Config struct {
 		// Empty = the built-in default.
 		Listen string `toml:"listen" json:"listen,omitempty" yaml:"listen,omitempty"`
 	} `toml:"gateway,omitempty" json:"gateway" yaml:"gateway"`
+	Notify struct {
+		// Enabled turns berth notify's desktop notifications on or off;
+		// default on.
+		Enabled *bool `toml:"enabled" json:"enabled,omitempty" yaml:"enabled,omitempty"`
+		// Level is "error" (the default: refused requests, memory that
+		// never came back, stowaways, a parked engine loaded behind
+		// Berth's back) or "info", which adds every switch, drain, park
+		// and resume.
+		Level string `toml:"level" json:"level,omitempty" yaml:"level,omitempty"`
+	} `toml:"notify,omitempty" json:"notify" yaml:"notify"`
 	Engines struct {
 		Every Duration `toml:"every" json:"every" yaml:"every"` // how often engines are read; default 5 s
 		// Discover probes the well-known engine ports on this machine (and
@@ -495,6 +506,9 @@ func (c *Config) Validate() error {
 		if err := Loopback(c.Gateway.Listen); err != nil {
 			errs = append(errs, fmt.Errorf("gateway.listen: %w", err))
 		}
+	}
+	if _, err := notify.ParseLevel(c.Notify.Level); err != nil {
+		errs = append(errs, fmt.Errorf("notify.level: %w", err))
 	}
 	if _, err := c.ClaimRules(); err != nil {
 		errs = append(errs, err)

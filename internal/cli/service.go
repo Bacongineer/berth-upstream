@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/gpu"
@@ -51,9 +52,27 @@ func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	return units
 }
 
+// notifyUnit is berth notify as a service. It shows notifications on the
+// desktop of the user who runs it, so it is a Linux user unit only: a
+// Windows service runs in session 0 and has no desktop.
+func notifyUnit(exe string) Unit {
+	return Unit{
+		Name:        "berth-notify",
+		Exec:        []string{exe, "notify"},
+		After:       []string{"berthd"},
+		Description: "berth notify - desktop notifications for what berthd does",
+	}
+}
+
 // allUnits is the list uninstall and status report on: every service the
 // install could have written.
-func allUnits() []Unit { return serviceUnits("", true, true) }
+func allUnits() []Unit {
+	all := serviceUnits("", true, true)
+	if runtime.GOOS == "linux" {
+		all = append(all, notifyUnit(""))
+	}
+	return all
+}
 
 func serviceUnitsForGPU(exe string, gateway, harbor bool, backend, card string) []Unit {
 	units := serviceUnits(exe, gateway, harbor)
@@ -162,6 +181,7 @@ func runServiceInstall(c *Context) int {
 	fs := c.FlagSet()
 	gateway := fs.Bool("gateway", false, "also install the gateway")
 	harbor := fs.Bool("harbor", false, "also install the harbor")
+	notifyToo := fs.Bool("notify", false, "also install berth notify, desktop notifications (Linux)")
 	dryRun := fs.Bool("dry-run", false, "print what would be written and run, change nothing")
 	backend := fs.String("gpu-backend", "auto", "daemon GPU probe: auto, nvidia or amd")
 	card := fs.String("gpu", "0", "daemon GPU index (AMD: DRM cardN number), or an NVIDIA card's PCI address (0000:02:00.0)")
@@ -188,7 +208,14 @@ func runServiceInstall(c *Context) int {
 	if err != nil {
 		return c.fail(Systemf("find the berth binary: %v", err))
 	}
-	doc, e := serviceInstall(context.Background(), liveServiceOps(), serviceUnitsForGPU(exe, *gateway, *harbor, *backend, *card), *dryRun)
+	units := serviceUnitsForGPU(exe, *gateway, *harbor, *backend, *card)
+	if *notifyToo {
+		if runtime.GOOS != "linux" {
+			return c.fail(Failf("--notify installs a Linux user unit; on %s, run berth notify in your own session", runtime.GOOS))
+		}
+		units = append(units, notifyUnit(exe))
+	}
+	doc, e := serviceInstall(context.Background(), liveServiceOps(), units, *dryRun)
 	return c.Write(serviceView{verb: "install", doc: *doc}, e)
 }
 
