@@ -712,7 +712,9 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.
 	if o.Park != nil || o.Hook {
-		if line.park(o, say) {
+		if line.isParked() {
+			say("stopping parked %s instead of parking it again: %s", o.Engine, reason)
+		} else if line.park(o, say) {
 			return
 		}
 	}

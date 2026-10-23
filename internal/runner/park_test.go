@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -249,8 +250,9 @@ func attachAndMeasure(t *testing.T, b *broker.Broker, card *parkCard) int {
 	return pid
 }
 
-// A vLLM-shaped engine parks on a drain and wakes on a resume, and an
-// eviction of the parked lease stops it through the ordinary ladder.
+// A vLLM-shaped engine parks on a drain and wakes on a resume, and one
+// that a client loads back onto the card while parked parks again on the
+// next drain instead of being stopped.
 func TestRunParksAndResumes(t *testing.T) {
 	card := &parkCard{total: 24 << 30}
 	sock, b := parkDaemon(t, card, 16<<30)
@@ -259,6 +261,7 @@ func TestRunParksAndResumes(t *testing.T) {
 	defer srv.Close()
 	exited, log := runPark(t, sock, "vllm", srv.URL, false)
 	pid := attachAndMeasure(t, b, card)
+	stopAtEnd(t, pid, exited)
 
 	// A whole-card foreground waiter cannot fit: the lease drains, and
 	// the park moves the engine's weights to RAM instead of stopping it.
@@ -300,9 +303,11 @@ func TestRunParksAndResumes(t *testing.T) {
 		t.Fatalf("no lease.resumed event among %d events", len(evs))
 	}
 
-	// A second cycle: parked again. The holder leaves, and a whole-card
-	// waiter evicts the parked lease past the residual max; the eviction
-	// drain stops the engine instead of parking it again.
+	// A second cycle: parked again. The holder leaves, and a client then
+	// sends the parked engine work directly: it loads back onto the card
+	// past the residual max with no resume. The broker takes it as awake,
+	// the runner hears the wake, and the next waiter's drain parks it
+	// again instead of stopping it.
 	holder2 := acquireIn(b, broker.Request{Engine: "game2", Priority: broker.Foreground})
 	waitFor(t, "the second park call", func() bool { return stub.count("sleep") == 2 })
 	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 512 << 20})
@@ -313,25 +318,35 @@ func TestRunParksAndResumes(t *testing.T) {
 	}
 	hold2.Release()
 	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 3 << 30})
-	b.Tick(context.Background())
-	holder3 := acquireIn(b, broker.Request{Engine: "game3", Priority: broker.Foreground})
-	select {
-	case code := <-exited:
-		if code != 143 {
-			t.Fatalf("the evicted runner exited with %d, want 143", code)
+	waitFor(t, "the wake after a direct load", func() bool { return stub.count("wake") == 2 })
+	waitFor(t, "active after a direct load", func() bool { return b.Status().Leases[0].State == "active" })
+	evs, _, _ = b.Events(0, false)
+	var unparked *proto.Event
+	for _, e := range evs {
+		if e.Kind == proto.EvUnparked {
+			unparked = &e
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("the evicted runner never exited; log:\n%s", log.String())
 	}
-	card.set()
+	if unparked == nil || unparked.Detail != "vllm loaded 3.0 GiB back onto the card while parked, without a resume (a client used it directly)" {
+		t.Fatalf("unparked event = %+v", unparked)
+	}
+
+	holder3 := acquireIn(b, broker.Request{Engine: "game3", Priority: broker.Foreground})
+	waitFor(t, "the third park call", func() bool { return stub.count("sleep") == 3 })
+	card.set(gpu.Proc{PID: pid, Name: "sleep", Used: 512 << 20})
 	hold3 := <-holder3
 	if hold3 == nil {
-		t.Fatal("the third waiter was never granted")
+		t.Fatalf("the third waiter was never granted; log:\n%s", log.String())
+	}
+	if st := b.Status().Leases; st[0].Engine != "vllm" || st[0].State != "parked" {
+		t.Fatalf("leases = %+v, want vllm parked beside game3", st)
+	}
+	select {
+	case code := <-exited:
+		t.Fatalf("the re-parked runner exited with %d; log:\n%s", code, log.String())
+	default:
 	}
 	hold3.Release()
-	if stub.count("sleep") != 2 {
-		t.Fatalf("the evicted park asked again: %d sleep calls", stub.count("sleep"))
-	}
 }
 
 // A park the broker refuses (no RAM above the floor) or whose adapter
@@ -539,5 +554,34 @@ func TestRunHookProbeNegative(t *testing.T) {
 	}
 	if out := log.String(); strings.Count(out, "does not speak Berth's park protocol") != 1 {
 		t.Fatalf("the negative probe did not say once:\n%s", out)
+	}
+}
+
+// A drain that reaches an engine already parked stops it, and the runner
+// says why before the stop ladder runs: an exit with no line reads as a
+// crash.
+func TestDrainOfAParkedEngineSaysWhy(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	isolate(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	line := newLine(nil)
+	line.parked = true
+	var log syncBuf
+	say := func(format string, a ...any) { fmt.Fprintf(&log, format+"\n", a...) }
+
+	drain(Options{Engine: "comfyui", Hook: true, Grace: 5 * time.Second}, cmd, line, done,
+		"evicted: parked 12h0m1s, past the ttl", say)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the parked engine was not stopped")
+	}
+	want := "stopping parked comfyui instead of parking it again: evicted: parked 12h0m1s, past the ttl\n"
+	if !strings.Contains(log.String(), want) {
+		t.Fatalf("log = %q, want the line %q", log.String(), want)
 	}
 }

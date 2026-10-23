@@ -156,9 +156,6 @@ type parkVerdict struct {
 // the adapter's call, the reservation on record. A refusal or a failed
 // call says so and leaves the lease on the stop ladder.
 func (l *leaseLine) park(o Options, say func(string, ...any)) bool {
-	if l.isParked() {
-		return false // this drain evicts; the engine stops instead
-	}
 	l.clear()
 	adapter, ok := l.adapter(o, say)
 	if !ok {

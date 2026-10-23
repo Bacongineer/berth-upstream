@@ -34,12 +34,13 @@ func parkSetup(t *testing.T, tree procs.Tree, avail uint64, pressure float64) (*
 // parked takes a lease through acquire, its measured peak, a drain, and
 // admission into parking; the residual lands on the card and the lease
 // becomes parked. The foreground waiter that triggered the drain is granted
-// once the memory freed, and releases, so the queue ends empty.
-func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, root, eng int) *Lease {
+// once the memory freed, and releases, so the queue ends empty. others
+// stay on the card throughout.
+func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, root, eng int, others ...gpu.Proc) *Lease {
 	t.Helper()
 	l := must(t, acquire(b, Request{Engine: engine, Needs: peak}))
 	l.Attach(root)
-	c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: peak})
+	c.set(append(others, gpu.Proc{PID: eng, Name: engine + "-engine", Used: peak})...)
 	b.Tick(context.Background())
 
 	w := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
@@ -48,7 +49,7 @@ func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, roo
 	if ok, why := l.Park(); !ok {
 		t.Fatalf("park refused: %s", why)
 	}
-	c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: 512 << 20})
+	c.set(append(others, gpu.Proc{PID: eng, Name: engine + "-engine", Used: 512 << 20})...)
 	l.Parked()
 	b.Tick(context.Background())
 	lw := must(t, w)
@@ -212,7 +213,7 @@ func TestSizedWaiterFitsBesideParked(t *testing.T) {
 func TestWholeCardWaiterBesideParked(t *testing.T) {
 	tree := parkTree(100, 101)
 	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
-	l := warmLease(t, b, c, "vllm", 8*GiB, 100, 101)
+	warmLease(t, b, c, "vllm", 8*GiB, 100, 101)
 	c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 1 * GiB})
 	b.Tick(context.Background())
 
@@ -235,23 +236,32 @@ func TestWholeCardWaiterBesideParked(t *testing.T) {
 	must(t, next).Release()
 	b.Tick(context.Background())
 
-	// A residual past the max: the waiter evicts, least recently parked
-	// first, and the parked lease is drained off the card.
-	c.set(gpu.Proc{PID: 101, Name: "vllm-engine", Used: 3 * GiB})
-	b.Tick(context.Background())
-	warm := acquire(b, Request{Engine: "warm"})
+	// Two parked engines whose residuals together pass the max, each
+	// under it: the waiter evicts the least recently parked one and is
+	// granted beside the other.
+	b2, c2, _ := parkSetup(t, procs.Fake{
+		Parents: map[int]int{101: 100, 100: 1, 201: 200, 200: 1},
+		Starts:  map[int]uint64{100: 1, 101: 1, 200: 1, 201: 1},
+	}, 32*GiB, 0)
+	first := warmLease(t, b2, c2, "first", 8*GiB, 100, 101)
+	second := warmLease(t, b2, c2, "second", 8*GiB, 200, 201, gpu.Proc{PID: 101, Name: "first-engine", Used: 512 << 20})
+	c2.set(gpu.Proc{PID: 101, Name: "first-engine", Used: 1536 << 20},
+		gpu.Proc{PID: 201, Name: "second-engine", Used: 1536 << 20})
+	b2.Tick(context.Background())
+	warm := acquire(b2, Request{Engine: "warm"})
 	pending(t, warm)
+	if why := drained(t, first); why != "warm (batch) needs the card" {
+		t.Fatalf("eviction drain reason %q", why)
+	}
 	select {
-	case why := <-l.Drains():
-		if !strings.Contains(why, "needs the card") {
-			t.Fatalf("eviction drain reason %q", why)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("the big residual was not evicted")
+	case why := <-second.Drains():
+		t.Fatalf("the more recently parked lease was drained too: %q", why)
+	default:
 	}
-	if st := b.Status(); st.Leases[0].State != "draining" {
-		t.Fatalf("state = %s, want the evicted lease draining", st.Leases[0].State)
-	}
+	first.Release()
+	c2.set(gpu.Proc{PID: 201, Name: "second-engine", Used: 1536 << 20})
+	b2.Tick(context.Background())
+	must(t, warm).Release()
 }
 
 // The eviction table: past the ttl, under the RAM floor, and under memory
