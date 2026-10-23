@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth skill install` also writes a `comfyui` skill: how an agent sets up ComfyUI under Berth (the engine
+  entry, park, the queue, the gateway's ComfyUI port, models) and generates through it, with the failures it
+  will meet and what to do. `berth skill show comfyui` prints it.
 - `berth notify` shows berthd's events as desktop notifications, so a refused request, a stuck lease, a stowaway
   or a parked engine loaded behind Berth's back shows up without the harbor open. `[notify] level = "info"` adds
   every switch, drain, park and resume; `[notify] enabled = false` turns it off. `berth service install --notify`

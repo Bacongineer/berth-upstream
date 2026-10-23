@@ -405,25 +405,28 @@ berth's notices are diagnostics on stderr and always print.`,
 	},
 	{
 		Name:    "skill",
-		Summary: "the agent skill: teach a coding agent to use Berth",
-		Help: `Berth ships a skill file for coding agents (Claude Code, Codex, Pi, OpenCode
-and others that read SKILL.md): how to read what holds the card, how to ask for
-it instead of killing a process, holds, claims and the gateway.`,
+		Summary: "the agent skills: teach a coding agent to use Berth and ComfyUI",
+		Help: `Berth ships two skill files for coding agents (Claude Code, Codex, Pi, OpenCode,
+Hermes and others that read SKILL.md). berth: how to read what holds the card,
+how to ask for it instead of killing a process, holds, claims and the gateway.
+comfyui: how to set up ComfyUI under Berth and generate through it.`,
 		Sub: []*Command{
 			{
 				Name:    "install",
-				Summary: "write the skill where agents look for it",
+				Summary: "write the skills where agents look for them",
 				Args:    "[--target claude,agents,opencode|all] [--dir D] [--format F]",
-				Help: `Write SKILL.md to ~/.claude/skills/berth, ~/.agents/skills/berth and
-~/.config/opencode/skills/berth (or --dir D/berth). A different existing file
-is kept as SKILL.md.bak. Running it again after an upgrade refreshes it.`,
+				Help: `Write berth/SKILL.md and comfyui/SKILL.md to ~/.claude/skills,
+~/.agents/skills and ~/.config/opencode/skills (or --dir D). A different
+existing file is kept as SKILL.md.bak. Running it again after an upgrade
+refreshes them.`,
 				Formats: []Format{FormatHuman, FormatJSON, FormatYAML},
 				Run:     runSkillInstall,
 			},
 			{
 				Name:    "show",
-				Summary: "print the skill",
-				Help:    `Print SKILL.md to stdout, for an agent or harness that takes it inline.`,
+				Summary: "print a skill",
+				Args:    "[berth|comfyui]",
+				Help:    `Print a skill's SKILL.md to stdout (berth by default), for an agent or harness that takes it inline.`,
 				Run:     runSkillShow,
 			},
 		},

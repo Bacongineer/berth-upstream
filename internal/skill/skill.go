@@ -1,8 +1,9 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
-// Package skill carries the agent skill that teaches a coding agent to use
-// Berth, and installs it where agents look for skills.
+// Package skill carries the agent skills Berth ships (berth, which teaches
+// a coding agent to use Berth, and comfyui, which teaches it to generate
+// through Berth) and installs them where agents look for skills.
 package skill
 
 import (
@@ -17,6 +18,28 @@ import (
 
 //go:embed SKILL.md
 var Doc []byte
+
+//go:embed comfyui/SKILL.md
+var comfyUI []byte
+
+// Skill is one skill Berth ships: its folder name and its SKILL.md.
+type Skill struct {
+	Name string
+	Doc  []byte
+}
+
+// Skills are the skills install writes, berth first.
+var Skills = []Skill{{"berth", Doc}, {"comfyui", comfyUI}}
+
+// Find is the skill named name.
+func Find(name string) (Skill, bool) {
+	for _, s := range Skills {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return Skill{}, false
+}
 
 // Targets are the agents the skill installs for, in the order "all" lists
 // them: the shared ~/.agents folder (Codex, Pi, OMP and others), Claude
@@ -66,15 +89,15 @@ func hermesHome(home string) string {
 	return filepath.Join(home, ".hermes")
 }
 
-// Install writes SKILL.md into dir/berth/. An existing file that differs is
-// kept as SKILL.md.bak unless it is already the same.
-func Install(dir string) (string, bool, error) {
+// Install writes s's SKILL.md into dir/<name>/. An existing file that
+// differs is kept as SKILL.md.bak unless it is already the same.
+func Install(dir string, s Skill) (string, bool, error) {
 	if dir == "" {
 		return "", false, errors.New("no directory")
 	}
-	dst := filepath.Join(dir, "berth", "SKILL.md")
+	dst := filepath.Join(dir, s.Name, "SKILL.md")
 	if old, err := os.ReadFile(dst); err == nil {
-		if string(old) == string(Doc) {
+		if string(old) == string(s.Doc) {
 			return dst, false, nil
 		}
 		if err := os.WriteFile(dst+".bak", old, 0o644); err != nil {
@@ -84,7 +107,7 @@ func Install(dir string) (string, bool, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return dst, false, err
 	}
-	if err := os.WriteFile(dst, Doc, 0o644); err != nil {
+	if err := os.WriteFile(dst, s.Doc, 0o644); err != nil {
 		return dst, false, err
 	}
 	return dst, true, nil
