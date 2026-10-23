@@ -6,6 +6,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- A parked engine that holds the whole card (ComfyUI with `keep_comfyui_up`) comes back when asked. Its resume
+  waited on its own parked residual ("waiting for comfyui [waiting] to free memory") until something released it.
+  A resume released while it waited (the gateway gave up on the wake) could then be granted anyway, as a lease with
+  no process behind it. Two leases of one engine no longer count as a juggle ("comfyui keeps the card over
+  comfyui").
+
 ## [v0.3.5] - 2026-10-22
 
 A box with two NVIDIA cards can pass one card to a VM while the other keeps serving: berthd follows its

@@ -431,3 +431,76 @@ func TestWaiterDoesNotEvictAParkingEngine(t *testing.T) {
 	b.Tick(context.Background())
 	must(t, w)
 }
+
+// parkWholeCard parks an engine that asked for the whole card (ComfyUI asks
+// for no size) beside a foreground request that drained it, and lets that
+// request keep the card: the shape on a node where llama-swap took the card
+// from ComfyUI.
+func parkWholeCard(t *testing.T, b *Broker, c *card) (comfy, chat *Lease) {
+	t.Helper()
+	comfy = must(t, acquire(b, Request{Engine: "comfyui", Priority: Interactive}))
+	comfy.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 8 * GiB})
+	b.Tick(context.Background())
+
+	w := acquire(b, Request{Engine: "llama-swap", Priority: Foreground})
+	pending(t, w)
+	drained(t, comfy)
+	if ok, why := comfy.Park(); !ok {
+		t.Fatalf("park refused: %s", why)
+	}
+	c.set(gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 512 << 20})
+	comfy.Parked()
+	b.Tick(context.Background())
+	return comfy, must(t, w)
+}
+
+// A parked engine that holds the whole card comes back once the card is
+// free: its own residual is not a holder it waits on (on aphotic the
+// resume read "waiting for comfyui [waiting] to free memory" for minutes).
+func TestResumeOfAWholeCardEngineDoesNotWaitOnItself(t *testing.T) {
+	b, c, _ := parkSetup(t, parkTree(100, 101), 16*GiB, 0)
+	comfy, chat := parkWholeCard(t, b, c)
+	chat.Release()
+	b.Tick(context.Background())
+
+	if err := b.Resume("comfyui"); err != nil {
+		t.Fatal(err)
+	}
+	b.Tick(context.Background())
+	select {
+	case <-comfy.Resumed():
+	case <-time.After(time.Second):
+		t.Fatalf("the resume was never granted; waiting = %+v", b.Status().Waiting)
+	}
+}
+
+// A resumed lease released while it still waits (the gateway gave up on
+// the wake) leaves the queue: it is never granted afterwards.
+func TestReleasedResumeIsNeverGranted(t *testing.T) {
+	b, c, _ := parkSetup(t, parkTree(100, 101), 16*GiB, 0)
+	comfy, chat := parkWholeCard(t, b, c)
+	if err := b.Resume("comfyui"); err != nil {
+		t.Fatal(err)
+	}
+	b.Tick(context.Background())
+	comfy.Release()
+	chat.Release()
+	c.set()
+	b.Tick(context.Background())
+	b.Tick(context.Background())
+
+	select {
+	case <-comfy.Resumed():
+		t.Fatal("a released lease was granted")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if st := b.Status(); len(st.Waiting) != 0 {
+		t.Fatalf("waiting = %+v, want the released lease gone from the queue", st.Waiting)
+	}
+	for _, l := range b.Status().Leases {
+		if l.Engine == "comfyui" && l.State == "active" {
+			t.Fatalf("leases = %+v, want no active comfyui", b.Status().Leases)
+		}
+	}
+}
