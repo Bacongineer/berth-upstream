@@ -100,6 +100,9 @@ func runArgv(o runner.Options) []string {
 	if o.Pinned {
 		args = append(args, "--pinned")
 	}
+	if o.Switched {
+		args = append(args, "--switched")
+	}
 	if o.DrainPost != "" {
 		args = append(args, "--drain-post", o.DrainPost)
 	}

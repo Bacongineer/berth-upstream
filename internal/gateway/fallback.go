@@ -54,7 +54,7 @@ func (g *Gateway) waitPrimary(ctx context.Context, e *config.Engine, w http.Resp
 		ensureCtx = context.WithoutCancel(ctx)
 	}
 	ch := make(chan error, 1)
-	go func() { ch <- g.ensure(ensureCtx, e) }()
+	go func() { ch <- g.ensure(ensureCtx, e, false) }()
 	var fbAt <-chan time.Time
 	if e.Fallback != "" {
 		at := time.NewTimer(g.fallbackAfter(e))

@@ -82,7 +82,7 @@ func TestRunAuthenticatesParkAndResume(t *testing.T) {
 				}
 				return false
 			})
-			if err := b.Resume("fixture"); err != nil {
+			if err := b.Resume("fixture", false); err != nil {
 				t.Fatal(err)
 			}
 			select {

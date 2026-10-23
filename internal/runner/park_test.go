@@ -276,7 +276,7 @@ func TestRunParksAndResumes(t *testing.T) {
 	}
 
 	// The wake runs on the grant, and the engine answers again.
-	if err := b.Resume("vllm"); err != nil {
+	if err := b.Resume("vllm", false); err != nil {
 		t.Fatal(err)
 	}
 	hold := <-holder
@@ -411,7 +411,7 @@ func TestRunParksThroughBerthProtocol(t *testing.T) {
 	if out := log.String(); !strings.Contains(out, "parked custom in RAM") {
 		t.Fatalf("no parked line; log:\n%s", out)
 	}
-	if err := b.Resume("custom"); err != nil {
+	if err := b.Resume("custom", false); err != nil {
 		t.Fatal(err)
 	}
 	hold := <-holder
@@ -480,7 +480,7 @@ func TestRunParksComfyUIKeepUp(t *testing.T) {
 
 	// The wake is nothing to call; the readiness probe answers, the lease
 	// is active, and the engine is still on its port.
-	if err := b.Resume("comfyui"); err != nil {
+	if err := b.Resume("comfyui", false); err != nil {
 		t.Fatal(err)
 	}
 	hold := <-holder

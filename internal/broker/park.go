@@ -205,8 +205,9 @@ func (b *Broker) evictParked(now time.Time) {
 
 // Resume puts the engine's parked lease back in the queue at its own
 // priority, keeping the runner's connection. The runner hears
-// OpGranted{Resume: true} when the grant lands.
-func (b *Broker) Resume(engine string) error {
+// OpGranted{Resume: true} when the grant lands. switched marks a person's
+// switch, as Request.Switched does.
+func (b *Broker) Resume(engine string, switched bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, l := range b.leases {
@@ -215,6 +216,8 @@ func (b *Broker) Resume(engine string) error {
 		}
 		l.state = waiting
 		l.resumed = true
+		l.switched = switched
+		l.lostTo, l.lostWhy = "", ""
 		l.arrived = b.now()
 		l.arrivedN = b.order()
 		// The waits from before the park are stale; the runner hears

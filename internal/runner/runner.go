@@ -41,6 +41,7 @@ type Options struct {
 	Priority string
 	Needs    uint64
 	Pinned   bool // never drained: an app that must not be stopped (Blender, a capture)
+	Switched bool // a person's switch (the wake page's Launch, /v1/berth/switch): wins a juggle
 	// MinTurn is a minimum turn: while the lease is younger than it after
 	// the grant, no request of equal or lower priority drains it, and
 	// neither does a higher one; only a hold (a game, a call, berth hold)
@@ -170,7 +171,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}

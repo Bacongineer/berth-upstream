@@ -184,6 +184,11 @@ type Request struct {
 	// app that must not be stopped (berth run --pinned) keeps the card until
 	// it lets go; waiters are told who pins it.
 	Pinned bool
+	// Switched: a person asked for this engine (the wake page's Launch,
+	// /v1/berth/switch). It is the last switch, so it never loses a
+	// juggle, and inside the juggle window a request no person made does
+	// not take the card back from it.
+	Switched bool
 	// MinTurn is a minimum turn: while the lease is younger than it after
 	// the grant, no waiter drains it, whatever the waiter's priority,
 	// except a hold (a game, a call, the operator's own berth hold). When
@@ -214,6 +219,7 @@ type lease struct {
 	lostWhy  string
 	reattach bool // re-attached after a daemon restart: granted is the re-attach, not a fresh switch
 	pinned   bool // never drained (Request.Pinned)
+	switched bool // a person's switch (Request.Switched)
 	minTurn  time.Duration
 	parkTTL  time.Duration // 0 = the node's
 	prio     Priority
@@ -310,6 +316,7 @@ func newLease(id string, r Request, now time.Time) *lease {
 		prio:     r.Priority,
 		needs:    r.Needs,
 		pinned:   r.Pinned,
+		switched: r.Switched,
 		minTurn:  r.MinTurn,
 		parkTTL:  r.ParkTTL,
 		gpu:      map[ident]gpu.Proc{},

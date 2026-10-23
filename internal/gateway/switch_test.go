@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/runner"
 )
 
 // switchGateway is a gateway with one API-only engine the test binary
@@ -107,5 +109,38 @@ func TestSwitchStopRefusals(t *testing.T) {
 	}
 	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].State != "active" {
 		t.Fatalf("a refused stop touched the pinned lease: %+v", st.Leases)
+	}
+}
+
+// A person's switch takes the card from an equal-priority holder the
+// juggle order ranks first, inside the juggle window: on aphotic the wake
+// page's Launch of ComfyUI lost to llama-swap ("juggle: llama-swap takes
+// the card from comfyui (order: llama-swap > ... > comfyui)").
+func TestSwitchWinsAJuggleTheOrderWouldLose(t *testing.T) {
+	sock, b := daemonWith(t, broker.Config{Order: []string{"llama-swap", "strata"}, JuggleWindow: time.Minute})
+	holderOut := &syncBuf{}
+	holder := make(chan int, 1)
+	go func() {
+		holder <- runner.Run(runner.Options{Socket: sock, Engine: "llama-swap", Priority: "foreground",
+			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: holderOut})
+	}()
+	until(t, "llama-swap to hold the card", func() bool { return strings.Contains(holderOut.String(), "granted") })
+
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_ENGINE", addr+",strata-model,300ms")
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{{Name: "strata", Type: "llamacpp", URL: "http://" + addr, Start: []string{os.Args[0]},
+			Serves: []string{"strata-model"}, Priority: "foreground"}}}
+	srv := httptest.NewServer(g.Handler())
+	defer srv.Close()
+
+	resp := call(t, "POST", srv.URL+"/v1/berth/switch", `{"engine":"strata"}`)
+	resp.Body.Close()
+	until(t, "strata to hold the card", func() bool {
+		st := b.Status()
+		return len(st.Leases) == 1 && st.Leases[0].Engine == "strata" && st.Leases[0].State == "active"
+	})
+	if c := b.Status().Counters; c.JugglesStopped != 0 {
+		t.Fatalf("juggles stopped = %d, want the switch to win outright", c.JugglesStopped)
 	}
 }

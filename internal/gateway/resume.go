@@ -34,7 +34,7 @@ func parks(e *config.Engine) bool {
 // resume puts a parked engine's lease back in the queue and waits for
 // the runner's wake. Not parked is not an error: the caller starts the
 // engine the usual way.
-func (g *Gateway) resume(ctx context.Context, e *config.Engine) error {
+func (g *Gateway) resume(ctx context.Context, e *config.Engine, switched bool) error {
 	st := g.nodeStatus()
 	if st == nil {
 		return errNotParked // berthd is not answering; nothing is parked
@@ -45,7 +45,7 @@ func (g *Gateway) resume(ctx context.Context, e *config.Engine) error {
 		return err
 	}
 	defer raw.Close()
-	if err := conn.Send(proto.Msg{Op: proto.OpResume, Engine: e.Name}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpResume, Engine: e.Name, Switched: switched}); err != nil {
 		return err
 	}
 	m, err := conn.Recv()

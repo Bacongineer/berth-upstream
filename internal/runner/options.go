@@ -19,6 +19,7 @@ type Over struct {
 	Socket     string
 	Group      string
 	Pinned     bool
+	Switched   bool
 	Wait       time.Duration
 	Grace      time.Duration
 	FailClosed bool
@@ -52,7 +53,7 @@ func OptionsFor(e *config.Engine, o Over) Options {
 	}
 	opts := Options{
 		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
-		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Wait: o.Wait,
+		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Switched: o.Switched, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
 		DrainMax: e.DrainMax.Duration, MinTurn: e.MinTurn.Duration, ParkTTL: e.ParkTTL.Duration, Container: e.Container, APIKeyEnv: e.APIKeyEnv, APIKeyFile: e.APIKeyFile,
 		ExitComfyUIIdle: e.ExitComfyUIIdle, ExitComfyUIIdleAfter: e.ExitComfyUIIdleAfter.Duration,

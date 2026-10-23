@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A person's switch wins: Launch on the wake page and `/v1/berth/switch` take the card from an equal-priority
+  holder whatever the juggle ranking says, and a request no person made (a chat client's background call) does
+  not take it back inside the juggle window. Before, Launch of ComfyUI lost to llama-swap whenever
+  `[priority] order` ranked llama-swap first, and a later Launch inherited that loss and waited behind an idle
+  llama-swap.
 - The built-in `steam-game` claim no longer drains engines when the REAPER DAW runs. Steam's launcher and the
   DAW are both named `reaper`, and the rule matched any child of either, such as GTK's sandboxed image loader
   (`bwrap`, `glycin-image-rs`). The rule now also needs the launcher's command line to carry `SteamLaunch`, which
