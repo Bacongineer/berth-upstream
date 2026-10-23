@@ -207,14 +207,27 @@ func TestServiceInstallWindows(t *testing.T) {
 		t.Fatalf("one XML per task, got %v", xmlFiles)
 	}
 	logPath := filepath.Join(state, "berth", "logs", "berthd.log")
+	stubPath := filepath.Join(state, "berth", "units", "berthd.vbs")
 	text := xmlTexts[0]
-	wantArgs := `<Arguments>/c &quot;&quot;` + exe + `&quot; daemon --gpu 0 --poll 2s &gt;&gt; &quot;` + logPath + `&quot; 2&gt;&amp;1&quot;</Arguments>`
+	// A console program as the action opens a window at every logon
+	// (issue 165): the task runs a wscript stub, which opens none.
 	for _, want := range []string{
-		`<Command>cmd.exe</Command>`,
-		wantArgs,
+		`<Command>wscript.exe</Command>`,
+		`<Arguments>//B //Nologo &quot;` + stubPath + `&quot;</Arguments>`,
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("the task's action runs the user's binary with its output on the log:\n%s", text)
+			t.Errorf("the task's action is the unit's hidden stub, want %s:\n%s", want, text)
+		}
+	}
+	b, err := os.ReadFile(stubPath)
+	if err != nil {
+		t.Fatalf("the stub is written before the task: %v", err)
+	}
+	stub := utf16decode(b)
+	wantRun := `rc = sh.Run("cmd.exe /c """"` + exe + `"" daemon --gpu 0 --poll 2s >> ""` + logPath + `"" 2>&1""", 0, True)`
+	for _, want := range []string{`Set sh = CreateObject("WScript.Shell")`, wantRun, `WScript.Quit rc`} {
+		if !strings.Contains(stub, want) {
+			t.Errorf("the stub runs the user's binary hidden with its output on the log, want %s:\n%s", want, stub)
 		}
 	}
 	if strings.Contains(text, "berth-gateway") {
