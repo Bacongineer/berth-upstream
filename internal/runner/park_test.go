@@ -624,6 +624,10 @@ func TestParkedEngineReattachesParked(t *testing.T) {
 	if st := b2.Status().Leases; len(st) != 1 || st[0].Engine != "vllm" || st[0].State != "parked" {
 		t.Fatalf("leases after the restart = %+v", st)
 	}
+	waitFor(t, "the residual owned again", func() bool {
+		st := b2.Status()
+		return st.Leases[0].Used == 512<<20 && len(st.Squatters) == 0
+	})
 	hold := <-acquireIn(b2, broker.Request{Engine: "game2", Priority: broker.Foreground})
 	if hold == nil {
 		t.Fatalf("the waiter was never granted beside the parked engine; log:\n%s", log.String())

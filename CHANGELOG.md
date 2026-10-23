@@ -25,7 +25,8 @@ has a matching GitHub release whose body comes from its section below.
 
 - A parked engine survives a berthd restart. Its run re-attached as active while the run itself still knew it was
   parked, so the next request drained it and the run stopped it. The run now tells the new daemon it is parked, and
-  its lease comes back parked: a waiter goes in beside it and a resume wakes it.
+  its lease comes back parked: a waiter goes in beside it and a resume wakes it. Its residual counts as its own
+  again instead of showing as a squatter.
 - A parked engine that a client wakes directly is no longer killed by the next drain
   ([#179](https://github.com/T-Crypt/berth/issues/179)). A ComfyUI `/prompt` sent to :8188 while ComfyUI was parked
   loaded its models back onto the card without telling Berth, so the next request saw an oversized parked residual,

@@ -34,13 +34,12 @@ func parkSetup(t *testing.T, tree procs.Tree, avail uint64, pressure float64) (*
 // parked takes a lease through acquire, its measured peak, a drain, and
 // admission into parking; the residual lands on the card and the lease
 // becomes parked. The foreground waiter that triggered the drain is granted
-// once the memory freed, and releases, so the queue ends empty. others
-// stay on the card throughout.
-func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, root, eng int, others ...gpu.Proc) *Lease {
+// once the memory freed, and releases, so the queue ends empty.
+func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, root, eng int) *Lease {
 	t.Helper()
 	l := must(t, acquire(b, Request{Engine: engine, Needs: peak}))
 	l.Attach(root)
-	c.set(append(others, gpu.Proc{PID: eng, Name: engine + "-engine", Used: peak})...)
+	c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: peak})
 	b.Tick(context.Background())
 
 	w := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
@@ -49,7 +48,7 @@ func warmLease(t *testing.T, b *Broker, c *card, engine string, peak uint64, roo
 	if ok, why := l.Park(); !ok {
 		t.Fatalf("park refused: %s", why)
 	}
-	c.set(append(others, gpu.Proc{PID: eng, Name: engine + "-engine", Used: 512 << 20})...)
+	c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: 512 << 20})
 	l.Parked()
 	b.Tick(context.Background())
 	lw := must(t, w)
@@ -76,10 +75,10 @@ func TestParkAdmission(t *testing.T) {
 	}
 
 	// A second park into RAM that cannot take it: refused with the why.
-	tree.Parents[102] = 100
-	tree.Starts[102] = 1
+	tree.Parents[102], tree.Parents[103] = 103, 1
+	tree.Starts[102], tree.Starts[103] = 1, 1
 	m := must(t, acquire(b, Request{Engine: "sglang", Needs: 4 * GiB}))
-	m.Attach(100)
+	m.Attach(103)
 	c.set(
 		gpu.Proc{PID: 101, Name: "vllm-engine", Used: 512 << 20},
 		gpu.Proc{PID: 102, Name: "sglang-engine", Used: 4 * GiB},
@@ -244,7 +243,9 @@ func TestWholeCardWaiterBesideParked(t *testing.T) {
 		Starts:  map[int]uint64{100: 1, 101: 1, 200: 1, 201: 1},
 	}, 32*GiB, 0)
 	first := warmLease(t, b2, c2, "first", 8*GiB, 100, 101)
-	second := warmLease(t, b2, c2, "second", 8*GiB, 200, 201, gpu.Proc{PID: 101, Name: "first-engine", Used: 512 << 20})
+	// Setting up the second takes the first's process off the card for a
+	// while; once it is back, the parked lease owns it again.
+	second := warmLease(t, b2, c2, "second", 8*GiB, 200, 201)
 	c2.set(gpu.Proc{PID: 101, Name: "first-engine", Used: 1536 << 20},
 		gpu.Proc{PID: 201, Name: "second-engine", Used: 1536 << 20})
 	b2.Tick(context.Background())
