@@ -6,6 +6,17 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.3.6] - 2026-10-23
+
+A parked ComfyUI now survives the two things that killed it: a client that renders on ComfyUI's own port,
+and a berthd restart ([#179](https://github.com/T-Crypt/berth/issues/179)). The gateway serves ComfyUI's
+port behind Berth (`--comfyui-listen`), so the web UI, scripts and LAN forwarders wake ComfyUI before it
+renders, and a render sent while the card is in a VM waits on disk. `berth notify` shows refused requests,
+stuck leases, stowaways and other trouble as Linux desktop notifications. `berth skill install` adds a
+ComfyUI skill, so an agent can set up and run image generation through Berth. Background engines run
+whenever the card is free ([#172](https://github.com/T-Crypt/berth/issues/172)). A person's switch wins over
+the juggle order, and the Steam claim leaves REAPER alone ([#171](https://github.com/T-Crypt/berth/issues/171)).
+
 ### Added
 
 - `berth skill install` also writes a `comfyui` skill: how an agent sets up ComfyUI under Berth (the engine

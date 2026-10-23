@@ -28,7 +28,7 @@ per-process VRAM on Windows and the test suite on Windows in CI; and the proof k
 form and the [tested hardware](benchmarks.md#tested-hardware) table. v0.3.1 fixed `berth update` answering from
 a stale cache. The [CHANGELOG](https://github.com/T-Crypt/berth/blob/main/CHANGELOG.md) has every entry.
 
-## Shipped since: v0.3.5 (2026-10-22)
+## Shipped since: v0.3.6 (2026-10-23)
 
 v0.3.2 and v0.3.3 carried the first Windows testers' reports: the Epic launcher no longer holds the
 card from the tray ([#81](https://github.com/T-Crypt/berth/issues/81)), per-process VRAM counts only
@@ -54,21 +54,30 @@ skill teaches agents to run workflows across engines on one card. On Windows, lo
 a console window ([#165](https://github.com/T-Crypt/berth/issues/165)) and `berth service status` reads
 them right ([#166](https://github.com/T-Crypt/berth/issues/166)).
 
+v0.3.6 keeps a parked ComfyUI alive when a client renders on its own port and across a berthd restart
+([#179](https://github.com/T-Crypt/berth/issues/179)). The gateway serves ComfyUI's port behind Berth, and
+ComfyUI jobs sent while the card is in a VM wait on disk and run when it comes back. `berth notify` brings
+desktop notifications on Linux, `berth skill install` adds a ComfyUI skill, and background engines run when
+the card is free ([#172](https://github.com/T-Crypt/berth/issues/172)). [Swap numbers](benchmarks.md#swap-numbers)
+now has page cache, park and `cuda-checkpoint` timings from the RTX 4090.
+
 ## Next: v0.3.x
 
 In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
 
 - Measured switch costs on the live daemon.
 - Models started on demand for a standalone llama-server.
-- Parked resume numbers in [Swap numbers](benchmarks.md#swap-numbers), which take the vLLM and SGLang park
-  adapters out of experimental, and a measurement of NVIDIA's `cuda-checkpoint` for unmodified
-  CUDA engines on Linux.
+- Parked resume numbers for vLLM and SGLang in [Swap numbers](benchmarks.md#swap-numbers), which take
+  their park adapters out of experimental.
+- A `cuda-checkpoint` park for engines with no offload call of their own, such as llama-server and NInfer.
+  Measured: 23.1 GB back on the card in 3.3 s where a reload takes 14 s. It needs a design for requests that
+  reach llama-swap while a model is checkpointed.
+- `berth notify` on Windows: a tray icon with native toasts ([#186](https://github.com/T-Crypt/berth/pull/186)),
+  after a test on a real Windows desktop.
 - VFIO on a box with two NVIDIA cards: keep the other card's berthd from opening the card being
   switched, after a measurement on a real two-card box.
 - Hermes Agent: an overnight recipe in the setup page, built on the gateway workflow test, where Hermes
   hands work to other engines and ComfyUI renders on the same card.
-- Work that waits for a card's return from a VM: ComfyUI jobs queued during the passage run when the card
-  comes back.
 
 Not started, and in no release yet: `berth fit` and scenes, so engines that fit together never swap.
 
