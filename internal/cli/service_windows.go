@@ -25,31 +25,57 @@ func unitLogPath(name string) string {
 	return filepath.Join(defaultStateDir(), "logs", name+".log")
 }
 
-// taskAction is one unit's command the way the task runs it: cmd executes
-// it and appends both of its streams to the unit's log file. The outer
-// quote pair is cmd's own: with /c, cmd strips the first and the last
-// quote and runs what is left, which is how a path with a space survives.
-func taskAction(u Unit) ([]string, error) {
+// unitStubPath is one unit's launcher script, under the state directory
+// next to the logs.
+func unitStubPath(name string) string {
+	return filepath.Join(defaultStateDir(), "units", name+".vbs")
+}
+
+// cmdLine is one unit's command the way cmd runs it: both of its streams
+// appended to the unit's log file. The outer quote pair is cmd's own: with
+// /c and more than two quotes, cmd strips the first and the last quote and
+// runs what is left, which is how a path with a space survives.
+func cmdLine(u Unit) (string, error) {
 	if len(u.Exec) == 0 {
-		return nil, fmt.Errorf("no command for %s", u.Name)
+		return "", fmt.Errorf("no command for %s", u.Name)
 	}
 	inner := `"` + u.Exec[0] + `"`
 	if args := strings.Join(u.Exec[1:], " "); args != "" {
 		inner += " " + args
 	}
 	inner += ` >> "` + unitLogPath(u.Name) + `" 2>&1`
-	return []string{"cmd.exe", "/c", `"` + inner + `"`}, nil
+	return `cmd.exe /c "` + inner + `"`, nil
 }
 
-// unitTaskXML is one unit's task XML: its action wrapped for the log by
-// taskAction.
-func unitTaskXML(u Unit, taskUser string) (string, error) {
-	action, err := taskAction(u)
+// unitStub is one unit's launcher: wscript is a GUI-subsystem program, so
+// it opens no console of its own, and Run with window style 0 starts cmd's
+// console hidden. A console program as the task's action (cmd, or
+// powershell with -WindowStyle Hidden) shows a window at every logon
+// (issue 165). The child's exit code is the script's, so the task's
+// restart on failure still sees a crash.
+func unitStub(u Unit) (string, error) {
+	line, err := cmdLine(u)
 	if err != nil {
 		return "", err
 	}
+	return "Set sh = CreateObject(\"WScript.Shell\")\r\n" +
+		"rc = sh.Run(\"" + strings.ReplaceAll(line, `"`, `""`) + "\", 0, True)\r\n" +
+		"WScript.Quit rc\r\n", nil
+}
+
+// taskAction is one unit's action: wscript runs the unit's stub in batch
+// mode, which turns a script error into an exit code instead of a dialog.
+func taskAction(u Unit) []string {
+	return []string{"wscript.exe", "//B", "//Nologo", `"` + unitStubPath(u.Name) + `"`}
+}
+
+// unitTaskXML is one unit's task XML: its action is the unit's stub.
+func unitTaskXML(u Unit, taskUser string) (string, error) {
+	if len(u.Exec) == 0 {
+		return "", fmt.Errorf("no command for %s", u.Name)
+	}
 	wrapped := u
-	wrapped.Exec = action
+	wrapped.Exec = taskAction(u)
 	return renderTaskXML(wrapped, taskUser)
 }
 
@@ -154,7 +180,11 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 		if err != nil {
 			return nil, Systemf("%s: %v", u.Name, err)
 		}
-		row.Content = xml
+		stub, err := unitStub(u)
+		if err != nil {
+			return nil, Systemf("%s: %v", u.Name, err)
+		}
+		row.Content = xml + "\n" + unitStubPath(u.Name) + ":\n" + stub
 		if dryRun {
 			row.Action = "would be created and started"
 			return &row, nil
@@ -174,6 +204,14 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 				return nil, Systemf("keep the previous copy of %s: %v", task, err)
 			}
 			row.BackedUp = bak
+		}
+		// The stub is in place before the task that runs it exists. UTF-16
+		// with a BOM is a script wscript reads, whatever the paths hold.
+		if err := os.MkdirAll(filepath.Dir(unitStubPath(u.Name)), 0o755); err != nil {
+			return nil, Systemf("write the launcher for %s: %v", u.Name, err)
+		}
+		if err := os.WriteFile(unitStubPath(u.Name), utf16le(stub), 0o644); err != nil {
+			return nil, Systemf("write the launcher for %s: %v", u.Name, err)
 		}
 		dir, err := ops.unitDir()
 		if err != nil {
@@ -274,6 +312,7 @@ func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dry
 		} else {
 			doc.Commands = append(doc.Commands, cmd)
 			row.Action = "deleted"
+			_ = os.Remove(unitStubPath(u.Name))
 		}
 		doc.Units = append(doc.Units, row)
 	}
@@ -282,7 +321,8 @@ func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dry
 
 // serviceStatus asks schtasks for each task. A task schtasks cannot find
 // is not installed; any other failure of the query is a system failure. An
-// installed task names the log file its output appends to.
+// installed task names the log file its output appends to. The CSV row is
+// TaskName, Next Run Time, Status, and Status is the last field.
 func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serviceDoc, *Error) {
 	doc := &serviceDoc{Units: make([]serviceUnit, 0, len(unitsList)), Commands: []string{}}
 	for _, u := range unitsList {
@@ -298,8 +338,8 @@ func serviceStatus(ctx context.Context, ops serviceOps, unitsList []Unit) (*serv
 		}
 		row.Installed = true
 		row.Log = unitLogPath(u.Name)
-		if fields, err := csvFields(out); err == nil && len(fields) >= 2 {
-			row.Running = fields[1] == "Running"
+		if fields, err := csvFields(out); err == nil && len(fields) >= 3 {
+			row.Running = fields[len(fields)-1] == "Running"
 		}
 		doc.Units = append(doc.Units, row)
 	}
