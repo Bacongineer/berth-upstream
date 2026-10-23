@@ -730,8 +730,15 @@ func (g *Gateway) ComfyUIHandler() http.Handler {
 	mux.HandleFunc("POST /prompt", prompt)
 	mux.HandleFunc("POST /api/prompt", prompt)
 	mux.HandleFunc("/", g.comfyProxy)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), keepHost{}, true)))
+	})
 }
+
+// keepHost marks a request on ComfyUI's port: it reaches ComfyUI with the
+// Host the browser sent, because ComfyUI refuses a request whose Origin
+// does not match its Host.
+type keepHost struct{}
 
 // comfyPrompt queues a workflow: it makes sure ComfyUI is up under a lease
 // (draining the holder like any other request, holding this request until
@@ -788,7 +795,9 @@ func (g *Gateway) comfyProxyTo(t target, w http.ResponseWriter, r *http.Request)
 	p := httputil.NewSingleHostReverseProxy(u)
 	p.FlushInterval = -1 // stream progress as ComfyUI sends it
 	g.engineAuth(g.engineEntry(t), r)
-	r.Host = u.Host
+	if r.Context().Value(keepHost{}) == nil {
+		r.Host = u.Host
+	}
 	p.ServeHTTP(w, r)
 }
 
