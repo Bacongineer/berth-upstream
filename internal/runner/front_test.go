@@ -1,7 +1,7 @@
 // Copyright 2026 Trevin Tindall (T-Crypt)
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build unix
+//go:build linux
 
 package runner
 
