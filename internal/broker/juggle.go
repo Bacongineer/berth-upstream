@@ -104,6 +104,12 @@ func (b *Broker) keeps(h, w *lease, now time.Time) (bool, string) {
 			return false, "" // the holder is idle: handing over costs nobody a request
 		}
 	}
+	if h.key() == w.key() {
+		// Two leases of one engine (or one llama-swap group) with the
+		// holder busy: the holder keeps the card, as a tie always did, but
+		// that is a queue, not a juggle, so no verdict and no count.
+		return true, fmt.Sprintf("%s already holds the card", h.key())
+	}
 	wins, why := b.outranks(w.key(), h.key(), now)
 	if wins {
 		msg := fmt.Sprintf("juggle: %s takes the card from %s (%s)", w.key(), h.key(), why)

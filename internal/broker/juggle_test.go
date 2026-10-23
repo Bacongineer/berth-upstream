@@ -237,3 +237,24 @@ func TestUsageSkipsGaps(t *testing.T) {
 		t.Fatalf("an hour-long gap was credited: %.0f s", s)
 	}
 }
+
+// Two leases of one engine are not a juggle: the second waits for the
+// first with no verdict and no count (on aphotic: "juggle: comfyui keeps
+// the card over comfyui (a tie)").
+func TestSameEngineIsNotAJuggle(t *testing.T) {
+	b, _, _ := setup(t, procs.Map{})
+	b.cfg.JuggleWindow = time.Minute
+	first := must(t, acquire(b, Request{Engine: "comfyui", Priority: Foreground}))
+	defer first.Release()
+	second := acquire(b, Request{Engine: "comfyui", Priority: Foreground})
+	pending(t, second)
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if st.Counters.JugglesStopped != 0 {
+		t.Fatalf("juggles stopped = %d, want 0", st.Counters.JugglesStopped)
+	}
+	if len(st.Waiting) != 1 || strings.Contains(lastWaiting(b), "juggle") {
+		t.Fatalf("waiting = %+v (%q), want the second lease waiting without a juggle", st.Waiting, lastWaiting(b))
+	}
+}

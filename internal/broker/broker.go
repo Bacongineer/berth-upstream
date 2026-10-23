@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1191,7 +1192,9 @@ func (c cardBudget) avail() uint64   { return sat(c.ceiling(), c.held) }
 // evaluate decides whether w fits now. If not, it returns why and which
 // holders to drain; no victims means draining would not help, so w waits.
 func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
-	hs := b.holders()
+	// A resumed lease is still in b.leases while it waits: its own
+	// residual is the copy it comes back to, never a holder it waits on.
+	hs := slices.DeleteFunc(b.holders(), func(h *lease) bool { return h == w })
 	budget := cardBudget{
 		total:    b.snap.Total,
 		reserve:  b.cfg.Reserve,
@@ -1442,6 +1445,9 @@ func (b *Broker) reapAttached(key string, l *lease, now time.Time) {
 // card, no container named) has nothing that could turn up later, and goes
 // at once. announce keeps abandon quiet, as it has always been.
 func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
+	// A resumed lease waits in the queue while it is still a lease; once
+	// released it must never be granted.
+	b.queue = slices.DeleteFunc(b.queue, func(q *lease) bool { return q == x })
 	x.state = releasing
 	x.released = now
 	x.releasedRead = b.reads.Load()
