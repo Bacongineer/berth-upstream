@@ -913,18 +913,29 @@ func (b *Broker) owner(id ident, container, scope string) *lease {
 	}
 	if container != "" {
 		for _, l := range b.leases {
-			if (l.state == active || l.state == draining || l.state == releasing) && l.container == container {
+			if l.ownsNew() && l.container == container {
 				return l
 			}
 		}
 	}
 	for _, l := range b.leases {
-		if (l.state == active || l.state == draining || l.state == releasing) && l.pid > 0 &&
+		if l.ownsNew() && l.pid > 0 &&
 			b.tree.StartTime(l.pid) == l.pidStart && procs.DescendsFrom(b.tree, id.pid, l.pid) {
 			return l
 		}
 	}
 	return nil
+}
+
+// ownsNew is whether a GPU process the lease has not recorded yet can be
+// its own: a lease on the card, parked ones included, whose engine keeps
+// running (a re-attach starts with no processes recorded).
+func (l *lease) ownsNew() bool {
+	switch l.state {
+	case active, draining, parking, parked, releasing:
+		return true
+	}
+	return false
 }
 
 // runFor finds the unprotected run a process descends from, if any.
