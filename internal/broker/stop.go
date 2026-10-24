@@ -19,7 +19,7 @@ import (
 // log show who asked.
 const stopReason = "stopped by berth stop"
 
-// Stop asks every active or draining lease of the named engine (by its name
+// Stop asks every active, draining, parking or parked lease of the named engine (by its name
 // or its group) to give the berth back, the way a higher-priority waiter
 // would: one reason on the lease's drain channel, nothing signalled from
 // here. A pinned lease is asked too: the pin keeps the scheduler off it,
@@ -31,13 +31,15 @@ func (b *Broker) Stop(engine string) ([]string, error) {
 	defer b.mu.Unlock()
 	var ids []string
 	for _, l := range b.leases {
-		if l.pid == 0 || (l.state != active && l.state != draining) {
+		if l.pid == 0 || (l.state != active && l.state != draining && l.state != parking && l.state != parked) {
 			continue
 		}
 		if l.engine != engine && l.group != engine {
 			continue
 		}
-		if l.state == active {
+		if l.state != draining {
+			// A parked or parking engine is stopped too: its run hears the
+			// drain once its park call ends and stops the engine.
 			l.state = draining
 		}
 		ids = append(ids, l.id)

@@ -135,6 +135,10 @@ func (b *Broker) Park(id string) (bool, string) {
 		return false, why
 	}
 	l.state = parking
+	// The grace runs from this park's own call. A lease that parked
+	// before still carries that call's stamps, and a park that takes
+	// longer than one tick would be given up on at once.
+	l.parkedCall, l.parkedRead = time.Time{}, 0
 	return true, ""
 }
 

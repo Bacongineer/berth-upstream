@@ -541,3 +541,39 @@ func TestParkFailedSaysWhy(t *testing.T) {
 		t.Fatalf("last event = %+v", last)
 	}
 }
+
+// A second park of the same lease gets the whole release grace for its
+// own call. The grace runs from the call that parked it last time
+// otherwise, so a park that takes longer than one tick (a 23 GB
+// cuda-checkpoint takes 5 s) was given up on at once.
+func TestASecondParkGetsItsOwnGrace(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 32*GiB, 0)
+	b.cfg.ReleaseGrace = 50 * time.Millisecond
+	l := warmLease(t, b, c, "ninfer", 8*GiB, 100, 101)
+	if err := b.Resume("ninfer", false); err != nil {
+		t.Fatal(err)
+	}
+	<-l.Resumed()
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 8 * GiB})
+	b.Tick(context.Background())
+	time.Sleep(100 * time.Millisecond) // the first park's call is now older than the grace
+
+	w := acquire(b, Request{Engine: "comfyui", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park refused: %s", why)
+	}
+	b.Tick(context.Background()) // the park call is still running: the card is still full
+	if st := b.Status().Leases[0]; st.State != "parking" {
+		t.Fatalf("state = %s while its park call runs, want parking", st.State)
+	}
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 0})
+	l.Parked()
+	b.Tick(context.Background())
+	if st := b.Status().Leases[0]; st.State != "parked" {
+		t.Fatalf("state = %s after the park call, want parked", st.State)
+	}
+	must(t, w).Release()
+}
