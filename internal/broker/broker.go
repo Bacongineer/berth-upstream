@@ -165,6 +165,11 @@ type Config struct {
 	// outside one. Tests fake it. A GPU process in the scope an attached
 	// lease recorded belongs to that lease.
 	Scopes func(pid int) (string, bool)
+	// ScopeMem reads a Berth scope's cgroup memory (procs.ScopeMem on
+	// Linux). A parked engine holds its scope's anon plus shmem in RAM,
+	// far less than its VRAM footprint when its weights sit in page
+	// cache. nil = procs.ScopeMem; tests fake it.
+	ScopeMem func(scope string) (procs.Mem, bool)
 	// ContainerName resolves a container id to its runtime name (docker,
 	// then podman, inspect); "" when neither answers. Used to name a
 	// stowaway's container in the report; never affects scheduling.
@@ -248,6 +253,9 @@ type lease struct {
 	desc               map[ident]struct{} // descendants recorded while the lease ran
 	contested          uint64             // squatter bytes on the card when granted
 	peak               uint64             // most memory its processes were measured holding
+	ram                uint64             // parking or parked: its scope's anon + shmem at the last read; 0 = no reading
+	ramLearned         bool               // this park's reading is recorded as the engine's park cost
+	ramHot             uint64             // its scope's anon + shmem when the park was admitted, before any of it moved
 	releaseBaseline    uint64             // guarded probes: unattributed driver baseline before this lease loaded
 	releaseGTTBaseline uint64             // APU shared pool must return independently
 	contestedGTT       uint64
@@ -545,6 +553,9 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	}
 	if cfg.MemAvailable == nil {
 		cfg.MemAvailable = func() uint64 { return host.MemAvailable("") }
+	}
+	if cfg.ScopeMem == nil {
+		cfg.ScopeMem = procs.ScopeMem
 	}
 	if cfg.MemPressure == nil {
 		cfg.MemPressure = func() float64 {
@@ -853,6 +864,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		case parked:
 			b.parkedTick(key, l, now)
 		}
+		b.measureParkedRAM(l)
 	}
 	b.claimed = claimed
 	b.evictParked(now)

@@ -251,9 +251,9 @@ type Status struct {
 	Priority    *PriorityStatus   `json:"priority,omitempty"`
 	Claims      []Claim           `json:"claims,omitempty"`
 	Footprints  []EngineFootprint `json:"footprints,omitempty"`
-	// ParkedBytes is what the parked engines' footprints add up to: the
-	// RAM their warm copies are expected to hold. A reading, never a
-	// reservation.
+	// ParkedBytes is the RAM the parked engines hold: each one's Berth
+	// scope's anon plus shmem, or its VRAM footprint where Berth reads no
+	// scope. A reading, never a reservation.
 	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
 	// Passthrough is the governed card's VM state while it does not serve
 	// the node: bound to vfio-pci, or switching to or from that. Omitted

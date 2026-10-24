@@ -40,10 +40,15 @@ func TestAdmit(t *testing.T) {
 			want:      "park refused: needs 1.0 GiB, 0.0 GiB available above the floor",
 		},
 		{
-			name:      "parked RAM counts against the floor",
+			name:      "parked RAM is already out of Available, so it does not count twice",
 			b:         Budget{Available: 10 * g, Floor: 4 * g, Parked: 6 * g},
 			footprint: 2 * g,
-			want:      "park refused: needs 2.0 GiB, 0.0 GiB available above the floor",
+		},
+		{
+			name:      "parked RAM still counts toward the cap",
+			b:         Budget{Available: 10 * g, Floor: 4 * g, Parked: 6 * g, Max: 7 * g},
+			footprint: 2 * g,
+			want:      "park refused: 8.0 GiB parked would pass the 7.0 GiB cap",
 		},
 		{
 			name:      "no cap when Max is zero",

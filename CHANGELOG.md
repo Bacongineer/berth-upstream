@@ -8,6 +8,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- Park admission counts the RAM a parked engine holds: the anon and shmem of its berth scope's cgroup, not its VRAM
+  footprint. A parked ComfyUI was counted at 17.5 GiB while it held about 2.5 GiB, because its weights sit in page
+  cache, which the kernel counts as available. Admission also subtracted parked RAM a second time from a reading that
+  had already dropped by it. Both refused parks that fit. The next park of an engine now costs what its last park
+  added: the RAM it grew by while it parked, since what it held hot was already out of the reading. A park still in
+  flight now counts against the next one, so two engines parking at once cannot claim the same free RAM. A run with
+  no berth scope still counts its footprint (#193).
 - A lease that parks a second time gets the whole release grace for its own park call. It ran from the previous
   park's call, so a park that takes longer than one tick (a 23 GB `cuda-checkpoint` takes 5 s) was given up on at
   once, and the engine was left checkpointed while berthd waited for it to drain.

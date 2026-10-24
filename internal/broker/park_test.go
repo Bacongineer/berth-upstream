@@ -9,6 +9,9 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -576,4 +579,252 @@ func TestASecondParkGetsItsOwnGrace(t *testing.T) {
 		t.Fatalf("state = %s after the park call, want parked", st.State)
 	}
 	must(t, w).Release()
+}
+
+const comfyScope = "/user.slice/user-1000.slice/user@1000.service/app.slice/berth-run-comfyui-b3896af8.scope"
+
+// scopedRAM puts root's run in scope and has that scope's memory.stat read
+// mem; every other process runs outside a scope.
+func scopedRAM(b *Broker, root int, scope string, mem procs.Mem) {
+	b.cfg.Scopes = func(pid int) (string, bool) {
+		if pid == root {
+			return scope, true
+		}
+		return "", false
+	}
+	b.cfg.ScopeMem = func(s string) (procs.Mem, bool) {
+		if s == scope {
+			return mem, true
+		}
+		return procs.Mem{}, false
+	}
+}
+
+// A parked engine holds its scope's anon plus shmem in RAM, not its VRAM
+// peak: its weights sit in page cache, which MemAvailable already counts.
+// So a second engine's park is admitted on what is really free, and an
+// engine with no scope still counts its footprint.
+func TestParkedRAMIsTheScopesAnonAndShmem(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 24*GiB, 0)
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 2 * GiB, File: 9 * GiB, Shmem: 1 * GiB})
+	warmLease(t, b, c, "comfyui", 17*GiB, 100, 101)
+	if got := b.Status().ParkedBytes; got != 3*GiB {
+		t.Fatalf("parked bytes = %d MiB, want 3072 MiB (anon + shmem)", got>>20)
+	}
+
+	b.cfg.ParkFloor = 4 * GiB
+	b.cfg.MemAvailable = func() uint64 { return 20 * GiB }
+	tree.Parents[102], tree.Parents[103] = 103, 1
+	tree.Starts[102], tree.Starts[103] = 1, 1
+	m := must(t, acquire(b, Request{Engine: "sglang", Needs: 15 * GiB}))
+	m.Attach(103)
+	c.set(
+		gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 512 << 20},
+		gpu.Proc{PID: 102, Name: "sglang-engine", Used: 15 * GiB},
+	)
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "next2", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, m)
+	if ok, why := m.Park(); !ok {
+		t.Fatalf("park of 15 GiB beside 3 GiB parked, 20 GiB available, 4 GiB floor: %s", why)
+	}
+
+	c.set(
+		gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 512 << 20},
+		gpu.Proc{PID: 102, Name: "sglang-engine", Used: 512 << 20},
+	)
+	m.Parked()
+	b.Tick(context.Background())
+	if got := b.Status().ParkedBytes; got != 18*GiB {
+		t.Fatalf("parked bytes = %d MiB, want 18432 MiB (3 GiB measured + sglang's 15 GiB footprint)", got>>20)
+	}
+}
+
+// An engine's next park costs what its last parked run measured holding,
+// not its VRAM footprint.
+func TestNextParkCostsTheLastMeasuredRAM(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 24*GiB, 0)
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 2 * GiB, Shmem: 1 * GiB})
+	first := warmLease(t, b, c, "comfyui", 17*GiB, 100, 101)
+	first.Release()
+	c.set()
+	b.Tick(context.Background())
+
+	b.cfg.ParkFloor = 4 * GiB
+	b.cfg.MemAvailable = func() uint64 { return 10 * GiB }
+	tree.Parents[201], tree.Parents[200] = 200, 1
+	tree.Starts[200], tree.Starts[201] = 1, 1
+	l := must(t, acquire(b, Request{Engine: "comfyui", Needs: 17 * GiB}))
+	l.Attach(200)
+	c.set(gpu.Proc{PID: 201, Name: "comfyui-engine", Used: 17 * GiB})
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park of a 17 GiB engine that last parked in 3 GiB, 10 GiB available, 4 GiB floor: %s", why)
+	}
+}
+
+// Two engines parking at once do not both claim the same free RAM: a
+// park still in flight has not landed in MemAvailable yet, so its cost
+// counts against the next one until it is parked and measured.
+func TestParkingLeaseCountsAgainstTheNextPark(t *testing.T) {
+	tree := procs.Fake{
+		Parents: map[int]int{101: 100, 100: 1, 103: 102, 102: 1},
+		Starts:  map[int]uint64{100: 1, 101: 1, 102: 1, 103: 1},
+	}
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	b.cfg.ParkFloor = 4 * GiB
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 9 * GiB, Shmem: 1 * GiB})
+	first := must(t, acquire(b, Request{Engine: "comfyui", Needs: 10 * GiB}))
+	first.Attach(100)
+	second := must(t, acquire(b, Request{Engine: "vllm", Needs: 10 * GiB}))
+	second.Attach(102)
+	c.set(
+		gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 10 * GiB},
+		gpu.Proc{PID: 103, Name: "vllm-engine", Used: 10 * GiB},
+	)
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "whole", Priority: Foreground})
+	pending(t, w)
+	drained(t, first)
+	drained(t, second)
+	if ok, why := first.Park(); !ok {
+		t.Fatalf("first park refused: %s", why)
+	}
+
+	ok, why := second.Park()
+	if want := "park refused: needs 10.0 GiB, 2.0 GiB available above the floor"; ok || why != want {
+		t.Fatalf("second park while the first is parking = %v, %q; want false, %q", ok, why, want)
+	}
+
+	c.set(
+		gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 512 << 20},
+		gpu.Proc{PID: 103, Name: "vllm-engine", Used: 10 * GiB},
+	)
+	first.Parked()
+	b.Tick(context.Background())
+	if ok, why := second.Park(); !ok {
+		t.Fatalf("second park once the first is parked and measured: %s", why)
+	}
+}
+
+// A parked engine's RAM moves a little on every tick. Its learned park
+// cost is written once per park, so the footprint file is not rewritten
+// every poll for as long as the engine stays parked.
+func TestParkedRAMIsRecordedOncePerPark(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 24*GiB, 0)
+	b.cfg.FootprintFile = filepath.Join(t.TempDir(), "footprints.json")
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 2 * GiB, Shmem: 1 * GiB})
+	warmLease(t, b, c, "comfyui", 17*GiB, 100, 101)
+	b.persistFootprints()
+
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 2*GiB + 4<<20, Shmem: 1 * GiB})
+	b.Tick(context.Background())
+	b.persistFootprints()
+
+	data, err := os.ReadFile(b.cfg.FootprintFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]struct{ ParkedRAM uint64 }
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if got := saved["comfyui"].ParkedRAM; got != 3*GiB {
+		t.Fatalf("saved park cost = %d MiB, want 3072 MiB (the first parked reading)", got>>20)
+	}
+	if got := b.Status().ParkedBytes; got != 3*GiB+4<<20 {
+		t.Fatalf("parked bytes = %d MiB, want 3076 MiB (the live reading)", got>>20)
+	}
+}
+
+// A park adds only what the run grows by while it parks: the RAM it held
+// hot (a checkpointed engine's own shmem, for one) was already out of
+// MemAvailable. So the next park costs parked minus hot, not the total.
+func TestNextParkCostsWhatTheParkAdded(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 64*GiB, 0)
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 3 * GiB, Shmem: 6 * GiB})
+	first := must(t, acquire(b, Request{Engine: "ninfer", Needs: 23 * GiB}))
+	first.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 23 * GiB})
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, first)
+	if ok, why := first.Park(); !ok {
+		t.Fatalf("first park refused: %s", why)
+	}
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 25 * GiB, Shmem: 6 * GiB})
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 512 << 20})
+	first.Parked()
+	b.Tick(context.Background())
+	must(t, w).Release()
+	first.Release()
+	c.set()
+	b.Tick(context.Background())
+
+	b.cfg.ParkFloor = 4 * GiB
+	b.cfg.MemAvailable = func() uint64 { return 28 * GiB }
+	tree.Parents[201], tree.Parents[200] = 200, 1
+	tree.Starts[200], tree.Starts[201] = 1, 1
+	l := must(t, acquire(b, Request{Engine: "ninfer", Needs: 23 * GiB}))
+	l.Attach(200)
+	c.set(gpu.Proc{PID: 201, Name: "ninfer-engine", Used: 23 * GiB})
+	b.Tick(context.Background())
+	w2 := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w2)
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park that adds 22 GiB, 28 GiB available, 4 GiB floor: %s", why)
+	}
+}
+
+// Models in one group (every llama-swap model is in group llama-swap)
+// park different amounts: what a small model's park added is not what
+// the next model of the group costs.
+func TestParkCostIsLearnedPerEngineNotPerGroup(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 64*GiB, 0)
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 1 * GiB})
+	small := must(t, acquire(b, Request{Engine: "small", Group: "llama-swap", Needs: 8 * GiB}))
+	small.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "small-engine", Used: 8 * GiB})
+	b.Tick(context.Background())
+	w := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w)
+	drained(t, small)
+	if ok, why := small.Park(); !ok {
+		t.Fatalf("small park refused: %s", why)
+	}
+	scopedRAM(b, 100, comfyScope, procs.Mem{Anon: 2 * GiB})
+	c.set(gpu.Proc{PID: 101, Name: "small-engine", Used: 512 << 20})
+	small.Parked()
+	b.Tick(context.Background())
+	must(t, w).Release()
+	small.Release()
+	c.set()
+	b.Tick(context.Background())
+
+	b.cfg.ParkFloor = 4 * GiB
+	b.cfg.MemAvailable = func() uint64 { return 20 * GiB }
+	tree.Parents[201], tree.Parents[200] = 200, 1
+	tree.Starts[200], tree.Starts[201] = 1, 1
+	big := must(t, acquire(b, Request{Engine: "big", Group: "llama-swap", Needs: 23 * GiB}))
+	big.Attach(200)
+	c.set(gpu.Proc{PID: 201, Name: "big-engine", Used: 23 * GiB})
+	b.Tick(context.Background())
+	w2 := acquire(b, Request{Engine: "next", Priority: Foreground, Needs: 20 * GiB})
+	pending(t, w2)
+	drained(t, big)
+	ok, why := big.Park()
+	if want := "park refused: needs 23.0 GiB, 16.0 GiB available above the floor"; ok || why != want {
+		t.Fatalf("park of a 23 GiB model after a small one in its group added 1 GiB = %v, %q; want false, %q", ok, why, want)
+	}
 }

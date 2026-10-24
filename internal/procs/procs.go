@@ -10,6 +10,7 @@ package procs
 import (
 	"bufio"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -155,4 +156,41 @@ func scopePath(path string) (string, bool) {
 func berthScope(seg string) bool {
 	return strings.HasPrefix(seg, "berth-") && strings.HasSuffix(seg, ".scope") &&
 		len(seg) > len("berth-.scope")
+}
+
+// Mem is the memory a cgroup's memory.stat charges to it, in bytes. Anon
+// and Shmem stay held until the processes exit; File is page cache, which
+// the kernel already counts as available and reclaims on its own.
+type Mem struct {
+	Anon, File, Shmem uint64
+}
+
+// scopeMem parses a cgroup v2 memory.stat file. ok is false when it holds
+// no anon line, so a file that is not memory.stat never reads as zero.
+func scopeMem(r io.Reader) (Mem, bool) {
+	var m Mem
+	ok := false
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		key, val, found := strings.Cut(sc.Text(), " ")
+		if !found {
+			continue
+		}
+		n, err := strconv.ParseUint(val, 10, 64)
+		if err != nil {
+			continue
+		}
+		switch key {
+		case "anon":
+			m.Anon, ok = n, true
+		case "file":
+			m.File = n
+		case "shmem":
+			m.Shmem = n
+		}
+	}
+	if !ok {
+		return Mem{}, false
+	}
+	return m, true
 }
