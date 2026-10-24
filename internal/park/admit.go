@@ -14,6 +14,8 @@ import (
 // Budget is the RAM picture one park decision runs on. Available is what
 // the kernel reports available now and Parked what parked engines hold:
 // both are readings, not reservations, and neither is promised to anyone.
+// The RAM parked engines hold is already gone from Available, so Parked
+// only counts toward Max.
 type Budget struct {
 	Available uint64 // the kernel's available RAM, in bytes
 	Floor     uint64 // the RAM the machine must keep free, in bytes
@@ -35,13 +37,14 @@ func gib1(n uint64) string {
 	return strconv.FormatFloat(float64(n)/float64(gib), 'f', 1, 64)
 }
 
-// Admit says whether footprint may park on top of b. It refuses rather
-// than underflow, and its refusal lines say what is available, never what
-// is reserved.
+// Admit says whether footprint may park on top of b: it must fit in
+// Available above Floor, and Parked plus footprint must stay within Max.
+// It refuses rather than underflow, and its refusal lines say what is
+// available, never what is reserved.
 func Admit(b Budget, footprint uint64) (bool, string) {
 	var above uint64
-	if b.Available >= b.Parked+b.Floor {
-		above = b.Available - b.Parked - b.Floor
+	if b.Available >= b.Floor {
+		above = b.Available - b.Floor
 	}
 	if above >= footprint {
 		if b.Max == 0 || b.Parked+footprint <= b.Max {

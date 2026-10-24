@@ -22,14 +22,17 @@ import (
 // engineFootprint is one engine's record of its runs: the most memory seen
 // across them, and the last run's peak, which a next run most likely needs.
 type engineFootprint struct {
-	Peak uint64    // the most memory any run was measured holding
-	Last uint64    // the last run's peak
-	Runs int       // runs measured holding memory
-	At   time.Time // when Last was recorded
+	Peak      uint64    // the most memory any run was measured holding
+	Last      uint64    // the last run's peak
+	Runs      int       // runs measured holding memory
+	At        time.Time // when Last was recorded
+	ParkedRAM uint64    // the RAM a parked run last held (its scope's anon + shmem); 0 = never measured
+	ParkBase  uint64    // what that run held hot, just before it parked
 }
 
 // footprints is the table keyed by engine key: the lease's group, else its
-// engine name.
+// engine name. A park record (ParkedRAM, ParkBase) is keyed by the engine
+// name alone, since the models of one group park different amounts.
 type footprints map[string]*engineFootprint
 
 // loadFootprints reads the table from its file. A missing file is an empty

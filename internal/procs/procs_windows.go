@@ -97,3 +97,6 @@ func Container(int) (string, bool) { return "", false }
 // Scope has no cgroups on Windows, so no process runs in a Berth scope
 // (Job objects come in a later ticket).
 func Scope(int) (string, bool) { return "", false }
+
+// ScopeMem has no cgroups on Windows, so no scope is ever measured.
+func ScopeMem(string) (Mem, bool) { return Mem{}, false }

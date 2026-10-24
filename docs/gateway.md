@@ -443,7 +443,7 @@ host RAM instead:
 | Tier | Where the weights are | Switch back | RAM cost |
 |---|---|---|---|
 | hot | VRAM | now | none |
-| warm (parked) | host RAM, held by the engine | seconds | the footprint, committed while it lasts |
+| warm (parked) | host RAM, held by the engine | seconds | its anon and shmem, committed while it lasts |
 | cool | the kernel page cache | load minus disk | nothing committed |
 | cold | disk | full cold start | none |
 
@@ -475,6 +475,13 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   records the park; the lease stays parked, the card's residual counts, and
   a waiter builds beside it. The next request sends the resume, and the
   engine serves again in seconds.
+- **What a parked engine holds.** Berth reads the RAM a parked engine holds
+  from its berth scope's cgroup: anon plus shmem in `memory.stat`, and not
+  the page cache, which the kernel already counts as available. Where the
+  run has no berth scope (Windows, a container), Berth counts the engine's
+  VRAM footprint instead. Admission charges a park what the engine's last
+  park added, the RAM it grew by while parking, because the RAM it held
+  while it served was already out of the kernel's available figure.
 - **Adapters.** ComfyUI needs nothing: its unload keeps the models in RAM
   until memory pressure. vLLM needs `--enable-sleep-mode` and
   `VLLM_SERVER_DEV_MODE=1` in the start command. SGLang needs

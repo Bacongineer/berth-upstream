@@ -75,9 +75,10 @@ func (l *Lease) Awake() {
 		Detail: fmt.Sprintf("resumed in %.1f s", time.Since(l.l.granted).Seconds())})
 }
 
-// footprintOf is the VRAM a park would need to hold in RAM: this run's
-// measured peak, or the engine's learned footprint when this run has not
-// peaked yet. b.mu must be held.
+// footprintOf is the VRAM a park moves off the card: this run's measured
+// peak, or the engine's learned footprint when this run has not peaked
+// yet. Without a scope reading it is also the estimate of the RAM a park
+// holds. b.mu must be held.
 func (b *Broker) footprintOf(l *lease) uint64 {
 	if l.peak > 0 {
 		return l.peak
@@ -88,16 +89,66 @@ func (b *Broker) footprintOf(l *lease) uint64 {
 	return 0
 }
 
-// parkedFootprints is the RAM all parked engines are expected to hold: the
-// sum of their footprints. b.mu must be held.
-func (b *Broker) parkedFootprints() uint64 {
+// ramOf is the RAM a parking or parked lease holds: its scope's anon plus
+// shmem at the last read, else its VRAM footprint where Berth cannot read
+// a scope (no cgroup v2, Windows, a container). b.mu must be held.
+func (b *Broker) ramOf(l *lease) uint64 {
+	if l.ram > 0 {
+		return l.ram
+	}
+	return b.footprintOf(l)
+}
+
+// parkCost is the RAM a new park of l is expected to take: what the
+// engine's last parked run grew by while it parked (the RAM it held hot
+// was already out of MemAvailable), else its VRAM footprint. It is
+// learned per engine, not per group: the models of one llama-swap park
+// very different amounts. b.mu must be held.
+func (b *Broker) parkCost(l *lease) uint64 {
+	if f := b.footprints[l.engine]; f != nil && f.ParkedRAM > 0 {
+		return f.ParkedRAM - min(f.ParkBase, f.ParkedRAM)
+	}
+	return b.footprintOf(l)
+}
+
+// parkedRAM is the RAM all parked engines hold: the sum of ramOf. b.mu
+// must be held.
+func (b *Broker) parkedRAM() uint64 {
 	var n uint64
 	for _, l := range b.leases {
 		if l.state == parked {
-			n += b.footprintOf(l)
+			n += b.ramOf(l)
 		}
 	}
 	return n
+}
+
+// measureParkedRAM reads a parking or parked lease's scope, and records
+// the first parked reading as its engine's next park cost: the reading
+// moves a little every tick, and the footprint file is written once per
+// park, not every poll. File pages are left out: the kernel counts page
+// cache as available and reclaims it itself. Called with b.mu held, from
+// Tick.
+func (b *Broker) measureParkedRAM(l *lease) {
+	if (l.state != parking && l.state != parked) || l.scope == "" {
+		return
+	}
+	m, ok := b.cfg.ScopeMem(l.scope)
+	if !ok {
+		return
+	}
+	l.ram = m.Anon + m.Shmem
+	if l.state != parked || l.ram == 0 || l.ramLearned {
+		return
+	}
+	l.ramLearned = true
+	f := b.footprints[l.engine]
+	if f == nil {
+		f = &engineFootprint{}
+		b.footprints[l.engine] = f
+	}
+	f.ParkedRAM, f.ParkBase = l.ram, l.ramHot
+	b.footprintDirty = true
 }
 
 // Park admits a draining lease's engine into RAM parking: park.Admit runs
@@ -116,22 +167,30 @@ func (b *Broker) Park(id string) (bool, string) {
 		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Detail: why})
 		return false, why
 	}
-	foot := b.footprintOf(l)
-	if foot == 0 {
+	if b.footprintOf(l) == 0 {
 		// Nothing was ever measured: there is nothing to hold in RAM,
 		// and nothing worth parking.
 		why := "park refused: this run never held card memory"
 		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Detail: why})
 		return false, why
 	}
+	// A park still in flight has not landed in MemAvailable yet: two
+	// cards parking at once must not both claim the same free RAM.
+	avail := b.cfg.MemAvailable()
+	for _, o := range b.leases {
+		if o != l && o.state == parking {
+			avail -= min(avail, b.parkCost(o))
+		}
+	}
+	cost := b.parkCost(l)
 	ok, why := park.Admit(park.Budget{
-		Available: b.cfg.MemAvailable(),
+		Available: avail,
 		Floor:     b.cfg.ParkFloor,
-		Parked:    b.parkedFootprints(),
+		Parked:    b.parkedRAM(),
 		Max:       b.cfg.ParkMax,
-	}, foot)
+	}, cost)
 	if !ok {
-		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Bytes: foot, Detail: why})
+		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Bytes: cost, Detail: why})
 		return false, why
 	}
 	l.state = parking
@@ -139,6 +198,12 @@ func (b *Broker) Park(id string) (bool, string) {
 	// before still carries that call's stamps, and a park that takes
 	// longer than one tick would be given up on at once.
 	l.parkedCall, l.parkedRead = time.Time{}, 0
+	l.ram, l.ramLearned, l.ramHot = 0, false, 0
+	if l.scope != "" {
+		if m, ok := b.cfg.ScopeMem(l.scope); ok {
+			l.ramHot = m.Anon + m.Shmem
+		}
+	}
 	return true, ""
 }
 
@@ -203,7 +268,7 @@ func (b *Broker) evictParked(now time.Time) {
 	var entries []park.Parked
 	for _, l := range b.leases {
 		if l.state == parked {
-			entries = append(entries, park.Parked{Name: l.id, Bytes: b.footprintOf(l), Since: l.parkedAt, TTL: l.parkTTL})
+			entries = append(entries, park.Parked{Name: l.id, Bytes: b.ramOf(l), Since: l.parkedAt, TTL: l.parkTTL})
 		}
 	}
 	if len(entries) == 0 {
@@ -213,7 +278,7 @@ func (b *Broker) evictParked(now time.Time) {
 	names := park.Evict(entries, park.Budget{
 		Available: avail,
 		Floor:     b.cfg.ParkFloor,
-		Parked:    b.parkedFootprints(),
+		Parked:    b.parkedRAM(),
 		Max:       b.cfg.ParkMax,
 	}, b.cfg.MemPressure(), b.cfg.ParkPressure, now, b.cfg.ParkTTL)
 	for _, name := range names {
@@ -235,7 +300,7 @@ func (b *Broker) evictParked(now time.Time) {
 		default:
 		}
 		b.log.Warn("evicting a parked engine", "lease", name, "engine", l.engine, "why", why)
-		b.emit(proto.Event{Kind: proto.EvParkEvicted, Lease: name, Engine: l.engine, Bytes: b.footprintOf(l), Detail: why})
+		b.emit(proto.Event{Kind: proto.EvParkEvicted, Lease: name, Engine: l.engine, Bytes: b.ramOf(l), Detail: why})
 	}
 }
 

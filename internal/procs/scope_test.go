@@ -151,3 +151,28 @@ func TestScopeID(t *testing.T) {
 		})
 	}
 }
+
+func TestScopeMem(t *testing.T) {
+	sample := `anon 2619891712
+file 9172271104
+kernel 48390144
+kernel_stack 1179648
+pagetables 13664256
+shmem 220209152
+file_mapped 8934305792
+file_dirty 0
+anon_thp 0
+inactive_anon 2836119552
+active_file 156430336
+`
+	m, ok := scopeMem(strings.NewReader(sample))
+	want := Mem{Anon: 2619891712, File: 9172271104, Shmem: 220209152}
+	if !ok || m != want {
+		t.Fatalf("scopeMem = %+v, %v; want %+v, true", m, ok, want)
+	}
+
+	m, ok = scopeMem(strings.NewReader("file 9172271104\nshmem 220209152\n"))
+	if ok || m != (Mem{}) {
+		t.Fatalf("scopeMem without anon = %+v, %v; want zero, false", m, ok)
+	}
+}

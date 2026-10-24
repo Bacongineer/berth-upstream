@@ -81,6 +81,16 @@ func Scope(pid int) (string, bool) {
 	return scopeID(bytes.NewReader(b))
 }
 
+// ScopeMem reads the memory.stat of a Berth scope, a cgroup path as Scope
+// returns it.
+func ScopeMem(scope string) (Mem, bool) {
+	b, err := os.ReadFile("/sys/fs/cgroup" + scope + "/memory.stat")
+	if err != nil {
+		return Mem{}, false
+	}
+	return scopeMem(bytes.NewReader(b))
+}
+
 // statFields reads /proc/<pid>/stat once: the command name inside the
 // parenthesis, and the fields after it, so index 0 is field 3 (state). The
 // name is "(comm)" and may contain spaces or parens, so the split starts
