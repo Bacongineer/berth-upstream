@@ -17,6 +17,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth config check` warns when `[park]` turns eviction off: `floor_gib = 0` means Berth never stops a parked
+  engine when RAM runs low, and a `pressure` of 100 or more is past anything `/proc/pressure/memory` reports.
+  `--strict` fails on both (#193).
 - Engines with no offload call of their own (llama.cpp, NInfer, any llama-swap model) park in RAM through NVIDIA's
   `cuda-checkpoint`: `berth run --park checkpoint --front 127.0.0.1:${PORT}` with `--port {{BERTH_PORT}}` in the
   engine's command. The front takes the requests llama-swap sends, waits for the ones in flight before the

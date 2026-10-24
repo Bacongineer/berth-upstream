@@ -131,6 +131,16 @@ func warnings(c *Config) []Warning {
 				Message: fmt.Sprintf("%s: park = hook with no park_url/resume_url; Berth uses the Berth park protocol if the engine answers GET /berth/state, otherwise this engine drains as today", e.Name)})
 		}
 	}
+	if f := c.Park.FloorGiB; f != nil && *f == 0 {
+		out = append(out, Warning{Key: "park.floor_gib",
+			Message: "0 turns the RAM floor off: Berth never stops a parked engine when RAM runs low, so the kernel's OOM killer picks what dies"})
+	}
+	// PSI "some avg10" is a percentage, so a threshold of 100 or more is
+	// one no reading passes.
+	if p := c.Park.Pressure; p >= 100 {
+		out = append(out, Warning{Key: "park.pressure",
+			Message: fmt.Sprintf("%g is past what /proc/pressure/memory reports (0 to 100): Berth never stops a parked engine for memory pressure", p)})
+	}
 	for i, d := range c.Models.Dirs {
 		if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
 			out = append(out, Warning{Key: fmt.Sprintf("models.dirs[%d]", i),

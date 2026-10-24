@@ -114,6 +114,29 @@ func TestWarnings(t *testing.T) {
 			name: "comfyui with a job boundary",
 			body: "[engines]\ndiscover = false\n[[engine]]\n" + `name = "comfyui"` + "\ntype = \"comfyui\"\nurl = \"http://127.0.0.1:8188\"\ndrain_comfyui = \"http://127.0.0.1:8188\"\n",
 		},
+		{
+			name: "the park floor off",
+			body: "[park]\nfloor_gib = 0\n",
+			key:  "park.floor_gib", want: "never stops a parked engine when RAM runs low",
+		},
+		{
+			name: "a park floor",
+			body: "[park]\nfloor_gib = 4\n",
+		},
+		{
+			name: "a pressure no reading reaches",
+			body: "[park]\npressure = 1000\n",
+			key:  "park.pressure", want: "never stops a parked engine for memory pressure",
+		},
+		{
+			name: "a pressure of exactly 100",
+			body: "[park]\npressure = 100\n",
+			key:  "park.pressure", want: "never stops a parked engine for memory pressure",
+		},
+		{
+			name: "a pressure a reading can pass",
+			body: "[park]\npressure = 50\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
