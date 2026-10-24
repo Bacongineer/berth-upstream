@@ -6,6 +6,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- A lease that parks a second time gets the whole release grace for its own park call. It ran from the previous
+  park's call, so a park that takes longer than one tick (a 23 GB `cuda-checkpoint` takes 5 s) was given up on at
+  once, and the engine was left checkpointed while berthd waited for it to drain.
+- A drain that arrives while the run is still parking the engine (`berth stop`, or berthd giving up on the park) is
+  kept and acted on when the park ends, instead of dropped.
+- `berth stop` stops a parked or parking engine. It answered "no running engine" before.
+
 ### Added
 
 - Engines with no offload call of their own (llama.cpp, NInfer, any llama-swap model) park in RAM through NVIDIA's

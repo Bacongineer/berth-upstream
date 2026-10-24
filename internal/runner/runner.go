@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/comfy"
@@ -261,15 +262,34 @@ func Run(o Options) int {
 	// without a drain under way and comes back when it ends.
 	drainTicket := make(chan struct{}, 1)
 	drainTicket <- struct{}{}
+	// A drain that arrives while one runs is kept, the newest only, and
+	// runs when the current one ends: a drain that parked the engine must
+	// still hear "berth stop" or "park did not free the card" sent during
+	// its park call.
+	var pendingMu sync.Mutex
+	var pending *queuedDrain
 	startDrain := func(opts Options, reason string) {
 		select {
 		case <-drainTicket:
 		default:
+			pendingMu.Lock()
+			pending = &queuedDrain{opts, reason}
+			pendingMu.Unlock()
 			return
 		}
 		go func() {
 			defer func() { drainTicket <- struct{}{} }()
-			drain(opts, cmd, line, done, reason, say)
+			for next := (&queuedDrain{opts, reason}); next != nil; {
+				drain(next.opts, cmd, line, done, next.reason, say)
+				pendingMu.Lock()
+				next, pending = pending, nil
+				pendingMu.Unlock()
+				select {
+				case <-done:
+					return
+				default:
+				}
+			}
 		}()
 	}
 	if o.ExitComfyUIIdle {
@@ -693,6 +713,12 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 // (llama-swap unloads the model and stops us itself, past its slot
 // boundary), then a terminate to the process group, then a kill. Each step
 // gets Grace to work.
+// queuedDrain is a drain that arrived while another ran.
+type queuedDrain struct {
+	opts   Options
+	reason string
+}
+
 // drainWait is how long a drain waits at its boundary: --drain-max, or
 // for as long as a request takes when it is unset.
 func drainWait(o Options) time.Duration {

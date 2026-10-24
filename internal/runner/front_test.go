@@ -237,3 +237,46 @@ func TestListenSoonWaitsForAPortToFree(t *testing.T) {
 		t.Fatal("listenSoon on a port that stays taken = nil")
 	}
 }
+
+// A drain that arrives while another is parking the engine is kept, not
+// dropped: berth stop during a slow checkpoint stops the engine once the
+// park ends, instead of leaving it parked against the person's word.
+func TestStopDuringAParkStopsTheEngine(t *testing.T) {
+	tools := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in *checkpoint*) sleep 1 ;; esac\n"
+	if err := os.WriteFile(filepath.Join(tools, "cuda-checkpoint"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("BERTH_RUNNER_ENGINE", "1")
+	card := &parkCard{total: 24 << 30}
+	sock, b := parkDaemon(t, card, 32<<30)
+	log := &syncBuf{}
+	exited := make(chan int, 1)
+	go func() {
+		exited <- Run(Options{Socket: sock, Engine: "ninfer", Priority: "interactive", Needs: 8 << 30,
+			Front: freeFront(t), Checkpoint: true, ParkProbe: "/v1/models", Grace: 2 * time.Second,
+			Argv: []string{os.Args[0], "--port", PortPlaceholder}, Stderr: log})
+	}()
+	attachAndMeasure(t, b, card)
+	holder := acquireIn(b, broker.Request{Engine: "comfyui", Priority: broker.Foreground})
+	waitFor(t, "the park under way", func() bool { return b.Status().Leases[0].State == "parking" })
+	if _, err := b.Stop("ninfer"); err != nil {
+		t.Fatalf("berth stop: %v", err)
+	}
+	card.set()
+	select {
+	case code := <-exited:
+		if code != 143 {
+			t.Fatalf("exit %d, want 143; log:\n%s", code, log.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the engine was left running after berth stop; log:\n%s", log.String())
+	}
+	if !strings.Contains(log.String(), "stopping parked ninfer instead of parking it again: stopped by berth stop") {
+		t.Fatalf("no stop line; log:\n%s", log.String())
+	}
+	if hold := <-holder; hold != nil {
+		hold.Release()
+	}
+}
