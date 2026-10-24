@@ -464,6 +464,7 @@ floor_gib = 4.0        # RAM a park must leave the machine (default 4)
 max_gib   = 48         # cap on all parked copies together (default: no cap)
 ttl       = "30m"      # a parked copy is stopped after this long
 residual_max_gib = 2   # card memory a parked engine may keep
+pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10)
 ```
 
 - **How it runs.** A drain first waits for the engine's boundary (idle
@@ -484,6 +485,9 @@ residual_max_gib = 2   # card memory a parked engine may keep
   when it passes its ttl, when the machine's available RAM falls under the
   floor, or one step at a time under memory pressure. Stopping a parked
   engine is a drain, and its run is Berth's own, so the stop is graceful.
+  `floor_gib = 0` turns the RAM check off, and a `pressure` of 100 or more
+  turns the pressure check off, since the figure never passes 100.
+  `berth config check` warns about each.
   The engine's log says why first: `stopping parked comfyui instead of
   parking it again: evicted: ...`.
 - **Woken directly.** A parked engine still answers on its own port. A
