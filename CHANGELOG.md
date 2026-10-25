@@ -8,6 +8,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth service install`, `uninstall` and `status` print the error when they fail. They panicked instead, for
+  example under a shell with no user-session D-Bus, where `systemctl --user` cannot answer (#196).
 - Park admission counts the RAM a parked engine holds: the anon and shmem of its berth scope's cgroup, not its VRAM
   footprint. A parked ComfyUI was counted at 17.5 GiB while it held about 2.5 GiB, because its weights sit in page
   cache, which the kernel counts as available. Admission also subtracted parked RAM a second time from a reading that
