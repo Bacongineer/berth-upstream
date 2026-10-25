@@ -216,7 +216,16 @@ func runServiceInstall(c *Context) int {
 		units = append(units, notifyUnit(exe))
 	}
 	doc, e := serviceInstall(context.Background(), liveServiceOps(), units, *dryRun)
-	return c.Write(serviceView{verb: "install", doc: *doc}, e)
+	return writeService(c, "install", doc, e)
+}
+
+// writeService reports one service verb. A verb that failed before it had a
+// document reports the error alone.
+func writeService(c *Context, verb string, doc *serviceDoc, e *Error) int {
+	if doc == nil {
+		return c.Write(nil, e)
+	}
+	return c.Write(serviceView{verb: verb, doc: *doc}, e)
 }
 
 func runServiceUninstall(c *Context) int {
@@ -229,7 +238,7 @@ func runServiceUninstall(c *Context) int {
 		return code
 	}
 	doc, e := serviceUninstall(context.Background(), liveServiceOps(), allUnits(), *dryRun)
-	return c.Write(serviceView{verb: "uninstall", doc: *doc}, e)
+	return writeService(c, "uninstall", doc, e)
 }
 
 func runServiceStatus(c *Context) int {
@@ -241,5 +250,5 @@ func runServiceStatus(c *Context) int {
 		return code
 	}
 	doc, e := serviceStatus(context.Background(), liveServiceOps(), allUnits())
-	return c.Write(serviceView{verb: "status", doc: *doc}, e)
+	return writeService(c, "status", doc, e)
 }
