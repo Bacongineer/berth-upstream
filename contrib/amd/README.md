@@ -79,6 +79,10 @@ opt-in validation on the target deployment.
   process use is consequently a private-resident lower bound; shared and other
   unattributed allocations stay in the card-wide baseline. On older kernels,
   unmapped GEM handles can also exist only in that baseline until GPU-VA mapping.
+- Purgeable buffer bytes (`drm-purgeable-vram`) are discounted the same way. The
+  kernel may reclaim them, and on a desktop they can be most of the compositor's
+  resident figure: one gnome-shell client reported 11.2 GiB resident, 10.0 GiB of
+  it purgeable. They stay in the baseline, so Berth never counts them as free.
 - Same-user PIDs whose fdinfo is inaccessible appear as `unobserved_pids` on the
   scheduled GPU in status JSON and as a human status warning. Previously observed
   ownership is retained; unreadable is never treated as a confirmed empty scan.

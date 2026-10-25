@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The AMD probe no longer charges a process for purgeable VRAM, the buffers the kernel may reclaim. A GNOME
+  desktop on the same card reported more resident VRAM than the card used, so berthd refused every reading and
+  exited at startup. Purgeable bytes now stay in the card's baseline beside shared ones (#196).
 - Park admission counts the RAM a parked engine holds: the anon and shmem of its berth scope's cgroup, not its VRAM
   footprint. A parked ComfyUI was counted at 17.5 GiB while it held about 2.5 GiB, because its weights sit in page
   cache, which the kernel counts as available. Admission also subtracted parked RAM a second time from a reading that
