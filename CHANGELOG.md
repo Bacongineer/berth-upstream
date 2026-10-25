@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The harbor library shows SERVED BY and EST. VRAM for a llama-swap model whose ID differs from its GGUF file's
+  stem, such as `qwen-3.8-27b` for `Qwen3.8-27B-UD-IQ4_XS`. Berth reads the model file from the `cmd` in
+  llama-swap's `/running` and matches the library row on that file before it tries the name (#197).
 - Park admission counts the RAM a parked engine holds: the anon and shmem of its berth scope's cgroup, not its VRAM
   footprint. A parked ComfyUI was counted at 17.5 GiB while it held about 2.5 GiB, because its weights sit in page
   cache, which the kernel counts as available. Admission also subtracted parked RAM a second time from a reading that

@@ -6,6 +6,21 @@
 import { el, fmtBytes } from "./util.js";
 import { icon, toast, copyText, errorNote } from "./ui.js";
 
+// fileName is a path's last element, lowercased: an engine and the library
+// can spell one file's directory differently, and a Windows path uses
+// backslashes.
+function fileName(p) {
+  return String(p || "").split(/[\\/]/).pop().toLowerCase();
+}
+
+// loadsFile is whether the file an engine's command loads is one of the
+// library model's files. It beats any name match: an engine's id is
+// whatever its operator named it, and the file is what it loads.
+function loadsFile(file, doc) {
+  const f = fileName(file);
+  return f !== "" && [doc.path, ...(doc.files || [])].some((p) => fileName(p) === f);
+}
+
 // A model is one thing under several names: an engine's id an OpenAI request
 // used, an Ollama tag, the file's stem. Score a pair: 2 when the lowercased
 // names are equal, 1 when either contains the other, 0 when they say nothing
@@ -162,7 +177,7 @@ function servingNow(models, status) {
       let best = null;
       let score = 0;
       for (const doc of models) {
-        const s = matchScore(m.name, doc.name);
+        const s = loadsFile(m.file, doc) ? 3 : matchScore(m.name, doc.name);
         if (s === 0) continue;
         if (s > score || (s === score && best !== null && doc.name.length > best.length)) { best = doc.name.toLowerCase(); score = s; }
       }

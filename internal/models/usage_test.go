@@ -178,7 +178,7 @@ models:
 	if got := SwapIDs(bad, nil); got != nil {
 		t.Errorf("unreadable config = %v, want nil", got)
 	}
-	if got := modelArg(`llama-server --model "/models/a b.gguf" --port 1`); got != "/models/a b.gguf" {
+	if got := ModelArg(`llama-server --model "/models/a b.gguf" --port 1`); got != "/models/a b.gguf" {
 		t.Errorf("modelArg = %q, want the quoted path", got)
 	}
 }
@@ -262,10 +262,10 @@ func TestSwapIDsWithLlamaSwapEnv(t *testing.T) {
 }
 
 func TestModelArgPositionalGGUF(t *testing.T) {
-	if got := modelArg("berth run --as x -- /opt/ninfer-serve /m/q-IQ4_XS.gguf --port 1"); got != "/m/q-IQ4_XS.gguf" {
+	if got := ModelArg("berth run --as x -- /opt/ninfer-serve /m/q-IQ4_XS.gguf --port 1"); got != "/m/q-IQ4_XS.gguf" {
 		t.Fatalf("positional gguf = %q", got)
 	}
-	if got := modelArg("llama-server -m /m/a.gguf --mmproj /m/b.gguf"); got != "/m/a.gguf" {
+	if got := ModelArg("llama-server -m /m/a.gguf --mmproj /m/b.gguf"); got != "/m/a.gguf" {
 		t.Fatalf("-m must win, got %q", got)
 	}
 }

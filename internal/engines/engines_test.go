@@ -101,6 +101,32 @@ func TestLlamaSwapWithoutMetrics(t *testing.T) {
 	}
 }
 
+// A llama-swap id is whatever the operator named the model, so the file its
+// cmd loads is what ties it to the library (#197).
+func TestLlamaSwapReportsTheModelFile(t *testing.T) {
+	const cmd = `llama-server --port 5800 --model "F:\AI\.lmstudio\models\unsloth\Qwen3.8-27B-GGUF\Qwen3.8-27B-UD-IQ4_XS.gguf" -c 32768`
+	swap := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/running" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"running":[{"model":"qwen-3.8-27b","state":"ready","cmd":%q},{"model":"no-cmd","state":"ready"}]}`, cmd)
+	}))
+	defer swap.Close()
+	w := &Watcher{Engines: []config.Engine{{Name: "llama-swap", Type: "llama-swap", URL: swap.URL}}}
+	w.Poll(context.Background())
+	e := w.Snapshot()[0]
+	if len(e.Models) != 2 {
+		t.Fatalf("engine = %+v", e)
+	}
+	if got, want := e.Models[0].File, `F:\AI\.lmstudio\models\unsloth\Qwen3.8-27B-GGUF\Qwen3.8-27B-UD-IQ4_XS.gguf`; got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+	if e.Models[1].File != "" {
+		t.Errorf("a model with no cmd names no file, got %q", e.Models[1].File)
+	}
+}
+
 func TestOllamaReportsModelsAsEngineClaims(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"models":[{"name":"qwen3:8b","size_vram":6000000000}]}`)
