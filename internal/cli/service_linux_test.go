@@ -279,6 +279,21 @@ func TestServiceStatusLinuxSystemctlMissing(t *testing.T) {
 	}
 }
 
+// A failed status reaches the operator as the error, not a panic: the
+// command used to read the document before it checked the error (#196).
+func TestServiceStatusLinuxFailureIsReported(t *testing.T) {
+	isolate(t)
+	t.Setenv("PATH", t.TempDir())
+
+	code, _, errOut := runCLI(t, "service", "status")
+	if code != ExitSystem {
+		t.Errorf("a missing systemctl exits %d, got %d", ExitSystem, code)
+	}
+	if !strings.Contains(errOut, "systemctl --user is-active berthd failed") {
+		t.Errorf("the error names the failing command, got %q", errOut)
+	}
+}
+
 // --notify adds berth notify as a user unit beside the node's, started
 // like the others.
 func TestServiceInstallLinuxNotify(t *testing.T) {

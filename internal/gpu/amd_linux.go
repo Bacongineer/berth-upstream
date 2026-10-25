@@ -288,8 +288,15 @@ func privateResident(f map[string]string, domain string) (uint64, error) {
 	// Shared objects can be charged to several clients. There is no buffer
 	// identity here with which to deduplicate them: attribute only the private
 	// lower bound and leave shared storage in the card's baseline instead.
-	if shared, ok := f["drm-shared-"+domain]; ok {
-		n, err := drmBytes(shared)
+	// Purgeable objects are ones the kernel may reclaim, and a desktop
+	// compositor's can be most of its resident figure: they stay in the
+	// baseline on the same terms.
+	for _, kind := range []string{"shared", "purgeable"} {
+		v, ok := f["drm-"+kind+"-"+domain]
+		if !ok {
+			continue
+		}
+		n, err := drmBytes(v)
 		if err != nil {
 			return 0, err
 		}
