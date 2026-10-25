@@ -161,7 +161,7 @@ func SwapIDs(configPath string, env map[string]string) map[string]string {
 	}
 	out := map[string]string{}
 	for id, m := range cfg.Models {
-		p := modelArg(expand(macroReplacer(macros, env), m.Cmd))
+		p := ModelArg(expand(macroReplacer(macros, env), m.Cmd))
 		// A path still holding ${...} is one Berth cannot resolve: the variable
 		// lives in the engine's environment, not in this file. An id that names
 		// no readable path ties nothing, and saying so is better than matching a
@@ -237,11 +237,11 @@ func expand(lookup func(string) string, s string) string {
 	return s
 }
 
-// modelArg is the model file an engine command loads: llama-swap's cmd is a
+// ModelArg is the model file an engine command loads: llama-swap's cmd is a
 // whole command line, and -m / --model is the argument that names the file. An
 // --mmproj is not it: an id names the model, and a command that loads a
 // projector beside it loads the model with -m.
-func modelArg(cmd string) string {
+func ModelArg(cmd string) string {
 	f := fields(cmd)
 	for i := 0; i < len(f); i++ {
 		a := f[i]

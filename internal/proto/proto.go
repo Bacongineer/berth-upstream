@@ -529,6 +529,9 @@ type Model struct {
 	ReportedVRAM uint64 `json:"reported_vram,omitempty"`
 	// Window is the model's context window in tokens; 0 = not reported.
 	Window int `json:"window,omitempty"`
+	// File is the model file the engine's command loads, as the engine
+	// spells it; "" when the engine does not say.
+	File string `json:"file,omitempty"`
 }
 
 // EngineMetrics are counters (totals since the engine started) and gauges.

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/models"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -582,13 +583,14 @@ func (w *Watcher) llamaSwap(ctx context.Context, base string, out *proto.Engine)
 			Model string `json:"model"`
 			State string `json:"state"`
 			Proxy string `json:"proxy"`
+			Cmd   string `json:"cmd"`
 		} `json:"running"`
 	}
 	if err := json.Unmarshal(b, &r); err != nil {
 		return fmt.Errorf("/running: %w", err)
 	}
 	for _, m := range r.Running {
-		out.Models = append(out.Models, proto.Model{Name: m.Model, State: m.State})
+		out.Models = append(out.Models, proto.Model{Name: m.Model, State: m.State, File: models.ModelArg(m.Cmd)})
 		if m.State != "ready" || m.Proxy == "" {
 			continue
 		}

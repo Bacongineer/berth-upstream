@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The harbor library shows SERVED BY and EST. VRAM for a llama-swap model whose ID differs from its GGUF file's
+  stem, such as `qwen-3.8-27b` for `Qwen3.8-27B-UD-IQ4_XS`. Berth reads the model file from the `cmd` in
+  llama-swap's `/running` and matches the library row on that file before it tries the name (#197).
 - The AMD probe no longer charges a process for purgeable VRAM, the buffers the kernel may reclaim. A GNOME
   desktop on the same card reported more resident VRAM than the card used, so berthd refused every reading and
   exited at startup. Purgeable bytes now stay in the card's baseline beside shared ones (#196).

@@ -152,7 +152,9 @@ question an operator actually asks.
   roots, each row showing shelf, quant, size, the CACHED share with its tier
   (COOL or COLD), the engine serving it when one reports it resident, that engine's
   EST. VRAM, and copy buttons for `berth prefetch NAME` and `berth models show NAME`.
-  The listing is read-only here; the terminal does the acting.
+  A row matches a llama-swap model by the file its `cmd` loads, so a model ID
+  that differs from the file's stem still finds its row. Other engines match by
+  name. The listing is read-only here; the terminal does the acting.
 - **Card ranking, the KV pool, throughput, the token ledger, the leaderboard, the
   recent requests and context residency** answer the questions behind the request
   log, and the storage panel (advanced) says what the harbor's own store keeps.
