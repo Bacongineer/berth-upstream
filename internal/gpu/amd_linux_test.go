@@ -144,6 +144,28 @@ func TestAMDSharedBuffersRemainUnattributed(t *testing.T) {
 	}
 }
 
+// A desktop compositor holds buffers the kernel may reclaim, and fdinfo
+// counts them as resident. The gnome-shell sample is from an R9700 (#196):
+// charged in full it is more than the whole card's use.
+func TestAMDPurgeableBuffersRemainUnattributed(t *testing.T) {
+	a := amdFixture(t)
+	amdFixtureProc(t, a, 10, "gnome-shell", 100, drmSample("0000:03:00.0", "10",
+		"drm-total-vram: 1867012 KiB\ndrm-shared-vram: 587136 KiB\ndrm-resident-vram: 11729968 KiB\ndrm-purgeable-vram: 10440192 KiB\ndrm-memory-vram: 11729968 KiB"))
+	amdFixtureProc(t, a, 11, "comfyui", 110, drmSample("0000:03:00.0", "11",
+		"drm-total-vram: 6291456 KiB\ndrm-resident-vram: 6291456 KiB\ndrm-purgeable-vram: 0 KiB\ndrm-memory-vram: 6291456 KiB"))
+	s, err := a.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := map[string]uint64{}
+	for _, p := range s.Procs {
+		used[p.Name] = p.Used
+	}
+	if used["gnome-shell"] != 702640*1024 || used["comfyui"] != 6*GiB {
+		t.Fatalf("purgeable accounting: %+v", s.Procs)
+	}
+}
+
 func TestAMDPCIIdentityValidation(t *testing.T) {
 	for _, input := range []string{"0000:03:00.0", "00000000:03:00.0"} {
 		if got, err := pciAddress(input); err != nil || got != "0000:03:00.0" {
