@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/T-Crypt/berth/internal/claims"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/notify"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -126,6 +127,12 @@ type Engine struct {
 	// the built-in adapter for its side.
 	ParkURL   string `toml:"park_url,omitempty" json:"park_url,omitempty" yaml:"park_url,omitempty"`
 	ResumeURL string `toml:"resume_url,omitempty" json:"resume_url,omitempty" yaml:"resume_url,omitempty"`
+	// Lend "hook" lets Berth ask the engine to give part of its memory on
+	// a card back while it keeps serving, and take it back later. LendURL
+	// is the base of the Berth lend protocol (contrib/LEND-PROTOCOL.md); a
+	// kind with a built-in lend adapter (strata) needs none.
+	Lend    string `toml:"lend,omitempty" json:"lend,omitempty" yaml:"lend,omitempty"`
+	LendURL string `toml:"lend_url,omitempty" json:"lend_url,omitempty" yaml:"lend_url,omitempty"`
 	// ExitComfyUIIdle releases after a completed session; IdleAfter also bounds an unused session.
 	ExitComfyUIIdle      bool     `toml:"exit_comfyui_idle,omitempty" json:"exit_comfyui_idle,omitempty" yaml:"exit_comfyui_idle,omitempty"`
 	ExitComfyUIIdleAfter Duration `toml:"exit_comfyui_idle_after,omitzero" json:"exit_comfyui_idle_after,omitempty" yaml:"exit_comfyui_idle_after,omitempty"`
@@ -671,6 +678,23 @@ func (c *Config) Validate() error {
 		}
 		if e.Park == "hook" && !slices.Contains(park.BuiltInKinds(), e.Type) && (e.ParkURL == "") != (e.ResumeURL == "") {
 			errs = append(errs, fmt.Errorf("%s: park = \"hook\" for a %s engine needs both park_url and resume_url, or neither: with neither, Berth tries the Berth park protocol", where, e.Type))
+		}
+		switch e.Lend {
+		case "", "off":
+			if e.LendURL != "" {
+				errs = append(errs, fmt.Errorf("%s: lend_url needs lend = \"hook\"", where))
+			}
+		case "hook":
+			if e.LendURL == "" && !slices.Contains(lend.BuiltInKinds(), e.Type) {
+				errs = append(errs, fmt.Errorf("%s: lend = \"hook\" for a %s engine needs lend_url, the base of the Berth lend protocol", where, e.Type))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("%s: lend %q is not off or hook", where, e.Lend))
+		}
+		if e.LendURL != "" {
+			if p, err := url.Parse(e.LendURL); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: lend_url %q must be an absolute http(s) URL", where, e.LendURL))
+			}
 		}
 		if e.ExitComfyUIIdle && (e.DrainComfyUI == "" || e.KeepComfyUI) {
 			errs = append(errs, fmt.Errorf("%s: exit_comfyui_idle needs drain_comfyui and cannot use keep_comfyui_up", where))
