@@ -160,6 +160,47 @@ func TestSizedWaiterIsGrantedByALend(t *testing.T) {
 	}
 }
 
+// A whole-card holder counts what the card can hand out, not its total: the
+// baseline (a display, a driver's own memory) was never the holder's. Counted
+// at the total, the baseline sat inside the holder and was taken off the card
+// again, so a confirmed lend left the waiter short by it and the holder was
+// drained, and the take-back never fit. Seen on #189 with a 121 MiB baseline.
+func TestLendOnACardWithABaseline(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "maya", 100, 101, 22*GiB)
+	c.used = 22*GiB + 512*gpu.MiB // 512 MiB that no process holds
+	b.Tick(context.Background())
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+
+	if got, want := takeLend(t, holder), (LendAsk{MiB: 4096, FreeMiB: 1536}); got != want {
+		t.Fatalf("lend ask = %+v, want %+v", got, want)
+	}
+
+	holder.Lent("t1", 4*GiB)
+	c.used = 18*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB})
+	b.Tick(context.Background())
+	borrower := granted(t, b, "voice", w)
+	noDrain(t, holder)
+	if got := statusOf(t, b, "maya"); got.State != "active" {
+		t.Fatalf("holder state = %s, want active: a lending engine keeps serving", got.State)
+	}
+
+	borrower.Attach(200)
+	c.used = 22*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB}, gpu.Proc{PID: 201, Name: "voice", Used: 4 * GiB})
+	b.Tick(context.Background())
+	borrower.Release()
+	c.used = 18*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB})
+	b.Tick(context.Background())
+	if got, want := takeReturn(t, holder), (ReturnAsk{ID: "t1"}); got != want {
+		t.Fatalf("return ask = %+v, want %+v", got, want)
+	}
+}
+
 // A lend the engine refuses falls through to a drain of that same holder,
 // once, and the waiter is told it is draining.
 func TestRefusedLendFallsThroughToADrain(t *testing.T) {
