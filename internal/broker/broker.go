@@ -202,6 +202,12 @@ type Request struct {
 	// lend = "hook"), so this lease is asked to give part of the card to a
 	// sized waiter that does not fit, instead of being drained for one.
 	Lend bool
+	// LendID and LentBytes: a re-attach of a holder the last daemon had
+	// confirmed a lend for. The lease comes back `lent` with that ticket
+	// and those bytes, counting its budget less the lend until the card
+	// has room and the engine takes it back.
+	LendID    string
+	LentBytes uint64
 	// MinTurn is a minimum turn: while the lease is younger than it after
 	// the grant, no waiter drains it, whatever the waiter's priority,
 	// except a hold (a game, a call, the operator's own berth hold). When
@@ -1597,7 +1603,9 @@ func (l *Lease) Release() {
 // Reattach leases the card again to an engine that started under berth run
 // and outlived its daemon. It is already on the card, so it is granted at
 // once rather than queued; the identity check (PID plus start time) is what
-// keeps a stranger from claiming the lease.
+// keeps a stranger from claiming the lease. A run names what its engine was
+// in the middle of: parked weights, or an open lend with its ticket and
+// bytes (Request.LendID), and the lease takes that state up.
 func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	if pid <= 0 || start == 0 || b.tree.StartTime(pid) != start {
 		return nil, fmt.Errorf("%w: pid %d is not the process that started as %s", ErrRefused, pid, r.Engine)
@@ -1634,9 +1642,16 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 		l.parkedN = b.order()
 		detail += ", parked"
 	}
+	if r.LendID != "" {
+		// The lend was confirmed under the old daemon; this one takes up
+		// the same state with no borrower, so the take-back waits on the
+		// card having room (lendTick, case lent).
+		l.lend, l.lentID, l.lentBytes = lent, r.LendID, r.LentBytes
+		detail += ", lent"
+	}
 	close(l.grantCh)
 	b.leases[l.id] = l
-	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid, "parked", r.Parked)
+	b.log.Info("reattached", "lease", l.id, "engine", l.engine, "priority", l.prio, "pid", pid, "parked", r.Parked, "lending", l.lend.String())
 	b.emit(proto.Event{Kind: proto.EvReattached, Lease: l.id, Engine: l.engine, PID: pid, Detail: detail})
 	b.schedule(now)
 	return &Lease{b: b, l: l}, nil

@@ -58,9 +58,11 @@ has a matching GitHub release whose body comes from its section below.
   the card has room for it again. A lend the engine refuses, or one the card has not confirmed within
   `--release-grace` (30 s), falls through to the park or drain that would have run anyway. Nothing is asked of a
   run that did not declare lend calls, of a pinned holder or a hold, or on an APU. This is the broker's decision
-  and the wrapper's calls: the engine's own ledger (`GET /vram/state`) that reconciles a lend after a restart
-  lands next. Until then, a lend the engine did not answer in time is treated as refused, and nothing asks for that
-  memory back.
+  and the wrapper's calls, and the wrapper keeps the ledger of what its run has lent. A lend the engine did not
+  answer in time (its `503`) is treated as refused for that waiter, and the wrapper reads the engine's ledger
+  (`GET /vram/state`) for 30 s in case it lands, then asks for that memory back at once. After a
+  berthd restart the run re-attaches naming its open lend, so the new daemon counts the holder's budget less the
+  lend and asks for the take-back once the card has room, instead of blocking waiters behind memory that is gone.
   `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
   docs/gateway.md's Lending section states the rules.
 

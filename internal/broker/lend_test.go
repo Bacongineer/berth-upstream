@@ -407,3 +407,73 @@ func TestDrainingLenderIsNotAskedToTakeBack(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+// A holder that re-attaches naming its open lend comes back `lent`: the new
+// daemon counts its budget less the lend, and the take-back is asked only
+// once the card has room for the memory again (rule 2), the same wait the
+// state already knows.
+func TestReattachRestoresAnOpenLend(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	l, err := b.Reattach(Request{Engine: "maya", Lend: true, Needs: 20 * GiB, LendID: "t1", LentBytes: 8 * GiB}, 100, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.l.lend != lent || l.l.lentID != "t1" || l.l.lentBytes != 8*GiB || l.l.lentTo != nil {
+		t.Fatalf("re-attached lend = state %v ticket %q bytes %d borrower %v, want lent, t1, 8 GiB, no borrower",
+			l.l.lend, l.l.lentID, l.l.lentBytes, l.l.lentTo)
+	}
+
+	// A lease standing on the lent space holds the take-back: the first
+	// reads after the restart show no room to bring the 8 GiB back.
+	w := acquire(b, Request{Engine: "ninfer", Priority: Foreground, Needs: 8 * GiB})
+	borrower := must(t, w)
+	borrower.Attach(200)
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 10 * GiB}, gpu.Proc{PID: 201, Name: "ninfer", Used: 8 * GiB})
+	b.Tick(context.Background())
+	b.mu.Lock()
+	got := b.budget(l.l)
+	b.mu.Unlock()
+	if got != 12*GiB {
+		t.Fatalf("holder budget = %d MiB, want 12288: its 20 GiB less the 8 GiB it lent", got/gpu.MiB)
+	}
+	if l.l.lend != lent {
+		t.Fatalf("the re-attached lend moved to %v while the card had no room", l.l.lend)
+	}
+	select {
+	case <-l.Returns():
+		t.Fatalf("the take-back was asked while the card had no room: %+v", l.TakeReturn())
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// The borrower is gone and its lease is off the table: the card has
+	// room, and the new daemon asks for the memory back, naming the ticket
+	// it restored.
+	borrower.Release()
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 10 * GiB})
+	b.Tick(context.Background()) // the card shows the borrower's memory gone
+	b.Tick(context.Background()) // the lease is gone from the table too
+	if got, want := takeReturn(t, l), (ReturnAsk{ID: "t1"}); got != want {
+		t.Fatalf("return ask = %+v, want %+v", got, want)
+	}
+}
+
+// A re-attach that names no lend is today's: the holder counts its whole
+// budget, exactly as before the lend existed.
+func TestReattachWithoutALendCountsTheWholeBudget(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	l, err := b.Reattach(Request{Engine: "maya", Lend: true, Needs: 20 * GiB}, 100, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.l.lend != lendNone || l.l.lentID != "" || l.l.lentBytes != 0 {
+		t.Fatalf("re-attached lend = state %v ticket %q bytes %d, want none", l.l.lend, l.l.lentID, l.l.lentBytes)
+	}
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 10 * GiB})
+	b.Tick(context.Background())
+	b.mu.Lock()
+	got := b.budget(l.l)
+	b.mu.Unlock()
+	if got != 20*GiB {
+		t.Fatalf("holder budget = %d MiB, want 20480: its whole budget with no lend", got/gpu.MiB)
+	}
+}

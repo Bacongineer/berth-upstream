@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/httpauth"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -32,20 +33,32 @@ const (
 	parkCadence     = time.Second // the resume probe's cadence
 )
 
-// leaseLine is one lease's park side: the connection the lease rides
-// (rebuilt across reattach), the daemon's park replies, whether the
-// engine is parked now, and the one protocol probe a hook without
-// adapter URLs is allowed.
+// leaseLine is one lease's park and lend side: the connection the lease
+// rides (rebuilt across reattach), the daemon's park replies, whether the
+// engine is parked now, the one protocol probe a hook without adapter URLs
+// is allowed, and the run's lend ledger: the open tickets its engine gave,
+// so a re-attach can tell the new daemon what to stop counting.
 type leaseLine struct {
 	mu      sync.Mutex
 	conn    *proto.Conn
 	replies chan proto.Msg
 	parked  bool
 	probed  *parkVerdict
+	lends   map[string]lend.Ticket
+	// the 503 watch's pacing: how long it reads the engine's ledger and how
+	// often, defaults from internal/runner/lend.go; fields so a test can
+	// shorten the watch before it starts.
+	lendEvery  time.Duration
+	lendWindow time.Duration
+	// endWatch ends a running 503 watch. A new lend calls it before it asks
+	// the engine, so the watch never takes back a ticket the run is about to
+	// record.
+	endWatch context.CancelFunc
 }
 
 func newLine(conn *proto.Conn) *leaseLine {
-	return &leaseLine{conn: conn, replies: make(chan proto.Msg, 1)}
+	return &leaseLine{conn: conn, replies: make(chan proto.Msg, 1),
+		lendEvery: lendPollEvery, lendWindow: lendPendingWindow}
 }
 
 func (l *leaseLine) isParked() bool {

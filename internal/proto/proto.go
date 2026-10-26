@@ -146,12 +146,16 @@ type Msg struct {
 	// carries the bytes to give on OpLend and what the engine gave on OpLent;
 	// Free is the card's driver free figure in MiB and GPU its PCI address,
 	// both for the engine's lend call; LendID is the engine's ticket, on
-	// OpLent, OpReturn and OpReturned. Kind names a failed lend (TooBig,
-	// Busy, Pending, Unsupported), and Retry says a return the engine refused
-	// should be asked again.
+	// OpLent, OpReturn, OpReturned, and OpReattach. Kind names a failed lend
+	// (TooBig, Busy, Pending, Unsupported), and Retry says a return the
+	// engine refused should be asked again. On OpReattach, LendID names the
+	// one lend the run still holds open and Lent is the bytes the engine
+	// gave with it, so the new daemon takes up the take-back where the old
+	// one stopped; Needs stays the lease's budget.
 	Free   uint64 `json:"free,omitempty"`
 	GPU    string `json:"gpu,omitempty"`
 	LendID string `json:"lend_id,omitempty"`
+	Lent   uint64 `json:"lent,omitempty"` // bytes; OpReattach with an open lend
 	Kind   string `json:"kind,omitempty"`
 	Retry  bool   `json:"retry,omitempty"`
 	// Pairing (the OpPair* ops). Code and Token are secrets: never logged.
