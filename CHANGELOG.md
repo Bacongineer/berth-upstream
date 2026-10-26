@@ -36,6 +36,11 @@ has a matching GitHub release whose body comes from its section below.
 - A drain that arrives while the run is still parking the engine (`berth stop`, or berthd giving up on the park) is
   kept and acted on when the park ends, instead of dropped.
 - `berth stop` stops a parked or parking engine. It answered "no running engine" before.
+- A lend from a whole-card holder works on a card with a baseline, such as a driver's own memory. berthd counted
+  the holder at the card's total, which already held the baseline, and then took the baseline off the card again.
+  Once the card confirmed the lend, the waiter was still short by the baseline and berthd drained the holder it
+  had just lent from, and a lend that did land was never asked back. A whole-card holder now counts what the card
+  can hand out. Found and measured by TacoTakumi on a 4060 Ti with a 121 MiB baseline (#189).
 
 ### Added
 
