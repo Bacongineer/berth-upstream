@@ -13,6 +13,7 @@ package runner
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -89,6 +90,14 @@ func (f *fakeCLI) deadline(i int) time.Duration {
 type resolver struct {
 	msgs <-chan proto.Msg
 	ref  containerRef
+	mu   sync.Mutex
+	said []string
+}
+
+func (r *resolver) lines() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.said)
 }
 
 func startResolver(t *testing.T, o Options) *resolver {
@@ -115,7 +124,11 @@ func startResolver(t *testing.T, o Options) *resolver {
 	go func() {
 		defer close(exited)
 		resolveContainers(o, newLine(proto.NewConn(client)), &exec.Cmd{Process: &os.Process{Pid: 1234}},
-			done, &r.ref, func(string, ...any) {})
+			done, &r.ref, func(format string, args ...any) {
+				r.mu.Lock()
+				r.said = append(r.said, fmt.Sprintf(format, args...))
+				r.mu.Unlock()
+			})
 	}()
 	// Stopping waits for the last poll: the next test to name its runtimes
 	// must not race this one still reading them.
@@ -150,7 +163,7 @@ func TestResolveComposePollsTheProjectAndSendsEachSet(t *testing.T) {
 	if second.Op != proto.OpAttach || second.PID != 1234 {
 		t.Fatalf("attach = %+v, want the engine's pid on OpAttach", second)
 	}
-	seen := cli.seen()
+	seen := slices.DeleteFunc(cli.seen(), func(argv string) bool { return strings.Contains(argv, " inspect ") })
 	want := "docker" + psArgv
 	if seen[0] != want || seen[1] != want {
 		t.Fatalf("resolve argv = %v, want the project listed on every poll", seen[:2])
@@ -184,6 +197,44 @@ func TestResolveComposeSendsOnlyAChangedSet(t *testing.T) {
 	}
 	if n := len(cli.seen()); n < 10 {
 		t.Fatalf("resolves = %d, want the project polled again and again", n)
+	}
+}
+
+// A container with restart policy always comes back on the next Docker
+// start even after a drain stopped it, so the run says so, once per
+// container, and names only the containers with that policy.
+func TestResolveWarnsOnceAboutRestartAlways(t *testing.T) {
+	onlyRuntimes(t, "docker")
+
+	cli := &fakeCLI{answer: func(n int, argv []string) (string, error) {
+		if argv[1] == "inspect" {
+			return "/tagger always\n/redis unless-stopped\n", nil
+		}
+		if n == 1 {
+			return containerID + "\n", nil
+		}
+		return containerID + "\n" + sidecarID + "\n", nil
+	}}
+	r := startResolver(t, Options{Compose: composeFile, Retry: time.Millisecond, CLI: cli.run})
+	<-r.msgs
+	<-r.msgs // a second set: the policies are read again
+
+	var warnings []string
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		warnings = slices.DeleteFunc(r.lines(), func(l string) bool { return !strings.Contains(l, "restart policy") })
+		if n := len(slices.DeleteFunc(cli.seen(), func(a string) bool { return !strings.Contains(a, " inspect ") })); n >= 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	want := "tagger has restart policy always: docker starts it again on its next daemon or machine start, even after a drain stopped it, and it runs without a lease. Use unless-stopped to keep a stopped container stopped"
+	if !slices.Equal(warnings, []string{want}) {
+		t.Fatalf("warnings = %q, want one for tagger and none for redis", warnings)
+	}
+	inspect := "docker inspect -f {{.Name}} {{.HostConfig.RestartPolicy.Name}} " + containerID
+	if seen := cli.seen(); !slices.Contains(seen, inspect) {
+		t.Fatalf("argvs = %q, want the policy read for the resolved IDs: %q", seen, inspect)
 	}
 }
 
