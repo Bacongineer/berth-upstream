@@ -565,7 +565,7 @@ reloaded.
 - **Who can lend.** Only a run whose entry sets `lend = "hook"`, and its wrapper
   says so when it takes the lease, so berthd never asks a run that cannot answer.
   An engine that serves the routes in
-  [contrib/LEND-PROTOCOL.md](../contrib/LEND-PROTOCOL.md) is reached at its
+  [contrib/LEND-PROTOCOL.md](https://github.com/T-Crypt/berth/blob/main/contrib/LEND-PROTOCOL.md) is reached at its
   `lend_url`. Strata's `/v1/vram` is built in, so a `type = "strata"` entry needs
   `lend = "hook"` alone and a server started with `--vram-elastic`.
 
