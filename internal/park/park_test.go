@@ -5,6 +5,7 @@ package park
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -165,5 +166,49 @@ func TestNon2xxNamesTheEndpoint(t *testing.T) {
 	err := a.Resume(context.Background(), srv.URL)
 	if err == nil || !strings.Contains(err.Error(), "POST "+srv.URL+"/wake_up") {
 		t.Fatalf("Resume = %v, want the endpoint named", err)
+	}
+}
+
+// strataLike answers as Strata's /v1/load and /v1/unload do: 415 unless
+// the request is JSON, 400 unless the body is an object, 409 while busy.
+func strataLike(t *testing.T, busy *bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			http.Error(w, `{"error":{"message":"send application/json"}}`, http.StatusUnsupportedMediaType)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":{"message":"send a JSON object"}}`, http.StatusBadRequest)
+			return
+		}
+		if *busy {
+			http.Error(w, `{"error":{"type":"model_busy"}}`, http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCustomHookSendsJSON(t *testing.T) {
+	busy := false
+	srv := strataLike(t, &busy)
+	a, ok := For("llamacpp", srv.URL+"/v1/unload", srv.URL+"/v1/load")
+	if !ok {
+		t.Fatal("a configured hook is usable")
+	}
+	if err := a.Park(context.Background(), srv.URL); err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+	if err := a.Resume(context.Background(), srv.URL); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	busy = true
+	err := a.Park(context.Background(), srv.URL)
+	if err == nil || err.Error() != "POST "+srv.URL+"/v1/unload: 409 Conflict" {
+		t.Fatalf("busy Park = %v, want POST %s/v1/unload: 409 Conflict", err, srv.URL)
 	}
 }

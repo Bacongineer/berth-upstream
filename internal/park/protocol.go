@@ -59,8 +59,8 @@ func knownState(s string) bool {
 func ForProtocol(base string) Adapter {
 	b := strings.TrimRight(base, "/")
 	return Adapter{
-		Park:   func(ctx context.Context, _ string) error { return postTo(ctx, b+pathPark) },
-		Resume: func(ctx context.Context, _ string) error { return postTo(ctx, b+pathResume) },
+		Park:   func(ctx context.Context, _ string) error { return postTo(ctx, b+pathPark, "") },
+		Resume: func(ctx context.Context, _ string) error { return postTo(ctx, b+pathResume, "") },
 	}
 }
 

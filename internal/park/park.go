@@ -112,21 +112,26 @@ var builtIn = map[string]Adapter{
 // body, a non-2xx answer as an error that names the endpoint.
 func postPath(path string) func(context.Context, string) error {
 	return func(ctx context.Context, base string) error {
-		return postTo(ctx, strings.TrimRight(base, "/")+path)
+		return postTo(ctx, strings.TrimRight(base, "/")+path, "")
 	}
 }
 
-// post is the custom-hook shape: a plain POST to an absolute URL.
+// post is the custom-hook shape: a POST of an empty JSON object to an
+// absolute URL. Engines whose load and unload calls only take JSON, such
+// as Strata's /v1/load and /v1/unload, refuse a bodyless POST with 415.
 func post(url string) func(context.Context, string) error {
 	return func(ctx context.Context, _ string) error {
-		return postTo(ctx, url)
+		return postTo(ctx, url, "{}")
 	}
 }
 
-func postTo(ctx context.Context, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+func postTo(ctx context.Context, url, body string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
 		return err
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	httpauth.Apply(req)
 	resp, err := http.DefaultClient.Do(req)

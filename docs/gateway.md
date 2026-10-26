@@ -488,6 +488,27 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   `--enable-memory-saver --enable-weights-cpu-backup`. Any other engine can
   speak the park protocol (`contrib/PARK-PROTOCOL.md`): Berth probes
   `GET /berth/state` once and uses it when the endpoint answers.
+- **Custom hooks.** A `park_url` or `resume_url` gets a `POST` with the body
+  `{}` and `Content-Type: application/json`, plus the engine's key when the
+  entry sets `api_key_env` or `api_key_file`. An answer outside 2xx fails
+  the park, and the engine drains the usual way. Strata's own unload and
+  load calls fit this shape:
+
+  ```toml
+  [[engine]]
+  name        = "strata"
+  type        = "strata"
+  url         = "http://127.0.0.1:8080"
+  park        = "hook"
+  park_url    = "http://127.0.0.1:8080/v1/unload"
+  resume_url  = "http://127.0.0.1:8080/v1/load"
+  api_key_env = "STRATA_API_KEY"   # only when the server has a key
+  ```
+
+  An unload drops the model and keeps the server up, so the park costs
+  about no RAM, and a resume reloads the model from disk at the cost of a
+  normal load. Strata refuses an unload while a request runs (409), so
+  that park fails and the engine drains.
 - **Eviction.** A parked copy is stopped, least recently parked first,
   when it passes its ttl, when the machine's available RAM falls under the
   floor, or one step at a time under memory pressure. Stopping a parked
