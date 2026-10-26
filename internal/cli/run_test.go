@@ -33,7 +33,7 @@ func TestCheckRunFlagsKeepNeedsDrain(t *testing.T) {
 // A Compose engine is one Compose file, never also a container, and the path
 // has to outlive the daemon's working directory.
 func TestCheckRunFlagsCompose(t *testing.T) {
-	const abs = "/srv/tagger/compose.yaml"
+	abs := filepath.Join(t.TempDir(), "compose.yaml")
 	if err := checkRunFlags(runFlags{compose: abs}); err != nil {
 		t.Fatalf("compose alone should pass, got %v", err)
 	}

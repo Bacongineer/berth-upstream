@@ -946,7 +946,7 @@ func TestLendValidated(t *testing.T) {
 func TestEngineComposeParsedAndValidated(t *testing.T) {
 	const base = "[[engine]]\nname = \"tagger\"\ntype = \"custom\"\nurl = \"http://127.0.0.1:8000\"\nhealth = \"/healthz\"\n"
 	abs := filepath.Join(t.TempDir(), "compose.yaml")
-	c, err := Load(write(t, base+"compose = \""+abs+"\"\n"))
+	c, err := Load(write(t, base+"compose = '"+abs+"'\n"))
 	if err != nil {
 		t.Fatalf("a valid compose was refused: %v", err)
 	}
