@@ -110,11 +110,18 @@ type Engine struct {
 	// chat call to another engine) finishes, and its CUDA context goes
 	// soon after. 0 = [park] ttl.
 	ParkTTL Duration `toml:"park_ttl,omitzero" json:"park_ttl,omitempty" yaml:"park_ttl,omitempty"`
-	// Container is the engine's container, as berth run --container: the
-	// name of `docker run --name` (or of an existing container for
+	// Container is the engine's one container, as berth run --container:
+	// the name of `docker run --name` (or of an existing container for
 	// `docker start -a`). The drain stops it through the runtime CLI
-	// instead of signalling the wrapper; Linux-only in this release.
+	// instead of signalling the wrapper.
 	Container string `toml:"container,omitempty" json:"container,omitempty" yaml:"container,omitempty"`
+	// Compose is an engine's Compose file, as berth run --compose: an
+	// absolute path to the compose.yaml the project runs from. The lease
+	// then covers every container of the project, and the drain stops the
+	// project with `compose stop` and never `down`. Set compose or
+	// container, not both. The start command stays the operator's, so
+	// `docker compose -f PATH up` is what starts it.
+	Compose string `toml:"compose,omitempty" json:"compose,omitempty" yaml:"compose,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a
@@ -596,6 +603,14 @@ func (c *Config) Validate() error {
 		}
 		if e.APIKeyFile != "" && !filepath.IsAbs(e.APIKeyFile) {
 			errs = append(errs, fmt.Errorf("%s: api_key_file must be an absolute path", where))
+		}
+		if e.Compose != "" {
+			if e.Container != "" {
+				errs = append(errs, fmt.Errorf("%s: compose and container are mutually exclusive: a project names its own containers", where))
+			}
+			if !filepath.IsAbs(e.Compose) {
+				errs = append(errs, fmt.Errorf("%s: compose %q must be an absolute path: the gateway starts engines from its own working directory", where, e.Compose))
+			}
 		}
 		if !slices.Contains(Types, e.Type) {
 			errs = append(errs, fmt.Errorf("%s: type %q is not one of %v", where, e.Type, Types))

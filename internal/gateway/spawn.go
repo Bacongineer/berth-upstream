@@ -118,6 +118,9 @@ func runArgv(o runner.Options) []string {
 	if o.Container != "" {
 		args = append(args, "--container", o.Container)
 	}
+	if o.Compose != "" {
+		args = append(args, "--compose", o.Compose)
+	}
 	if o.Grace != 0 {
 		args = append(args, "--grace", o.Grace.String())
 	}

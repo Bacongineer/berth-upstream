@@ -19,14 +19,31 @@ import (
 // (KeepComfyUI never fires without DrainComfyUI), so the CLI rejects it
 // like the berth.toml validation does.
 func TestCheckRunFlagsKeepNeedsDrain(t *testing.T) {
-	if err := checkRunFlags(true, ""); err == nil {
+	if err := checkRunFlags(runFlags{keepComfyUI: true}); err == nil {
 		t.Fatal("keep without drain should error")
 	}
-	if err := checkRunFlags(true, "http://127.0.0.1:8188"); err != nil {
+	if err := checkRunFlags(runFlags{keepComfyUI: true, drainComfyUI: "http://127.0.0.1:8188"}); err != nil {
 		t.Fatalf("keep with drain should pass, got %v", err)
 	}
-	if err := checkRunFlags(false, ""); err != nil {
+	if err := checkRunFlags(runFlags{}); err != nil {
 		t.Fatalf("plain run should pass, got %v", err)
+	}
+}
+
+// A Compose engine is one Compose file, never also a container, and the path
+// has to outlive the daemon's working directory.
+func TestCheckRunFlagsCompose(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "compose.yaml")
+	if err := checkRunFlags(runFlags{compose: abs}); err != nil {
+		t.Fatalf("compose alone should pass, got %v", err)
+	}
+	if err := checkRunFlags(runFlags{compose: abs, container: "tagger"}); err == nil ||
+		!strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("compose with container = %v, want it refused", err)
+	}
+	err := checkRunFlags(runFlags{compose: "compose.yaml"})
+	if err == nil || !strings.Contains(err.Error(), "must be an absolute path") {
+		t.Fatalf("relative compose = %v, want it refused", err)
 	}
 }
 
@@ -97,8 +114,13 @@ func TestApplyEngineEntry(t *testing.T) {
 	prio, keep := "interactive", false
 	needs, dp, ds, dc := uint64(0), "", "", ""
 	var dm, mt time.Duration
-	cont := ""
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	cont, comp := "", ""
+	// The flags ride as pointers, so the local changes below reach the same
+	// set every call passes.
+	f := engineFlags{priority: &prio, needsMiB: &needs, drainPost: &dp, drainSlots: &ds,
+		drainComfyUI: &dc, keepComfyUI: &keep, drainMax: &dm, minTurn: &mt,
+		container: &cont, compose: &comp}
+	applyEngineEntry(c, e, f)
 	if e.Priority != "batch" || e.NeedsMiB != 8192 || e.DrainPost != "http://127.0.0.1:1/free" ||
 		e.DrainSlots != "http://127.0.0.1:2" || e.DrainComfyUI != "http://127.0.0.1:3" ||
 		e.DrainMax.Duration != time.Minute || e.MinTurn.Duration != 5*time.Minute {
@@ -114,7 +136,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	prio, needs, dp, ds, dc = "foreground", 4096, "http://127.0.0.1:9", "http://127.0.0.1:9", "http://127.0.0.1:9"
 	dm = 2 * time.Minute
 	mt = time.Minute
-	applyEngineEntry(c, e, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	applyEngineEntry(c, e, f)
 	if e.Priority != "foreground" || e.NeedsMiB != 4096 || e.DrainPost != "http://127.0.0.1:9" ||
 		e.DrainMax.Duration != 2*time.Minute || e.MinTurn.Duration != time.Minute {
 		t.Errorf("explicit flags lost to the entry: %q %d %q %s %s", e.Priority, e.NeedsMiB, e.DrainPost, e.DrainMax, e.MinTurn)
@@ -137,7 +159,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	c = &Context{setFlags: map[string]bool{"priority": true}, Err: &errBuf}
 	prio = "batch"
 	same := &config.Engine{Name: "comfyui", Priority: "batch"}
-	applyEngineEntry(c, same, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	applyEngineEntry(c, same, f)
 	if errBuf.String() != "" {
 		t.Errorf("a flag equal to the entry printed a notice: %q", errBuf.String())
 	}
@@ -146,7 +168,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, on, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	applyEngineEntry(c, on, f)
 	if !on.KeepComfyUI {
 		t.Error("the entry's keep_comfyui_up = true was not kept")
 	}
@@ -155,7 +177,7 @@ func TestApplyEngineEntry(t *testing.T) {
 	errBuf.Reset()
 	c = &Context{setFlags: map[string]bool{"keep-comfyui-up": true}, Err: &errBuf}
 	keep = false
-	applyEngineEntry(c, off, &prio, &needs, &dp, &ds, &dc, &keep, &dm, &mt, &cont)
+	applyEngineEntry(c, off, f)
 	if !strings.Contains(errBuf.String(), "berth: --keep-comfyui-up overrides berth.toml keep_comfyui_up = false for comfyui") {
 		t.Errorf("stderr = %q, want the keep-comfyui-up notice", errBuf.String())
 	}

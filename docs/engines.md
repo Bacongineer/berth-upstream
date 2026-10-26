@@ -54,3 +54,33 @@ The state lives in `engines.toml` beside `berth.toml`. Berth writes each install
 `extra_model_paths.yaml` naming the node's model roots from `berth.toml`, so an install's
 models come from the same library the rest of the node uses; the daemon rewrites the file at
 startup, so a change to the roots applies on the next restart.
+
+## Engines in a container or a Compose project
+
+An engine in Docker or Podman is parented by containerd-shim, so the process tree cannot
+reach its GPU processes. Name the container and Berth does the attribution instead:
+`berth run --container NAME -- docker run --name NAME ...`, or `container = "NAME"` on the
+engine's `[[engine]]` entry. The lease then owns every GPU process inside that container, and
+a drain runs `docker stop` through the runtime CLI instead of signalling the wrapper.
+
+An engine that is a Compose project names the project instead: `compose = "/srv/tagger/compose.yaml"`,
+or `berth run --compose PATH`. The path is absolute, and an entry sets compose or container, never
+both. Berth lists the project's containers with `compose -f PATH ps -q --all` on every poll and
+names the whole set on the lease, so a second CUDA container of the same project is its engine's
+memory rather than a stowaway, and a container that restarts under a new ID is picked up on the
+next poll. A drain stops the project with `compose stop`, never `down`: `down` deletes containers
+and networks you own. Your start command stays your own, and `docker compose -f PATH up` suits it:
+it stays in the foreground while the project runs and exits after the stop.
+
+Both forms work on Linux and Windows, and one runtime CLI does the work on either. Windows has one
+limit you should plan around. The driver reports no per-container VRAM under WSL2, so a container's
+memory arrives as the WSL VM's single process row. While a container engine is the only one on the
+card, Berth counts that row as its lease, and the lease counts the larger of its `needs_mib` and the
+row; with two container engines at once Berth cannot split one row between them, so each counts its
+`needs_mib` and the row is reported once, as a stowaway.
+
+Size `needs_mib` from your heaviest run, because a batch engine's footprint follows its batch. One
+operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest, beside a hot
+14.6 GiB model that gave way without an OOM; 2.1 GiB would have been the wrong number to declare.
+[contrib/INTEGRATION.md](https://github.com/T-Crypt/berth/blob/main/contrib/INTEGRATION.md) has
+the commands and the berth.toml shapes.

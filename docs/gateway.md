@@ -291,7 +291,7 @@ type       = "custom"
 url        = "http://127.0.0.1:8000"
 health     = "/health"
 start      = ["docker", "start", "-a", "immich-pet-tagger"]
-container  = "immich-pet-tagger"   # the drain runs docker stop (Linux)
+container  = "immich-pet-tagger"   # the drain runs docker stop
 needs_mib  = 2560
 background = true
 idle_after = "60s"                 # how long the card must stay free first (default 60 s)
@@ -305,6 +305,26 @@ idle_after = "60s"                 # how long the card must stay free first (def
   `idle_after` again, so a game, a `berth hold` or an engine that stays loaded keeps it out for as long as they last.
 - A card back from a VM is a free card, so a background engine also picks up after a VFIO session.
 - A background engine needs `start`, runs at `batch` only, and needs no `serves`.
+
+An engine whose work needs a sidecar runs the same way as a Compose project. Set `compose` instead
+of `container` and the lease covers every container of the project, so a second CUDA service is its
+engine's memory rather than a stowaway:
+
+```toml
+[[engine]]
+name       = "pet-tagger"
+type       = "custom"
+url        = "http://127.0.0.1:8000"
+health     = "/health"
+start      = ["docker", "compose", "-f", "/srv/tagger/compose.yaml", "up"]
+compose    = "/srv/tagger/compose.yaml"   # absolute; set compose or container, not both
+needs_mib  = 2560
+background = true
+```
+
+A drain stops the project with `compose stop` and never `down`. On Windows the same two commands run,
+and a container engine that is alone on the card is also charged the WSL VM's measured GPU usage when
+that beats its `needs_mib`. Reading: [engines in a container or a Compose project](engines.md).
 
 ## Queue ComfyUI jobs while the card is away
 

@@ -68,6 +68,19 @@ has a matching GitHub release whose body comes from its section below.
   lend and asks for the take-back once the card has room, instead of blocking waiters behind memory that is gone.
   `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
   docs/gateway.md's Lending section states the rules.
+- A Docker Compose project can run as one engine: `compose = "/abs/path/compose.yml"` on an entry, or
+  `berth run --compose PATH`. The lease covers every container in the project, found with
+  `docker compose -f PATH ps -q --all` on every poll (podman when docker does not answer), so a container that
+  restarts under a new ID comes back to the lease. A drain runs `compose stop -t <grace>`, never `down`, which would
+  delete containers and networks you own. The start command stays yours, and `docker compose -f PATH up` fits.
+  `berth config check` refuses `compose` together with `container`, and a relative path.
+  Container engines now work on Windows too, where `--container` was accepted and ignored. WSL2 reports no
+  per-container VRAM. So while one container engine is the only one on the card, Berth charges it the WSL VM's
+  measured GPU row whenever that row is larger than its `needs_mib`. With two container engines Berth cannot split
+  the row, so each counts its `needs_mib` and the row stays a stowaway, counted once. Size `needs_mib` from your
+  heaviest run. One operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest (#172).
+  In `berth status --format json` and the harbor, a lease's `container` and `container_name` are replaced by
+  `containers`, a list of full container IDs. A `berth run` started before an upgrade still attaches its container.
 
 ## [v0.3.6] - 2026-10-23
 

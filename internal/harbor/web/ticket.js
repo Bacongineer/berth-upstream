@@ -163,15 +163,12 @@ export class Ticket {
       this.f.pos.textContent = bits.join(", ");
     }
   }
-  // CONTAINER: the name the operator gave the container an engine runs in,
-  // with the full ID in the tooltip.
+  // CONTAINER: every container the engine runs in, by ID: one for a
+  // --container engine, the whole set for a Compose project.
   fillContainer(lease) {
-    const name = lease.container_name || "";
-    this.f.containerRow.hidden = !name;
-    if (name) {
-      this.f.container.textContent = name;
-      this.f.container.title = lease.container || name;
-    }
+    const ids = (lease.containers || []).join(", ");
+    this.f.containerRow.hidden = !ids;
+    if (ids) this.f.container.textContent = ids;
   }
   // The terminal row: the exact orders, as copy buttons. The ticket is the
   // operator's seat at the counter, not the node's stick; the harbor reads

@@ -125,21 +125,24 @@ type Options struct {
 	Lend *lend.Adapter
 	// front is the open front, set by Run.
 	front *front.Front
-	// Container is the container the engine runs in (berth run
-	// --container NAME, the name of `docker run --name`): the drain stops
-	// it through the runtime CLI instead of signalling this process
-	// group, because containerd-shim, not this wrapper, parents the
-	// engine. Linux-only in this release; elsewhere the flag is accepted
-	// and ignored. The container is Berth's because this command started
-	// it; nothing else is ever stopped.
+	// Container is the one container the engine runs in (berth run
+	// --container NAME, the name of `docker run --name`).
 	Container string
-	// CLI is the runtime CLI exec: every docker or podman inspect and stop
-	// runs through it, under the timeout the caller names, and it returns
-	// the command's combined output; nil = the real CLI, tests fake it and
-	// assert the argv.
+	// Compose is the Compose file the engine's project runs from (berth run
+	// --compose PATH): its containers are the engine, and the drain stops
+	// the project through the runtime CLI instead of signalling this
+	// process group, because containerd-shim, not this wrapper, parents the
+	// engine. The containers are Berth's because this command started them;
+	// nothing else is ever stopped. Container and Compose are mutually
+	// exclusive, and config.Validate keeps them so.
+	Compose string
+	// CLI is the runtime CLI exec: every docker or podman inspect, list and
+	// stop runs through it, under the timeout the caller names, and it
+	// returns the command's combined output; nil = the real CLI, tests fake
+	// it and assert the argv.
 	CLI func(argv []string, timeout time.Duration) (string, error)
-	// container carries the resolved container (the runtime that answered
-	// and the full ID) from the resolver goroutine to the drain; Run sets
+	// container carries the resolved containers (the runtime that answered
+	// and the full IDs) from the resolver goroutine to the drain; Run sets
 	// it, tests that fake the resolution set it directly.
 	container  *containerRef
 	Grace      time.Duration // per drain step before escalating
@@ -242,26 +245,23 @@ func Run(o Options) int {
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)
 
-	// A container engine resolves its name to the full ID and names it on
-	// the lease, so the broker attributes the engine's GPU processes
-	// (containerd-shim parents them, not this wrapper). The ID also rides
-	// on any re-attach, in case the daemon changes before it resolves.
 	if o.CLI == nil {
 		o.CLI = execCLI
 	}
 	var cid containerRef
 	o.container = &cid
-	if o.Container != "" {
-		if containerSupported() {
-			go resolveContainer(o, conn, cmd, done, &cid, say)
-		} else {
-			say("container engines are Linux-only in this release; --container %s ignored", o.Container)
-		}
-	}
 
-	// line is the lease's live conn and park state; the drain and the
-	// resume ride it across reattach loops.
+	// line is the lease's live conn and park state; the drain, the resume
+	// and the container resolver ride it across reattach loops.
 	line := newLine(conn)
+
+	// A container engine resolves its containers to their full IDs and names
+	// them on the lease, so the broker attributes the engine's GPU processes
+	// (containerd-shim parents them, not this wrapper). The IDs also ride on
+	// any re-attach, in case the daemon changes before the next poll.
+	if o.Container != "" || o.Compose != "" {
+		go resolveContainers(o, line, cmd, done, &cid, say)
+	}
 
 	// One drain at a time: a drain parks the engine or stops it, and the
 	// daemon's next drain waits for that answer. A token leaves the slot
@@ -356,8 +356,8 @@ func Run(o Options) int {
 			// so the daemon frees the lease even if this process lives on.
 			go func(c net.Conn) { <-done; c.Close() }(raw)
 			line.setConn(conn)
-			if id := cid.id(); id != "" {
-				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Container: id})
+			if ids := cid.list(); len(ids) > 0 {
+				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Containers: ids})
 			}
 			say("re-attached %s as %s", o.Engine, lease)
 		}
@@ -432,7 +432,7 @@ func reattachMsg(o Options, pid int, start uint64, cid *containerRef, parked boo
 	m := proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
 		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil,
 		MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(),
-		PID: pid, PIDStart: start, Container: cid.id(), Parked: parked}
+		PID: pid, PIDStart: start, Containers: cid.list(), Parked: parked}
 	if t, ok := line.openLend(); ok {
 		m.LendID, m.Lent = t.ID, t.MiB<<20
 	}
@@ -837,29 +837,14 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			say("drain url answered %s but %s is still running", resp.Status, o.Engine)
 		}
 	}
-	if o.Container != "" && containerSupported() {
-		// The engine lives in a container of ours: stop it through the
-		// runtime CLI (its own SIGTERM, then SIGKILL inside the image)
-		// instead of signalling the CLI wrapper's process group. The
-		// target is the full ID the resolver answered, never the bare
-		// name; before the name resolved there is no ID to stop, so the
-		// group signals run as they always have.
-		runtime, id := "", ""
-		if o.container != nil {
-			runtime, id = o.container.runtime(), o.container.id()
-		}
-		if id != "" {
-			if runtime == "" {
-				if rs := runtimes(); len(rs) > 0 {
-					runtime = rs[0]
-				}
-			}
-			argv := stopArgv(runtime, id, o.Grace)
-			if _, err := o.CLI(argv, o.Grace+15*time.Second); err != nil {
-				say("container stop failed (%v); falling back to the process group", err)
-			} else {
-				return
-			}
+	if o.Container != "" || o.Compose != "" {
+		// The engine lives in containers of ours: stop them through the
+		// runtime CLI (their own SIGTERM, then SIGKILL inside the image)
+		// instead of signalling the CLI wrapper's process group. A lone
+		// container is stopped by the full ID the resolver answered, never
+		// the bare name; a Compose project is stopped as a project.
+		if stopContainers(o, say) {
+			return
 		}
 	}
 	terminate(cmd)

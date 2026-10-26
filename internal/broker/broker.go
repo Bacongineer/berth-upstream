@@ -158,7 +158,7 @@ type Config struct {
 	ProcTable func() []procs.Proc
 	// Containers reads a process's runtime container id (procs.Container
 	// on Linux); "" = a host process. Tests fake it. A GPU process whose
-	// container matches an attached lease's belongs to that lease.
+	// container is one an attached lease names belongs to that lease.
 	Containers func(pid int) (string, bool)
 	// Scopes reads a process's Berth scope (procs.Scope on Linux): the
 	// path of the berth-*.scope cgroup it runs in, "" for a process
@@ -217,10 +217,11 @@ type Request struct {
 	// ParkTTL is how long the lease may stay parked before the broker
 	// stops its engine, in place of the node's ParkTTL. 0 = the node's.
 	ParkTTL time.Duration
-	// Container is the engine's container: Acquire takes the name the
-	// operator gave (--container), the attach resolves the full ID. A GPU
-	// process inside it belongs to the lease.
-	Container string
+	// Containers are the containers the engine runs in: Acquire takes the
+	// names the operator gave (--container), the attach resolves the full
+	// IDs, a Compose engine's whole project arriving as one set. A GPU
+	// process inside any of them belongs to the lease.
+	Containers []string
 }
 
 // ident is a process identity. PIDs are reused, so a PID only means the same
@@ -250,10 +251,9 @@ type lease struct {
 	// gone (no process with its start time); the reaper needs two, so a
 	// pid lookup hiccup on one tick cannot free a live lease.
 	goneTicks uint64
-	// container is the full ID of the runtime container the engine runs in
-	// ("" for a host process), containerName the name the operator gave.
-	container     string
-	containerName string
+	// containers are the full IDs of the runtime containers the engine
+	// runs in (empty for a host process).
+	containers []string
 	// scope is the berth-*.scope path the attached engine runs in
 	// ("" when it runs outside one). A cgroup is inherited on fork, so
 	// every process under that path is the lease's, however its process
@@ -799,7 +799,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 		present[id] = true
 		scope := b.scopeOf(p.PID)
-		if l := b.owner(id, b.containerOf(p.PID), scope); l != nil {
+		if l := b.owner(id, p, scope); l != nil {
 			if l.state != active && l.state != draining && b.runFor(p.PID) != nil {
 				// A released lease keeps blocking while its processes hold
 				// memory, unless a run record says they were left behind on
@@ -877,8 +877,11 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 	}
 	for key, l := range b.leases {
-		for id := range l.gpu {
-			if !present[id] {
+		for id, p := range l.gpu {
+			// A releasing lease lets go of the WSL VM's row: the VM outlives
+			// the containers, so the row would hold the lease forever, and as
+			// a stowaway it still counts against the card.
+			if !present[id] || ((l.state == releasing || l.state == stuck) && isWSLVM(p.Name)) {
 				delete(l.gpu, id)
 			}
 		}
@@ -959,11 +962,13 @@ func (b *Broker) reportGone(s *squatter) {
 
 // owner finds the lease a GPU process belongs to: one it was already
 // attributed to, else a recorded descendant of an attached lease, else a
-// scope the lease recorded, else a container the lease names, else the
-// lease whose wrapped engine it descends from. The engine's PID only
-// counts while its start time still matches, so a reused PID never
-// inherits a lease. An empty scope never matches an empty one.
-func (b *Broker) owner(id ident, container, scope string) *lease {
+// scope the lease recorded, else a lease that names its container, else the
+// WSL VM row of the one container lease on the card, else the lease whose
+// wrapped engine it descends from. The engine's PID only counts while its
+// start time still matches, so a reused PID never inherits a lease. An empty
+// scope never matches an empty one.
+func (b *Broker) owner(id ident, p gpu.Proc, scope string) *lease {
+	container := b.containerOf(p.PID)
 	for _, l := range b.leases {
 		if _, ok := l.gpu[id]; ok {
 			return l
@@ -979,10 +984,13 @@ func (b *Broker) owner(id ident, container, scope string) *lease {
 	}
 	if container != "" {
 		for _, l := range b.leases {
-			if l.ownsNew() && l.container == container {
+			if l.ownsNew() && l.hasContainer(container) {
 				return l
 			}
 		}
+	}
+	if l := b.wslVMLease(p.Name); l != nil {
+		return l
 	}
 	for _, l := range b.leases {
 		if l.ownsNew() && l.pid > 0 &&
@@ -1545,7 +1553,7 @@ func (b *Broker) reapAttached(key string, l *lease, now time.Time) {
 		return
 	}
 	l.goneTicks++
-	if l.goneTicks < 2 || l.container != "" || len(l.gpu) != 0 || len(l.desc) != 0 {
+	if l.goneTicks < 2 || len(l.containers) != 0 || len(l.gpu) != 0 || len(l.desc) != 0 {
 		return
 	}
 	b.log.Warn("attached process is gone; releasing the lease", "lease", key, "engine", l.engine, "pid", l.pid)
@@ -1569,7 +1577,7 @@ func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	x.state = releasing
 	x.released = now
 	x.releasedRead = b.reads.Load()
-	nothing := x.pid == 0 && len(x.gpu) == 0 && x.container == "" && len(x.desc) == 0
+	nothing := x.pid == 0 && len(x.gpu) == 0 && len(x.containers) == 0 && len(x.desc) == 0
 	if !announce {
 		if nothing {
 			delete(b.leases, x.id)
@@ -1625,9 +1633,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 	now := b.now()
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
 	l.arrivedN = b.order()
-	if r.Container != "" {
-		l.container = strings.ToLower(r.Container)
-	}
+	l.containers = containerSet(r.Containers)
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
 	l.scope = scope
@@ -1683,7 +1689,6 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 	b.nextID++
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
 	l.arrivedN = b.order()
-	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
 	b.emit(proto.Event{Kind: proto.EvRequested, Lease: l.id, Engine: l.engine, Bytes: l.needs, Detail: l.prio.String()})

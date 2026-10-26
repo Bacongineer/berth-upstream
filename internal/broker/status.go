@@ -81,8 +81,8 @@ func (b *Broker) Status() proto.Status {
 		pl := proto.Lease{
 			ID: l.id, Engine: l.engine, Group: l.group, Priority: l.prio.String(), State: l.state.String(),
 			Needs: l.needs, PID: l.pid, PIDStart: l.pidStart,
-			Container: l.container, ContainerName: l.containerName,
-			GPUPIDs: pids, Used: l.used(),
+			Containers: l.containers,
+			GPUPIDs:    pids, Used: l.used(),
 			GTTUsed: l.gttUsed(), GTTContested: l.contestedGTT,
 			Contested: l.contested, Age: now.Sub(since).Seconds(), Pinned: l.pinned,
 		}

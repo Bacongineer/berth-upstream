@@ -224,20 +224,20 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 	}()
 
 	r := broker.Request{
-		Engine:    req.Engine,
-		Group:     req.Group,
-		Priority:  prio,
-		Needs:     req.Needs,
-		Wait:      time.Duration(req.Wait * float64(time.Second)),
-		Pinned:    req.Pinned,
-		Switched:  req.Switched,
-		Parked:    req.Parked,
-		Lend:      req.Lend,
-		LendID:    req.LendID,
-		LentBytes: req.Lent,
-		MinTurn:   time.Duration(req.MinTurn * float64(time.Second)),
-		ParkTTL:   time.Duration(req.ParkTTL * float64(time.Second)),
-		Container: req.Container,
+		Engine:     req.Engine,
+		Group:      req.Group,
+		Priority:   prio,
+		Needs:      req.Needs,
+		Wait:       time.Duration(req.Wait * float64(time.Second)),
+		Pinned:     req.Pinned,
+		Switched:   req.Switched,
+		Parked:     req.Parked,
+		Lend:       req.Lend,
+		LendID:     req.LendID,
+		LentBytes:  req.Lent,
+		MinTurn:    time.Duration(req.MinTurn * float64(time.Second)),
+		ParkTTL:    time.Duration(req.ParkTTL * float64(time.Second)),
+		Containers: req.ContainerIDs(),
 	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {
@@ -322,9 +322,9 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)
 			}
-			if m.Container != "" {
-				lease.AttachContainer(m.Container)
-				log.Info("attached container", "lease", lease.ID(), "container", m.Container)
+			if ids := m.ContainerIDs(); len(ids) > 0 {
+				lease.AttachContainers(ids)
+				log.Info("attached containers", "lease", lease.ID(), "containers", ids)
 			}
 		}
 	}

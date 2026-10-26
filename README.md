@@ -71,7 +71,9 @@ line goes away.
 - **A minimum turn.** `min_turn = "5m"` keeps an engine on the card for five minutes after it
   gets it, whatever asks next; only a hold takes it out sooner.
 - **Engines in containers.** `berth run --container NAME -- docker run ...` puts a Docker or
-  Podman engine under its lease, and the drain stops it through `docker stop`.
+  Podman engine under its lease, and the drain stops it through `docker stop`. An engine that
+  is a Compose project names its Compose file instead (`--compose PATH`), and the lease then
+  covers every container of the project.
 - **Survives restarts.** Upgrade or restart the daemon and your running engines stay up and
   re-attach. The gateway's engines survive it too: it starts each one as its own `berth run`
   process (in its own systemd scope on Linux) and adopts them again on its next start.
