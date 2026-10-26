@@ -1180,8 +1180,9 @@ func (b *Broker) setWait(w *lease, reason string) {
 	}
 }
 
-// budget is what a holder counts against the card: the whole card if it
-// asked for it, else whichever is larger of what it asked for and what it
+// budget is what a holder counts against the card: the card's ceiling if it
+// asked for the whole card (the baseline and reserve were never its to give),
+// else whichever is larger of what it asked for and what it
 // holds, less the memory a confirmed lend gave to a borrower.
 func (b *Broker) budget(l *lease) uint64 {
 	if l.state == parking || l.state == parked || l.awaitingGrant() {
@@ -1194,7 +1195,7 @@ func (b *Broker) budget(l *lease) uint64 {
 	}
 	var held uint64
 	if l.needs == 0 {
-		held = b.snap.Total
+		held = b.ceiling()
 	} else {
 		held = max(l.needs, l.used())
 	}
@@ -1206,6 +1207,13 @@ func (b *Broker) budget(l *lease) uint64 {
 		return max(l.used(), sat(held, l.lentBytes))
 	}
 	return held
+}
+
+// ceiling is what the card can ever hand out to leases: its total minus the
+// reserve floor and the memory no lease can give up (driver baseline,
+// squatters, track claims).
+func (b *Broker) ceiling() uint64 {
+	return sat(b.snap.Total, b.cfg.Reserve+b.snap.Baseline()+b.squatBytes()+b.claimedBytes())
 }
 
 func (b *Broker) holders() []*lease {

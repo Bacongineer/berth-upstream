@@ -396,8 +396,7 @@ func (b *Broker) retirable(give uint64, gone *lease) bool {
 	if b.snap.Total == 0 {
 		return true
 	}
-	ceiling := sat(b.snap.Total, b.cfg.Reserve+b.snap.Baseline()+b.squatBytes()+b.claimedBytes())
-	return ceiling >= b.heldWith(give, gone)
+	return b.ceiling() >= b.heldWith(give, gone)
 }
 
 // engineOf names a lease's engine, or "" for a lease that is already gone.
