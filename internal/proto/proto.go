@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"slices"
 	"time"
 )
 
@@ -121,7 +122,11 @@ type Msg struct {
 	// a lone --container is a set of one, so the runner has one path. The
 	// broker matches GPU processes by the IDs and reports them shortened.
 	Containers []string `json:"containers,omitempty"`
-	Lease      string   `json:"lease,omitempty"`
+	// Container is the one container a wrapper from before Compose support
+	// sends. A berth run started before an upgrade re-attaches to the new
+	// daemon with it, so the daemon still reads it; nothing sends it now.
+	Container string `json:"container,omitempty"`
+	Lease     string `json:"lease,omitempty"`
 	// OpStop: Leases is the reply, the leases the daemon asked to drain.
 	Leases   []string  `json:"leases,omitempty"`
 	Reason   string    `json:"reason,omitempty"`
@@ -722,3 +727,12 @@ func (c *Conn) Recv() (Msg, error) {
 // priority, Engine "vfio:<reason>", made by `berth vfio run`. While one is
 // granted berthd does not open the card, so the driver switch can run.
 const GroupVFIO = "vfio"
+
+// ContainerIDs is the containers a message names, with the single
+// Container of an older wrapper folded in.
+func (m Msg) ContainerIDs() []string {
+	if m.Container == "" || slices.Contains(m.Containers, m.Container) {
+		return m.Containers
+	}
+	return append(slices.Clone(m.Containers), m.Container)
+}

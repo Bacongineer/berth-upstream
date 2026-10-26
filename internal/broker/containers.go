@@ -125,11 +125,17 @@ func (b *Broker) soleContainerLease() *lease {
 // belongs to neither and stays a stowaway counted once against the card.
 // Called with b.mu held.
 func (b *Broker) wslVMLease(name string) *lease {
-	if !strings.EqualFold(name, wslVMWorker) {
+	if !isWSLVM(name) {
 		return nil
 	}
-	return b.soleContainerLease()
+	if l := b.soleContainerLease(); l != nil && l.state != releasing {
+		return l
+	}
+	return nil
 }
+
+// isWSLVM is whether a GPU process is the WSL VM's worker.
+func isWSLVM(name string) bool { return strings.EqualFold(name, wslVMWorker) }
 
 // containerNameCLI resolves a container id to its runtime name with the
 // runtime CLI: docker, then podman. "" when neither answers. Best effort:

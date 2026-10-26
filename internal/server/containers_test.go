@@ -43,3 +43,29 @@ func TestAttachSendsTheWholeContainerSet(t *testing.T) {
 		return len(ls) == 1 && strings.Join(ls[0].Containers, ",") == ocrID+","+sidecarID
 	})
 }
+
+// A berth run started before an upgrade attaches with the single
+// "container" field; the new daemon still puts that container on the lease.
+func TestAnOlderWrapperStillNamesItsContainer(t *testing.T) {
+	card := &parkCard{total: 24 << 30}
+	sock, b := parkDaemon(t, card)
+
+	conn, raw, err := server.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: "tagger", Needs: 2 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := conn.Recv(); err != nil || g.Op != proto.OpGranted {
+		t.Fatalf("acquire = %v %v", g, err)
+	}
+	if err := conn.Send(proto.Msg{Op: proto.OpAttach, PID: 101, Container: ocrID}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the old wrapper's container on the lease", func() bool {
+		ls := b.Status().Leases
+		return len(ls) == 1 && strings.Join(ls[0].Containers, ",") == ocrID
+	})
+}

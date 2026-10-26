@@ -259,3 +259,29 @@ func TestWSLVMRowIsNotAHostLease(t *testing.T) {
 		t.Fatalf("leases = %+v, want none of it under the host lease", st.Leases)
 	}
 }
+
+// The WSL VM's row stays on the card while the VM runs, after its containers
+// stop. A container lease that owned the row is still freed when it
+// releases: the row goes back to being a stowaway, counted against the card,
+// instead of holding the lease releasing until it is reported stuck.
+func TestReleasedContainerLeaseLetsGoOfTheWSLVMRow(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	b.cfg.Containers = func(int) (string, bool) { return "", false }
+	l := must(t, acquire(b, Request{Engine: "pet-tagger", Containers: []string{vllmID}, Needs: 2 * GiB}))
+	l.AttachContainers([]string{vllmID})
+	c.set(gpu.Proc{PID: 4, Name: "vmwp.exe", Used: 6 * GiB})
+	b.Tick(context.Background())
+
+	l.Release()
+	c.set(gpu.Proc{PID: 4, Name: "vmwp.exe", Used: gpu.MiB})
+	b.Tick(context.Background())
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 0 {
+		t.Fatalf("leases = %+v, want the released lease freed", st.Leases)
+	}
+	if len(st.Squatters) != 1 || st.Squatters[0].Name != "vmwp.exe" || st.Squatters[0].Used != gpu.MiB {
+		t.Fatalf("squatters = %+v, want the VM row back as a stowaway", st.Squatters)
+	}
+}

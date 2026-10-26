@@ -237,7 +237,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		LentBytes:  req.Lent,
 		MinTurn:    time.Duration(req.MinTurn * float64(time.Second)),
 		ParkTTL:    time.Duration(req.ParkTTL * float64(time.Second)),
-		Containers: req.Containers,
+		Containers: req.ContainerIDs(),
 	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {
@@ -322,9 +322,9 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)
 			}
-			if len(m.Containers) > 0 {
-				lease.AttachContainers(m.Containers)
-				log.Info("attached containers", "lease", lease.ID(), "containers", m.Containers)
+			if ids := m.ContainerIDs(); len(ids) > 0 {
+				lease.AttachContainers(ids)
+				log.Info("attached containers", "lease", lease.ID(), "containers", ids)
 			}
 		}
 	}

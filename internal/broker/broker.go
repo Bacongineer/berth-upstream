@@ -877,8 +877,11 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 	}
 	for key, l := range b.leases {
-		for id := range l.gpu {
-			if !present[id] {
+		for id, p := range l.gpu {
+			// A releasing lease lets go of the WSL VM's row: the VM outlives
+			// the containers, so the row would hold the lease forever, and as
+			// a stowaway it still counts against the card.
+			if !present[id] || ((l.state == releasing || l.state == stuck) && isWSLVM(p.Name)) {
 				delete(l.gpu, id)
 			}
 		}
