@@ -50,6 +50,10 @@ type leaseLine struct {
 	// shorten the watch before it starts.
 	lendEvery  time.Duration
 	lendWindow time.Duration
+	// endWatch ends a running 503 watch. A new lend calls it before it asks
+	// the engine, so the watch never takes back a ticket the run is about to
+	// record.
+	endWatch context.CancelFunc
 }
 
 func newLine(conn *proto.Conn) *leaseLine {

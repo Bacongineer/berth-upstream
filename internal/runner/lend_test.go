@@ -418,3 +418,63 @@ func TestPendingLendWithNothingNewReturnsNothing(t *testing.T) {
 		t.Fatal("the poll dropped the run's own ticket from the ledger")
 	}
 }
+
+// A new lend ends the 503 watch before it calls the engine. Otherwise the
+// watch could read the engine's ledger after the engine listed the new
+// ticket and before the run recorded it, and take back a lend berthd granted
+// a borrower on (rule 2).
+func TestNewLendEndsThePendingWatch(t *testing.T) {
+	var mu sync.Mutex
+	var lends int
+	var returns []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/vram/lend":
+			mu.Lock()
+			lends++
+			n := lends
+			mu.Unlock()
+			if n == 1 {
+				http.Error(w, `{"error":"the engine did not answer LEND in 30 s"}`, http.StatusServiceUnavailable)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+			_, _ = io.WriteString(w, `{"id":"21","gpu":"0000:09:00.0","mib":4096}`)
+		case "/vram/state":
+			// The engine lists ticket 21 from the moment the second lend
+			// reaches it, before its answer is back at the run.
+			mu.Lock()
+			second := lends >= 2
+			mu.Unlock()
+			if second {
+				_, _ = io.WriteString(w, `{"leases":[{"id":"21","gpu":"0000:09:00.0","mib":4096}]}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"leases":[]}`)
+		case "/vram/return":
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			returns = append(returns, string(b))
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{"id":"21"}`)
+		}
+	}))
+	defer srv.Close()
+
+	o := lendEntry(srv.URL)
+	line, daemon := daemonPipe(t)
+	line.lendEvery, line.lendWindow = time.Millisecond, time.Second
+	ask := proto.Msg{Op: proto.OpLend, Needs: 4 << 30, Free: 2048, GPU: "0000:09:00.0"}
+	if got := askStep(t, line, daemon, o, ask); got.Op != proto.OpLendFailed || got.Kind != "Pending" {
+		t.Fatalf("first answer op=%s kind=%q, want lend_failed Pending", got.Op, got.Kind)
+	}
+	if got := askStep(t, line, daemon, o, ask); got.Op != proto.OpLent || got.LendID != "21" {
+		t.Fatalf("second answer op=%s id=%q, want lent 21", got.Op, got.LendID)
+	}
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(returns) != 0 {
+		t.Fatalf("the 503 watch took back the new lend: %v", returns)
+	}
+}

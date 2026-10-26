@@ -615,7 +615,7 @@ reloaded.
   next waiter may have it. A lend the engine did not answer in time (its `503`)
   counts as refused for that waiter. The engine may still give that memory, and
   the wrapper watches for it: it reads the engine's ledger at `GET /vram/state`
-  for the release grace and takes back, at once, any lend that lands. The wrapper
+  for 30 s and takes back, at once, any lend that lands. The wrapper
   also keeps the ledger of its run's open lends, so a `berthd` restart does not
   lose them: its re-attach names the ticket and its bytes, the new daemon counts
   the holder's budget less that lend, and the take-back goes out once the card

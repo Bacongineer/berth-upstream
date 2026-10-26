@@ -133,9 +133,7 @@ func (l *leaseLine) adoptLends(o Options, say func(string, ...any)) {
 // as it may still land. Nothing was granted on that ask, so any ticket the
 // run does not hold goes straight back, and a take-back of it overlaps no
 // one. A ticket that refuses (still in use) is tried again on the next read.
-func (l *leaseLine) reconcileLend(o Options, say func(string, ...any)) {
-	ctx, cancel := context.WithTimeout(context.Background(), l.lendWindow)
-	defer cancel()
+func (l *leaseLine) reconcileLend(ctx context.Context, o Options, say func(string, ...any)) {
 	for {
 		select {
 		case <-time.After(l.lendEvery):
@@ -147,6 +145,9 @@ func (l *leaseLine) reconcileLend(o Options, say func(string, ...any)) {
 			continue
 		}
 		for _, t := range ts {
+			if ctx.Err() != nil {
+				return
+			}
 			if l.knows(t.ID) {
 				continue
 			}
@@ -173,6 +174,12 @@ func (l *leaseLine) lendStep(o Options, ask proto.Msg, say func(string, ...any))
 		_ = l.send(proto.Msg{Op: proto.OpLendFailed, Reason: o.Engine + " has no lend calls", Kind: "Unsupported"})
 		return
 	}
+	l.mu.Lock()
+	if l.endWatch != nil {
+		l.endWatch()
+		l.endWatch = nil
+	}
+	l.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), lendCallTimeout)
 	t, err := o.Lend.Lend(httpauth.WithBearer(ctx, o.APIKey), lend.Ask{
 		GPU:     ask.GPU,
@@ -182,11 +189,22 @@ func (l *leaseLine) lendStep(o Options, ask proto.Msg, say func(string, ...any))
 	cancel()
 	if err != nil {
 		say("lend of %s refused (%v); berthd falls back to a drain", server.MiB(ask.Needs), err)
+		// The watch is armed before berthd hears the refusal, so a lend it
+		// asks next always finds the watch to end.
+		var watch context.Context
+		if errors.Is(err, lend.ErrPending) {
+			var cancel context.CancelFunc
+			watch, cancel = context.WithTimeout(context.Background(), l.lendWindow)
+			defer cancel()
+			l.mu.Lock()
+			l.endWatch = cancel
+			l.mu.Unlock()
+		}
 		if err := l.send(proto.Msg{Op: proto.OpLendFailed, Reason: err.Error(), Kind: lendKind(err)}); err != nil {
 			say("could not tell berthd the lend failed (%v)", err)
 		}
-		if errors.Is(err, lend.ErrPending) {
-			l.reconcileLend(o, say)
+		if watch != nil {
+			l.reconcileLend(watch, o, say)
 		}
 		return
 	}
