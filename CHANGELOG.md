@@ -39,6 +39,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- Pre-releases for testers. Work for the next release lands on the `next` branch and is tagged `vX.Y.Z-rc.N`, which
+  publishes as a GitHub pre-release. The README's download link, `go install ...@latest` and `berth update` stay on
+  the latest release. [Testing a pre-release](docs/prerelease.md) covers installing one and going back.
 - `berth config check` warns when `[park]` turns eviction off: `floor_gib = 0` means Berth never stops a parked
   engine when RAM runs low, and a `pressure` of 100 or more is past anything `/proc/pressure/memory` reports.
   `--strict` fails on both (#193).
