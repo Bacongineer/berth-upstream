@@ -345,8 +345,9 @@ func Run(o Options) int {
 			// unprotected until a daemon answers again and re-attaches it.
 			say("UNPROTECTED: lost berthd (%v); %s keeps running without a lease, retrying", err, o.Engine)
 			remove := record(o, cmd, runs.ReasonLost)
+			line.adoptLends(o, say)
 			var lease string
-			conn, raw, lease = reattach(o, cmd, done, &cid, line.isParked())
+			conn, raw, lease = reattach(o, cmd, done, &cid, line)
 			remove()
 			if conn == nil {
 				return
@@ -385,12 +386,14 @@ func listen(conn *proto.Conn, onMsg func(proto.Msg)) error {
 // reattach dials berthd every Retry until one leases the running engine the
 // card again, or the engine exits. A daemon that refuses (an older one that
 // does not know reattach, or a PID that is no longer this engine) ends the
-// attempts: the engine stays on record as unprotected until it exits.
-// parked tells the daemon the engine's weights are parked in RAM.
-func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef, parked bool) (*proto.Conn, net.Conn, string) {
+// attempts: the engine stays on record as unprotected until it exits. The
+// line carries what the engine is in the middle of: parked weights, and the
+// one lend still open if the run holds one.
+func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef, line *leaseLine) (*proto.Conn, net.Conn, string) {
 	every := o.pollEvery()
 	pid := cmd.Process.Pid
 	start := procs.System{}.StartTime(pid)
+	parked := line.isParked()
 	for {
 		select {
 		case <-done:
@@ -401,7 +404,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id(), Parked: parked})
+		err = conn.Send(reattachMsg(o, pid, start, cid, parked, line))
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()
@@ -418,6 +421,22 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 			return nil, nil, ""
 		}
 	}
+}
+
+// reattachMsg is what a re-attach tells the new daemon: the lease as it was,
+// plus what the engine is in the middle of. A lend the run holds open is
+// named by ticket with the bytes the engine gave, so the new daemon restores
+// the holder as `lent` instead of counting its full budget and blocking
+// waiters behind memory that is already gone.
+func reattachMsg(o Options, pid int, start uint64, cid *containerRef, parked bool, line *leaseLine) proto.Msg {
+	m := proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
+		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil,
+		MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(),
+		PID: pid, PIDStart: start, Container: cid.id(), Parked: parked}
+	if t, ok := line.openLend(); ok {
+		m.LendID, m.Lent = t.ID, t.MiB<<20
+	}
+	return m
 }
 
 // jobBoundary waits for ComfyUI's queue to empty. It reports false when
