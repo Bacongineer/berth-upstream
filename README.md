@@ -314,6 +314,16 @@ Issues and pull requests are welcome. [AGENTS.md](AGENTS.md) has the one command
 change (build, format, vet, tests, lint, as CI runs them) and the invariants a change must
 keep.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=t-crypt%2Fberth&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=t-crypt/berth&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=t-crypt/berth&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=t-crypt/berth&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## License
 
 [Apache License 2.0](LICENSE). Copyright 2026 Trevin Tindall (T-Crypt), who created Berth and
