@@ -218,6 +218,40 @@ func TestCheckpointWithoutTheToolDrainsAndSaysWhy(t *testing.T) {
 }
 
 // A front whose port is still held by the run before it (a router that
+
+// The engine behind a front binds its port only once the lease is granted, so
+// the port must be one the kernel never hands to another socket in the
+// meantime: below the ephemeral range, and not one something listens on.
+func TestFreePortSkipsATakenPortAndStaysBelowTheEphemeralRange(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	busy := taken.Addr().(*net.TCPAddr).Port
+	prev := pickPort
+	t.Cleanup(func() { pickPort = prev })
+	tries := 0
+	pickPort = func() int {
+		tries++
+		if tries == 1 {
+			return busy
+		}
+		return prev()
+	}
+
+	port, err := freePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port == busy || port < 20000 || port >= 30000 {
+		t.Fatalf("freePort = %d, want a free port in 20000-29999 after skipping %d", port, busy)
+	}
+	if tries < 2 {
+		t.Fatalf("tries = %d, want the taken port skipped", tries)
+	}
+}
+
 // restarts a model reuses the port) waits for it instead of failing.
 func TestListenSoonWaitsForAPortToFree(t *testing.T) {
 	old, err := net.Listen("tcp", "127.0.0.1:0")
