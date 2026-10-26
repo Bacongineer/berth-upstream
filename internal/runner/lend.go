@@ -25,10 +25,10 @@ import (
 	"github.com/T-Crypt/berth/internal/server"
 )
 
-// lendCallTimeout is the window one lend or take-back call gets, the park
-// call's: the engine answers when it has let the memory go, and a resize of an
-// expert cache is not instant.
-const lendCallTimeout = parkCallTimeout
+// lendCallTimeout is the window one lend or take-back call gets. berthd reads
+// the same constant, so it waits for the engine's answer as long as the run
+// does.
+const lendCallTimeout = lend.CallTimeout
 
 // A 503 does not end the lend: it may still land. The run watches the engine's
 // ledger for lendPendingWindow (the daemon's default release grace, the same

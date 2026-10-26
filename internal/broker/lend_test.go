@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -301,6 +302,56 @@ func TestUnconfirmedLendFallsBackAfterTheGrace(t *testing.T) {
 		t.Fatalf("holder state = %s, want draining", got.State)
 	}
 	pending(t, w)
+}
+
+// An engine can take a while to answer a lend: Strata finishes the answer it
+// is streaming before it shrinks its cache. The release grace counts from the
+// engine's answer, so a lend that answers inside the runner's call window and
+// then shows free on the card still grants the waiter. One that never answers
+// falls back once that window and the grace are both gone.
+func TestALendAnsweredLateStillGrants(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	b.cfg.ReleaseGrace = 30 * time.Second
+	clk := newMinClock(turnBase)
+	b.nowFn = clk.now
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	takeLend(t, holder)
+
+	clk.set(turnBase.Add(45 * time.Second)) // the engine is still finishing an answer
+	b.Tick(context.Background())
+	noDrain(t, holder)
+
+	holder.Lent("t1", 4*GiB)
+	c.used = 18 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "strata", Used: 18 * GiB})
+	b.Tick(context.Background())
+	granted(t, b, "voice", w)
+	noDrain(t, holder)
+}
+
+func TestALendNeverAnsweredFallsBackAfterTheCallWindow(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	b.cfg.ReleaseGrace = 30 * time.Second
+	clk := newMinClock(turnBase)
+	b.nowFn = clk.now
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	takeLend(t, holder)
+
+	clk.set(turnBase.Add(lend.CallTimeout + 31*time.Second))
+	b.Tick(context.Background())
+	if why := drained(t, holder); !strings.Contains(why, "voice") {
+		t.Fatalf("drain reason %q does not name the requester", why)
+	}
+	got := event(t, b, proto.EvLendFailed)
+	if want := "it did not answer within 1m30s"; !strings.Contains(got.Detail, want) {
+		t.Fatalf("lend_failed event = %q, want %q", got.Detail, want)
+	}
 }
 
 // The take-back waits for the borrower's memory to be gone (rule 2), a
