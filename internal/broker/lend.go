@@ -344,6 +344,11 @@ func (b *Broker) lendTick(key string, h *lease, now time.Time, read uint64) {
 		}
 		if h.lentID != "" && read > h.lentRead && sat(b.snap.Free, b.cfg.Reserve) >= w.needs {
 			h.lend = lent
+			// The driver shows the waiter's room free (rule 1), so the books
+			// follow it: an engine that gave a little less than asked, with
+			// the card's own free memory making up the rest, has still lent
+			// the waiter its room.
+			h.lentBytes += sat(w.needs, sat(b.ceiling(), b.heldWith(0, w)))
 			b.log.Info("lend confirmed", "lease", key, "engine", h.engine, "mib", h.lentBytes/gpu.MiB, "to", w.engine)
 			b.emit(proto.Event{Kind: proto.EvLent, Lease: key, Engine: h.engine, Bytes: h.lentBytes,
 				Detail: fmt.Sprintf("%s lent %d MiB to %s; the card shows it free", h.engine, h.lentBytes/gpu.MiB, w.engine)})
