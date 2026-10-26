@@ -50,6 +50,10 @@ has a matching GitHub release whose body comes from its section below.
   waiter was short by the gap and berthd drained the holder. Seen live with Strata on an RTX 4090: asked 3072 MiB,
   Strata freed 2939 MiB in cache segments with 406 MiB already free, and berthd drained it. The books now credit the
   room the card shows free (#189).
+- A lend survives an engine that takes a while to answer. Strata finishes the answer it is streaming before it gives
+  memory back, and berthd gave up on a lend 30 s after the ask while `berth run` waited 60 s for the engine, so a
+  long answer turned the lend into a drain. berthd now waits the run's 60 s for the answer, and the 30 s grace for
+  the card to show the memory free counts from the answer.
 
 ### Added
 
