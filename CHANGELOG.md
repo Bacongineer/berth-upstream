@@ -65,6 +65,20 @@ has a matching GitHub release whose body comes from its section below.
   lend and asks for the take-back once the card has room, instead of blocking waiters behind memory that is gone.
   `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
   docs/gateway.md's Lending section states the rules.
+- A Docker Compose project is one engine. `compose = "/srv/tagger/compose.yaml"` on an `[[engine]]` entry, or
+  `berth run --compose PATH`: the lease covers every container of the project, so PaddleOCR's second CUDA
+  service and a sidecar that carries the engine's network are its engine's memory rather than stowaways. A
+  lease's single container became a set, and the runner lists the project with
+  `docker compose -f PATH ps -q --all` on every poll (podman when docker does not answer), so a container that
+  restarts under a new ID comes back to the lease on the next poll. A drain stops the project with
+  `compose stop -t <grace>` and never `down`, which would delete the containers and networks you own. The start
+  command stays yours, and `docker compose -f PATH up` is the shape that fits. An entry sets `compose` or
+  `container`, never both, and `berth config check` refuses that pair and a relative path.
+  This turns container support on for Windows, where `--container` was accepted and ignored: the runtime CLI is
+  the same there. WSL2 reports no per-container VRAM, so a container engine alone on the card is also charged the
+  WSL VM's measured GPU row when it beats its `needs_mib`, and with two container engines Berth cannot split that
+  row, so each counts its `needs_mib` and the row stays a stowaway counted once. Size `needs_mib` from your
+  heaviest run: one operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest (#172).
 
 ## [v0.3.6] - 2026-10-23
 

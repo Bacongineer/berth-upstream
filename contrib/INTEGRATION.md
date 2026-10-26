@@ -128,7 +128,7 @@ full container ID (docker first, then podman), attaches it to the lease, and eve
 GPU process inside that container belongs to the lease from then on. On a drain the
 wrapper runs `docker stop -t 30 vllm` (the image's own SIGTERM, then SIGKILL) instead
 of signalling the wrapper's process group; if the stop fails it falls back to the
-signals. Linux only in this release; on Windows the flag is accepted and ignored.
+signals. Linux and Windows both work: the runtime CLI is the same on each.
 
 The container is Berth's because this command started it, and only that container is
 ever stopped. A container Berth did not start stays a stowaway: reported with its
@@ -151,6 +151,50 @@ same settings work as `container = "NAME"` on the engine's `[[engine]]` block in
 berth.toml (a `--container` flag wins). Podman engines read the same:
 `podman run --name vllm ...`; Berth resolves and stops with podman when docker is
 not installed.
+
+## A Compose project as one engine
+
+A lease names containers, plural, so an engine that is a Compose project fits as it
+is. PaddleOCR runs an OCR service beside a detection sidecar and both want the GPU; a
+tagger runs beside a Tailscale sidecar that carries its network. Point Berth at the
+Compose file and the whole project is one engine:
+
+```toml
+[[engine]]
+name    = "pet-tagger"
+type    = "custom"
+url     = "http://127.0.0.1:8000"
+health  = "/health"
+start   = ["docker", "compose", "-f", "/srv/tagger/compose.yaml", "up"]
+compose = "/srv/tagger/compose.yaml"
+needs_mib = 2560
+```
+
+The path is absolute, and an entry sets `compose` or `container`, not both: a project
+names its own containers. `berth config check` refuses both other shapes. `berth run
+--compose PATH` is the run-line form. Your start command stays yours, and `docker
+compose -f PATH up` is the one that fits: it stays in the foreground while the project
+runs and exits after a stop, so the run is the project's lifecycle.
+
+On every poll Berth asks the runtime which containers that file is running
+(`docker compose -f PATH ps -q --all`, podman when docker does not answer) and names the
+set on the lease. Every service's GPU processes then belong to the lease, so the second
+CUDA container is its engine's memory rather than a stowaway, and a container that
+restarts under a new ID comes back to the lease on the next poll. A drain runs `docker
+compose -f PATH stop -t 30`. It never runs `down`: that deletes the containers, networks
+and volumes the project owns.
+
+Windows reads the same file and runs the same two commands. One limit comes with WSL2:
+the driver reports no per-container VRAM there, so a container's memory arrives as the
+WSL VM's single process row, with the VM's whole dedicated usage. While a container
+engine is the only one on the card, Berth counts that row as its lease, which then counts
+the larger of its `needs_mib` and the row, and the VM stops showing as a stowaway. With
+two container engines at once Berth cannot split one row between them: each counts its
+`needs_mib`, and the row is reported once as a stowaway.
+
+Size `needs_mib` from your heaviest run. A batch engine's footprint follows its batch: one
+operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest, and
+the larger figure is the one that keeps the next engine from being over-committed.
 
 ## Everything else
 

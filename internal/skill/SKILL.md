@@ -45,6 +45,7 @@ do not assume any engine is protected.
 | Call a model and let Berth start its engine | the gateway: `http://127.0.0.1:9799/v1`, bearer key from `berth key` |
 | Wrap every llama-swap model at once | `berth wire llama-swap --config CFG` (plan), `--write` (apply, keeps a backup) |
 | Run an engine that lives in Docker or Podman | `berth run --as NAME --container CNAME -- docker run --rm --name CNAME ...` |
+| Run a Docker Compose project as one engine | `berth run --as NAME --compose /srv/APP/compose.yaml -- docker compose -f /srv/APP/compose.yaml up` (the lease covers every container of the project) |
 | Warm an engine before its first request | `GET /v1/berth/wait?model=M` on the gateway (blocks until it answers) |
 | Stop an engine Berth started | `berth stop ENGINE [--wait]` (normal drain; engines outlive a gateway restart) |
 | Bring a parked engine back | `berth resume ENGINE` (or just call its model through the gateway) |
