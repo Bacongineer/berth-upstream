@@ -27,7 +27,10 @@ type Options struct {
 	// card is in a VM and Index is not read.
 	Addr     string
 	Interval time.Duration
-	Log      *slog.Logger
+	// Stream is the machine's NVIDIA reader the card reads through; nil =
+	// a one-shot nvidia-smi query per read.
+	Stream *Stream
+	Log    *slog.Logger
 	// Roots are injectable for fixtures; empty means the host's sysfs/procfs.
 	SysRoot  string
 	ProcRoot string
@@ -89,8 +92,8 @@ func Open(o Options) (Probe, error) {
 		}
 		return openAMD(o)
 	}
-	if o.Interval > 0 {
-		return &Stream{Index: o.Index, Interval: o.Interval, Log: o.Log, busID: o.Addr}, nil
+	if o.Stream != nil {
+		return o.Stream.Card(o.Index, o.Addr), nil
 	}
 	return NvidiaSMI{Index: o.Index, BusID: o.Addr, Log: o.Log}, nil
 }

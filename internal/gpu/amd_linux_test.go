@@ -247,7 +247,7 @@ func TestAMDTelemetry(t *testing.T) {
 func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	a := amdFixture(t)
 	t.Setenv("PATH", t.TempDir())
-	opts := Options{SysRoot: a.SysRoot, ProcRoot: a.ProcRoot, Interval: time.Second}
+	opts := Options{SysRoot: a.SysRoot, ProcRoot: a.ProcRoot, Interval: time.Second, Stream: &Stream{}}
 	p, err := Open(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +265,7 @@ func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.(*Stream); !ok {
+	if _, ok := p.(*StreamCard); !ok {
 		t.Fatalf("auto on a mixed host chose %T, want the NVIDIA probe", p)
 	}
 	opts.Backend = "nvidia"
@@ -273,7 +273,7 @@ func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.(*Stream); !ok {
+	if _, ok := p.(*StreamCard); !ok {
 		t.Fatalf("probe %T", p)
 	}
 	opts.Backend = "amd"
