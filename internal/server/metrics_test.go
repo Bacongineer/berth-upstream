@@ -15,6 +15,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -29,7 +30,7 @@ func TestMetricsLoopbackOnly(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	b := broker.New(broker.Config{Log: log}, oneCard{}, procs.Map{})
 	b.Tick(context.Background())
-	if err := ServeMetrics(context.Background(), "0.0.0.0:0", b, nil, log); err == nil {
+	if err := ServeMetrics(context.Background(), "0.0.0.0:0", node.One(b), nil, log); err == nil {
 		t.Fatal("a non-loopback listen address was accepted")
 	}
 
@@ -41,7 +42,7 @@ func TestMetricsLoopbackOnly(t *testing.T) {
 	engines := func() []proto.Engine {
 		return []proto.Engine{{Name: "llama-swap", Type: "llama-swap", Up: true, DecodeTPS: 125}}
 	}
-	go ServeMetrics(ctx, addr, b, engines, log)
+	go ServeMetrics(ctx, addr, node.One(b), engines, log)
 	time.Sleep(100 * time.Millisecond)
 
 	resp, err := http.Get("http://" + addr + "/metrics")

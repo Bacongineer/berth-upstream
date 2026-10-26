@@ -10,16 +10,16 @@ package server
 import (
 	"log/slog"
 
-	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-func stop(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker) {
+func stop(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
 	if req.Engine == "" {
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: "engine name is required"})
 		return
 	}
-	ids, err := b.Stop(req.Engine)
+	ids, err := n.Stop(req.Engine)
 	if err != nil {
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return

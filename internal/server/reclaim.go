@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -20,8 +20,8 @@ import (
 // escalates to SIGKILL; --grace names it from the CLI.
 const defaultGrace = 10 * time.Second
 
-func reclaim(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker) {
-	hs, err := b.Reclaim(req.Lease)
+func reclaim(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
+	hs, err := n.Reclaim(req.Lease)
 	if err != nil {
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return
@@ -31,7 +31,7 @@ func reclaim(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker
 		if req.Grace > 0 {
 			grace = time.Duration(req.Grace * float64(time.Second))
 		}
-		stopHolders(b, hs, grace, log)
+		stopHolders(n, hs, grace, log)
 	}
 	if hs == nil {
 		hs = []proto.Holder{}

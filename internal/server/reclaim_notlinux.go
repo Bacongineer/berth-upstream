@@ -13,11 +13,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-func stopHolders(b *broker.Broker, hs []proto.Holder, grace time.Duration, log *slog.Logger) {
+func stopHolders(n *node.Node, hs []proto.Holder, grace time.Duration, log *slog.Logger) {
 	for i, h := range hs {
 		if h.Lease == "" {
 			continue

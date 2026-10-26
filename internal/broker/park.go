@@ -335,7 +335,7 @@ func (b *Broker) Resume(engine string, switched bool) error {
 		b.schedule(b.now())
 		return nil
 	}
-	return fmt.Errorf("%s is not parked", engine)
+	return notFound(engine + " is not parked")
 }
 
 // besideLine is the note a grant beside parked engines carries.

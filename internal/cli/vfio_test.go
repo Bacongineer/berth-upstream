@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/server"
 	"github.com/T-Crypt/berth/internal/vfio"
@@ -210,7 +211,7 @@ func startVfioDaemon(t *testing.T) (string, *broker.Broker) {
 	t.Cleanup(cancel)
 	b.Tick(ctx)
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{}, log)
 	return sock, b
 }
 

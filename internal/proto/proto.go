@@ -92,12 +92,15 @@ const (
 
 // Msg is every message in both directions; unused fields are omitted.
 type Msg struct {
-	Op       string  `json:"op"`
-	Engine   string  `json:"engine,omitempty"`
-	Group    string  `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
-	Priority string  `json:"priority,omitempty"`
-	Needs    uint64  `json:"needs,omitempty"` // bytes; 0 = the whole card
-	Wait     float64 `json:"wait,omitempty"`  // seconds to wait before refusing; 0 = server default
+	Op       string `json:"op"`
+	Engine   string `json:"engine,omitempty"`
+	Group    string `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
+	Priority string `json:"priority,omitempty"`
+	Needs    uint64 `json:"needs,omitempty"` // bytes; 0 = the whole card
+	// Card is the card an OpAcquire or OpReattach is for: its name on the
+	// node (gpu1) or its PCI address. "" is the node's first card.
+	Card     string  `json:"card,omitempty"`
+	Wait     float64 `json:"wait,omitempty"` // seconds to wait before refusing; 0 = server default
 	PID      int     `json:"pid,omitempty"`
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
 	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
@@ -187,6 +190,7 @@ type PairedDevice struct {
 type Event struct {
 	Seq    uint64    `json:"seq"`
 	At     time.Time `json:"at"`
+	Card   string    `json:"card,omitempty"` // the card it happened on, on a node with more than one
 	Kind   string    `json:"kind"`
 	Lease  string    `json:"lease,omitempty"`
 	Engine string    `json:"engine,omitempty"`
@@ -376,6 +380,7 @@ type Alerts struct {
 // GPU is the last measurement of one device. Age says how stale it is.
 // Scheduled marks the card this berthd leases; the others are inventory.
 type GPU struct {
+	Card      string  `json:"card,omitempty"` // the card's name on its node (gpu0)
 	Index     int     `json:"index"`
 	Name      string  `json:"name"`
 	Scheduled bool    `json:"scheduled"`
@@ -465,6 +470,7 @@ type History struct {
 }
 
 type Lease struct {
+	Card     string `json:"card,omitempty"` // the card's name on its node (gpu0)
 	ID       string `json:"id"`
 	Engine   string `json:"engine"`
 	Group    string `json:"group,omitempty"` // the engine family it counts for (llama-swap's models); "" = Engine
@@ -500,6 +506,7 @@ type Lease struct {
 }
 
 type Squatter struct {
+	Card     string `json:"card,omitempty"` // the card's name on its node (gpu0)
 	PID      int    `json:"pid"`
 	PIDStart uint64 `json:"pid_start,omitempty"`
 	Name     string `json:"name"`

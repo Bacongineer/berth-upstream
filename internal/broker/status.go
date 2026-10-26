@@ -43,7 +43,7 @@ func (b *Broker) Status() proto.Status {
 		Squatters:   []proto.Squatter{},
 		Unprotected: []proto.Run{},
 		Counters:    b.counters,
-		LastEvent:   b.seq,
+		LastEvent:   b.cfg.Events.Last(),
 		Priority:    b.priorityStatus(now),
 		Footprints:  b.footprintStatus(),
 		ParkedBytes: b.parkedRAM(),

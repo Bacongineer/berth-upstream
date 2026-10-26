@@ -21,6 +21,7 @@ import (
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/history"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -138,6 +139,7 @@ func runDaemon(c *Context) int {
 		Reporter:        rep,
 		Log:             log,
 	}, probe, procs.System{})
+	n := node.One(b)
 
 	// The alert table is the node's own thresholds: the built-in danger
 	// keys plus what the operator enabled. One level crossing is one
@@ -203,7 +205,7 @@ func runDaemon(c *Context) int {
 	logComfyArmed(log, comfy)
 	if cfg.Metrics.Listen != "" {
 		go func() {
-			if err := server.ServeMetrics(ctx, cfg.Metrics.Listen, b, watcher.Snapshot, log); err != nil {
+			if err := server.ServeMetrics(ctx, cfg.Metrics.Listen, n, watcher.Snapshot, log); err != nil {
 				log.Error("metrics", "err", err)
 			}
 		}()
@@ -224,7 +226,7 @@ func runDaemon(c *Context) int {
 	if *devicesFile != "" {
 		x.Pair = &pair.Store{Path: *devicesFile}
 	}
-	if err := server.Serve(ctx, ln, b, x, log); err != nil {
+	if err := server.Serve(ctx, ln, n, x, log); err != nil {
 		return c.fail(Systemf("serve: %v", err))
 	}
 	return ExitOK
