@@ -297,7 +297,8 @@ type lease struct {
 	// and never a park at the same time. lentBytes is what the engine said it
 	// gave; it counts against the card no more only once a card read newer
 	// than lentRead (b.reads when the engine answered) shows the memory free.
-	// lendAsked is when the ask went out, for rule 4's grace; noLend names the
+	// lendAsked is when the ask went out and lentAt when the engine answered,
+	// for rule 4's grace (lendOverdue); noLend names the
 	// waiter a lend failed for, so that waiter drains instead of asking the
 	// same holder again; lendRetry is the last return ask, so a retry waits a
 	// second instead of calling the engine every tick.
@@ -307,6 +308,7 @@ type lease struct {
 	lentTo    *lease
 	lentRead  uint64
 	lendAsked time.Time
+	lentAt    time.Time
 	noLend    *lease
 	lendRetry time.Time
 	// lendCap is the run's declaration that its engine has lend calls

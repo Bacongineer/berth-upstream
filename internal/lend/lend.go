@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/httpauth"
@@ -145,6 +146,12 @@ func protocol(base string) Adapter {
 
 // strataID names Strata's one lend: it has a single reserve, so at most
 // one lend is open.
+// CallTimeout is the window one lend or take-back call to an engine gets. The
+// engine answers once it has let the memory go, and Strata first finishes the
+// answer it is streaming. berthd waits this long for the answer before rule 4's
+// release grace starts counting.
+const CallTimeout = 60 * time.Second
+
 const strataID = "reserve"
 
 // strata drives Strata's POST /v1/vram, which takes a free-memory target

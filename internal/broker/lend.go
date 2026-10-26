@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -91,7 +92,7 @@ func (l *Lease) Lent(id string, bytes uint64) {
 	if l.l.lend != lending || l.l.lentTo == nil {
 		return
 	}
-	l.l.lentID, l.l.lentBytes, l.l.lentRead = id, bytes, b.reads.Load()
+	l.l.lentID, l.l.lentBytes, l.l.lentRead, l.l.lentAt = id, bytes, b.reads.Load(), b.now()
 	b.log.Info("engine lent", "lease", l.l.id, "engine", l.l.engine, "mib", bytes/gpu.MiB,
 		"to", l.l.lentTo.engine, "ticket", id, "waiting", "a card read that shows the memory free")
 }
@@ -175,9 +176,9 @@ func (b *Broker) lendRoom(w *lease, budget cardBudget, drainable []*lease, now t
 		}
 		switch h.lend {
 		case lending:
-			if now.Sub(h.lendAsked) > b.cfg.ReleaseGrace {
+			if why := b.lendOverdue(h, now); why != "" {
 				// Rule 4: a lend that never freed the memory falls back.
-				b.failLend(h, "the card never showed the memory free")
+				b.failLend(h, why)
 				return "", false
 			}
 			return lendWhy(h, w, short), true
@@ -354,8 +355,8 @@ func (b *Broker) lendTick(key string, h *lease, now time.Time, read uint64) {
 				Detail: fmt.Sprintf("%s lent %d MiB to %s; the card shows it free", h.engine, h.lentBytes/gpu.MiB, w.engine)})
 			return
 		}
-		if now.Sub(h.lendAsked) > b.cfg.ReleaseGrace {
-			b.failLend(h, "the card did not show the memory free within "+b.cfg.ReleaseGrace.String())
+		if why := b.lendOverdue(h, now); why != "" {
+			b.failLend(h, why)
 		}
 	case returning:
 		// An ask that never reached the runner, or a refusal to retry, is due
@@ -370,12 +371,31 @@ func (b *Broker) lendTick(key string, h *lease, now time.Time, read uint64) {
 	}
 }
 
+// lendOverdue is why a lend the card has not shown free is out of time (rule
+// 4), or "" while it may still land. Before the engine answers, its call gets
+// the runner's window (lend.CallTimeout), since Strata first finishes the answer
+// it is streaming; a call that runs out comes back as LendFailed, and this is
+// the backstop after it. Once the engine answered, the release grace counts
+// from that answer.
+func (b *Broker) lendOverdue(h *lease, now time.Time) string {
+	if h.lentID == "" {
+		if wait := lend.CallTimeout + b.cfg.ReleaseGrace; now.Sub(h.lendAsked) > wait {
+			return "it did not answer within " + wait.String()
+		}
+		return ""
+	}
+	if now.Sub(h.lentAt) > b.cfg.ReleaseGrace {
+		return "the card did not show the memory free within " + b.cfg.ReleaseGrace.String()
+	}
+	return ""
+}
+
 // clearLendState leaves the lend half of the machine: no ask open, nothing
 // counted as given, no borrower. The waiter a lend failed for (noLend) belongs
 // to the caller that failed it, and the engine's ticket is the caller's to ask
 // back.
 func clearLendState(h *lease) {
-	h.lend, h.lentID, h.lentBytes, h.lentRead, h.lendAsked = lendNone, "", 0, 0, time.Time{}
+	h.lend, h.lentID, h.lentBytes, h.lentRead, h.lendAsked, h.lentAt = lendNone, "", 0, 0, time.Time{}, time.Time{}
 	h.lentTo, h.lendAsk, h.returnAsk = nil, nil, nil
 }
 
