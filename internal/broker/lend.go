@@ -216,7 +216,7 @@ func lendWhy(h, w *lease, short uint64) string {
 // an engine's word never frees memory (rule 1).
 func (b *Broker) askLend(h, w *lease, short uint64, now time.Time) {
 	h.lend, h.lentTo, h.lendAsked = lending, w, now
-	h.lendAsk = &LendAsk{MiB: short / gpu.MiB, FreeMiB: b.snap.Free / gpu.MiB, GPU: b.cardAddr}
+	h.lendAsk = &LendAsk{MiB: (short + gpu.MiB - 1) / gpu.MiB, FreeMiB: b.snap.Free / gpu.MiB, GPU: b.cardAddr}
 	select {
 	case h.lendSig <- struct{}{}:
 	default:
@@ -244,20 +244,18 @@ func (b *Broker) failLend(h *lease, why string) {
 		Detail: fmt.Sprintf("%s did not lend %d MiB to %s: %s", h.engine, gave/gpu.MiB, engineOf(w), why)})
 }
 
-// clearLend takes an open lend off a holder that is draining or releasing, or
-// off one whose take-back the engine will not answer: its memory goes with it,
-// and the engine is asked back for whatever it gave. A borrower that is still
-// waiting is told by the card, not here: the memory it was promised is simply
-// never freed, and it waits as it would behind a stowaway.
+// clearLend takes an open lend off a holder that is draining or releasing:
+// its memory goes with it. The engine is never asked to take the memory back,
+// because the borrower may still hold it (rule 2) and the engine is stopping.
+// A borrower that is still waiting is told by the card, not here: the memory
+// it was promised is simply never freed, and it waits as it would behind a
+// stowaway.
 func (b *Broker) clearLend(h *lease, why string) {
 	if h.lend == lendNone {
 		return
 	}
-	id, gave := h.lentID, h.lentBytes
+	gave := h.lentBytes
 	clearLendState(h)
-	if id != "" {
-		b.askReturn(h, id)
-	}
 	if gave == 0 {
 		return
 	}

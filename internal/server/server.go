@@ -284,7 +284,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			}
 		case <-lease.Lends():
 			if ask := lease.TakeLend(); ask != nil {
-				if !u.send(proto.Msg{Op: proto.OpLend, Needs: ask.MiB, Free: ask.FreeMiB, GPU: ask.GPU}) {
+				if !u.send(proto.Msg{Op: proto.OpLend, Needs: ask.MiB << 20, Free: ask.FreeMiB, GPU: ask.GPU}) {
 					return
 				}
 			}

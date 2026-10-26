@@ -1138,7 +1138,7 @@ func (b *Broker) schedule(now time.Time) {
 		for _, v := range victims {
 			v.state = draining
 			// Its memory goes with the drain: an open lend is dropped, and
-			// asked back from the engine when there is a ticket to return.
+			// never asked back, since the borrower still holds it (rule 2).
 			b.clearLend(v, "it is draining")
 			msg := fmt.Sprintf("%s (%s) needs the card", w.engine, w.prio)
 			select {
@@ -1189,7 +1189,7 @@ func (b *Broker) budget(l *lease) uint64 {
 		// cannot use until it takes it back (docs/design.md rule 2), so it
 		// stops counting here. What the driver still measures under this
 		// holder always counts: an estimate never frees more than a reading.
-		return max(l.used(), held-l.lentBytes)
+		return max(l.used(), sat(held, l.lentBytes))
 	}
 	return held
 }

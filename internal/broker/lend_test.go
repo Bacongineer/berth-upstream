@@ -355,3 +355,55 @@ func TestAPinnedHoldIsNeverAskedToLend(t *testing.T) {
 		t.Fatalf("wait reason = %q, want the hold named", why)
 	}
 }
+
+// The ask covers the whole shortfall: a part of a MiB rounds up, so the
+// engine never gives less than the waiter needs and the lend can confirm.
+func TestLendAskRoundsTheShortfallUp(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+	w := acquire(b, Request{Engine: "ninfer", Priority: Foreground, Needs: 4*GiB + 512})
+	pending(t, w)
+	if got := takeLend(t, holder).MiB; got != 4097 {
+		t.Fatalf("lend ask = %d MiB, want 4097: 4 GiB and 512 bytes", got)
+	}
+}
+
+// An engine that reports more lent than its whole budget leaves it counting
+// what the driver measures, never a wrapped-around figure.
+func TestLentMoreThanTheBudgetCountsTheReading(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "maya", 100, 101, 6*GiB)
+	holder.l.lend, holder.l.lentBytes = lent, 30*GiB
+	b.mu.Lock()
+	got := b.budget(holder.l)
+	b.mu.Unlock()
+	if got != 6*GiB {
+		t.Fatalf("budget = %d MiB, want 6144: the driver's reading", got/gpu.MiB)
+	}
+}
+
+// A holder that drains while it lends is not asked to take the memory back:
+// its engine is stopping, and the borrower still holds what it was lent
+// (rule 2).
+func TestDrainingLenderIsNotAskedToTakeBack(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+	w := acquire(b, Request{Engine: "ninfer", Priority: Foreground, Needs: 4 * GiB})
+	takeLend(t, holder)
+	holder.Lent("t1", 4<<30)
+	c.set(gpu.Proc{PID: 101, Name: "strata", Used: 18 * GiB})
+	b.Tick(context.Background())
+	borrower := granted(t, b, "ninfer", w)
+	borrower.Attach(200)
+	c.set(gpu.Proc{PID: 101, Name: "strata", Used: 18 * GiB}, gpu.Proc{PID: 201, Name: "ninfer", Used: 4 * GiB})
+	b.Tick(context.Background())
+
+	// A whole-card request the holder must make room for drains it.
+	acquire(b, Request{Engine: "game", Priority: Foreground})
+	drained(t, holder)
+	select {
+	case <-holder.Returns():
+		t.Fatalf("a draining lender was asked to take back: %+v", holder.TakeReturn())
+	case <-time.After(50 * time.Millisecond):
+	}
+}

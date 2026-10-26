@@ -609,11 +609,13 @@ reloaded.
 - **The way back.** A lend is not a sleep. The holder stays active and drainable,
   and a lend the engine refuses, or one the card has not confirmed within
   `--release-grace` (30 s), falls through to the park or drain that would have run
-  anyway. A drain or a release of the holder drops the lend and asks the engine to
-  take back what it gave. A borrower that gives up waiting hands the memory back
-  too, so the next waiter may have it. A lend the engine answered too late to say
-  (its `503`) counts as refused for that waiter: its ticket is asked back, and the
-  ledger at `GET /vram/state` is what reconciles it when the run re-attaches.
+  anyway. A drain or a release of the holder drops the lend. The engine is
+  stopping, and the borrower may still hold that memory, so Berth does not ask
+  for it back. A borrower that gives up waiting hands the memory back, so the
+  next waiter may have it. A lend the engine did not answer in time (its `503`)
+  counts as refused for that waiter. The engine may still give that memory, and
+  until Berth reads the ledger at `GET /vram/state` (planned), nothing takes it
+  back.
 
 - **On the record.** `lease.lending`, `lease.lent`, `lease.returned` and
   `lease.lend_failed` name the engines and the MiB on `berth events --format json`
