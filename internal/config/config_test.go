@@ -907,3 +907,36 @@ func TestParkCheckpointIsARunFlag(t *testing.T) {
 		t.Fatalf("load err = %v", err)
 	}
 }
+
+func TestLendValidated(t *testing.T) {
+	head := func(typ string) string {
+		return "[[engine]]\nname = \"e\"\ntype = \"" + typ + "\"\nurl = \"http://127.0.0.1:9000\"\nhealth = \"/health\"\n"
+	}
+	c, err := Load(write(t, head("strata")+"lend = \"hook\"\n"))
+	if err != nil {
+		t.Fatalf("strata lends with no lend_url: %v", err)
+	}
+	if c.Engine[0].Lend != "hook" || c.Engine[0].LendURL != "" {
+		t.Fatalf("lend keys not loaded: %+v", c.Engine[0])
+	}
+	c, err = Load(write(t, head("custom")+"lend = \"hook\"\nlend_url = \"http://127.0.0.1:9000\"\n"))
+	if err != nil {
+		t.Fatalf("a lend_url is valid on any engine: %v", err)
+	}
+	if c.Engine[0].LendURL != "http://127.0.0.1:9000" {
+		t.Fatalf("lend_url = %q", c.Engine[0].LendURL)
+	}
+	for _, bad := range []struct {
+		body string
+		want string
+	}{
+		{head("custom") + "lend = \"hook\"\n", `lend = "hook" for a custom engine needs lend_url, the base of the Berth lend protocol`},
+		{head("custom") + "lend_url = \"http://127.0.0.1:9000\"\n", `lend_url needs lend = "hook"`},
+		{head("custom") + "lend = \"maybe\"\n", `lend "maybe" is not off or hook`},
+		{head("custom") + "lend = \"hook\"\nlend_url = \"127.0.0.1:9000\"\n", `lend_url "127.0.0.1:9000" must be an absolute http(s) URL`},
+	} {
+		if _, err := Load(write(t, bad.body)); err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("error lacks %q: %v", bad.want, err)
+		}
+	}
+}
