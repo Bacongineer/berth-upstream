@@ -172,6 +172,7 @@ func (o Options) containerTarget() string {
 func resolveContainers(o Options, line *leaseLine, cmd *exec.Cmd, done <-chan struct{}, ref *containerRef, say func(string, ...any)) {
 	every := o.pollEvery()
 	lastErr, sent := "", []string(nil)
+	warned := map[string]bool{}
 	for {
 		select {
 		case <-done:
@@ -196,7 +197,34 @@ func resolveContainers(o Options, line *leaseLine, cmd *exec.Cmd, done <-chan st
 		}
 		sent = ids
 		say("containers for %s: %s", o.containerTarget(), strings.Join(ids, " "))
+		for _, name := range restartAlways(o, rt, ids) {
+			if !warned[name] {
+				warned[name] = true
+				say("%s has restart policy always: %s starts it again on its next daemon or machine start, even after a drain stopped it, and it runs without a lease. Use unless-stopped to keep a stopped container stopped", name, rt)
+			}
+		}
 	}
+}
+
+// restartAlways names the containers among ids whose restart policy is
+// always. Docker restarts such a container when its daemon starts even
+// after `stop`, so a drain keeps it off the card only until the next boot;
+// unless-stopped keeps a stopped container stopped. A failed inspect names
+// none: the warning is advice, never a reason to stop the run.
+func restartAlways(o Options, runtime string, ids []string) []string {
+	argv := append([]string{runtime, "inspect", "-f", "{{.Name}} {{.HostConfig.RestartPolicy.Name}}"}, ids...)
+	out, err := o.CLI(argv, 10*time.Second)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for line := range strings.Lines(out) {
+		name, policy, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if ok && policy == "always" {
+			names = append(names, strings.TrimPrefix(name, "/"))
+		}
+	}
+	return names
 }
 
 // stopArgv is the `docker stop -t <grace seconds> ID` (or podman's) that

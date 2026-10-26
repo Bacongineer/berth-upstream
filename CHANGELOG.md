@@ -39,6 +39,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth run` warns when a container it names on a lease has restart policy `always`, with `--container` or
+  `--compose`. Docker restarts such a container when its daemon starts, even after a drain stopped it, so it comes
+  back on the card without a lease after a reboot. docs/engines.md says which policy fits (#172).
 - Pre-releases for testers. Work for the next release lands on the `next` branch and is tagged `vX.Y.Z-rc.N`, which
   publishes as a GitHub pre-release. The README's download link, `go install ...@latest` and `berth update` stay on
   the latest release. [Testing a pre-release](docs/prerelease.md) covers installing one and going back.

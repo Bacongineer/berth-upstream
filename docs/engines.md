@@ -72,6 +72,13 @@ next poll. A drain stops the project with `compose stop`, never `down`: `down` d
 and networks you own. Your start command stays your own, and `docker compose -f PATH up` suits it:
 it stays in the foreground while the project runs and exits after the stop.
 
+Check each service's restart policy. Docker restarts a container with `restart: always` the next time
+its daemon starts, even after a drain stopped it, so a reboot or a Docker Desktop start puts it back on
+the card without a lease. `berth run` reads the policy of each container it names on the lease and
+warns about `always`. `unless-stopped` keeps a drained container stopped, but a container that was
+running when the machine went down starts again at boot, also without a lease. With `restart: "no"`,
+only your start command brings the project up.
+
 Both forms work on Linux and Windows, and one runtime CLI does the work on either. Windows has one
 limit you should plan around. The driver reports no per-container VRAM under WSL2, so a container's
 memory arrives as the WSL VM's single process row. While a container engine is the only one on the
