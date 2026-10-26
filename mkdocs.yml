@@ -25,6 +25,7 @@ theme:
 nav:
   - Overview: README.md
   - Install: install.md
+  - Testing a pre-release: prerelease.md
   - Engines: engines.md
   - Leasing, games and holds: leasing.md
   - Design: design.md
