@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A resumed lease that is still waiting for the card counts against it only for the residual it holds, not for the
+  whole card it asked for. Its weights are in RAM until its grant lands. A `berth hold` behind a resumed ComfyUI
+  waited 1m44s with nothing to drain, because berthd still charged it ComfyUI's whole card. Such a waiter is now
+  granted beside the residual, or the parked engine gives way first, exactly as beside any parked engine.
 - The harbor library shows SERVED BY and EST. VRAM for a llama-swap model whose ID differs from its GGUF file's
   stem, such as `qwen-3.8-27b` for `Qwen3.8-27B-UD-IQ4_XS`. Berth reads the model file from the `cmd` in
   llama-swap's `/running` and matches the library row on that file before it tries the name (#197).

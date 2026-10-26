@@ -306,6 +306,14 @@ func (l *lease) gttUsed() uint64 {
 	return n
 }
 
+// awaitingGrant is whether l came back from a park and still waits for the
+// grant that wakes it: its weights are in RAM, so what it keeps on the card
+// is only the residual the driver measures, and every admission rule of a
+// parked engine is its rule too.
+func (l *lease) awaitingGrant() bool {
+	return l.state == waiting && l.resumed
+}
+
 // inTurn is whether l is inside its minimum turn: granted, and younger
 // than the turn, by the broker's clock (a duration from the grant, not
 // an order among leases).
@@ -1118,10 +1126,12 @@ func (b *Broker) setWait(w *lease, reason string) {
 // budget is what a holder counts against the card: the whole card if it
 // asked for it, else whichever is larger of what it asked for and what it holds.
 func (b *Broker) budget(l *lease) uint64 {
-	if l.state == parking || l.state == parked {
+	if l.state == parking || l.state == parked || l.awaitingGrant() {
 		// A parked engine cannot load anything more; what it counts for
 		// is the residual it still measures on the card, never promised
-		// free until the driver shows it gone.
+		// free until the driver shows it gone. A resumed lease that is
+		// still waiting for its grant is that same engine one step later:
+		// its weights have not come back onto the card yet.
 		return l.used()
 	}
 	if l.needs == 0 {
@@ -1284,7 +1294,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	var keptWhy string
 	for _, h := range hs {
 		switch {
-		case h.state == parked:
+		case h.state == parked || h.awaitingGrant():
 			warm = append(warm, h)
 		case h.state != active:
 			// Draining, releasing, stuck, and parking: a parking engine is

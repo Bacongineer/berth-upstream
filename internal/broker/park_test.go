@@ -519,6 +519,74 @@ func TestReleasedResumeIsNeverGranted(t *testing.T) {
 	}
 }
 
+// A resumed lease that has not been granted yet is still parked as far as
+// the card is concerned: it holds only the residual the driver measures. On
+// aphotic a berth hold waited 1m44s behind ComfyUI's 564 MiB residual with
+// nothing left to drain, because the waiting lease counted the whole card
+// it had asked for.
+func TestHoldIsGrantedBesideAResumedLeasesResidual(t *testing.T) {
+	b, c, _ := parkSetup(t, parkTree(100, 101), 16*GiB, 0)
+	comfy, chat := parkWholeCard(t, b, c)
+	c.set(gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 564 << 20})
+	b.Tick(context.Background())
+
+	// The wake waits on llama-swap, which has the whole card.
+	if err := b.Resume("comfyui", false); err != nil {
+		t.Fatal(err)
+	}
+	b.Tick(context.Background())
+	if st := b.Status(); len(st.Waiting) != 1 || st.Waiting[0].Engine != "comfyui" {
+		t.Fatalf("waiting = %+v, want the resumed comfyui queued", st.Waiting)
+	}
+
+	// llama-swap gives way to the hold, and the hold is granted beside the
+	// 564 MiB ComfyUI still holds.
+	game := acquire(b, Request{Engine: "game", Priority: Hold, Pinned: true})
+	if why := drained(t, chat); !strings.Contains(why, "game") {
+		t.Fatalf("drain reason %q, want it to name the hold", why)
+	}
+	chat.Release()
+	b.Tick(context.Background())
+
+	hold := granted(t, b, "game", game)
+	detail := grantDetail(t, b, "game")
+	if want := "beside parked comfyui (564 MiB)"; !strings.Contains(detail, want) {
+		t.Fatalf("grant detail = %q, want it to say %q", detail, want)
+	}
+
+	// The hold leaves, and the wake ComfyUI waited for lands.
+	hold.Release()
+	b.Tick(context.Background())
+	select {
+	case <-comfy.Resumed():
+	case <-time.After(time.Second):
+		t.Fatalf("the resumed lease never got the card back; waiting = %+v", b.Status().Waiting)
+	}
+}
+
+// The same rule for a sized request: a resumed whole-card lease leaves its
+// residual on the card, not its whole card, so the waiter behind it fits.
+func TestSizedWaiterFitsBesideAResumedLeasesResidual(t *testing.T) {
+	b, c, _ := parkSetup(t, parkTree(100, 101), 16*GiB, 0)
+	comfy, chat := parkWholeCard(t, b, c)
+	if err := b.Resume("comfyui", false); err != nil {
+		t.Fatal(err)
+	}
+
+	game := acquire(b, Request{Engine: "game", Priority: Hold, Needs: 20 * GiB})
+	if why := drained(t, chat); !strings.Contains(why, "game") {
+		t.Fatalf("drain reason %q, want it to name the waiter", why)
+	}
+	chat.Release()
+	b.Tick(context.Background())
+
+	// llama-swap's memory is gone: the 512 MiB ComfyUI holds leaves room.
+	granted(t, b, "game", game)
+	if st := b.Status(); len(st.Waiting) != 1 || st.Waiting[0].ID != comfy.ID() {
+		t.Fatalf("waiting = %+v, want %s still queued behind the 20 GiB grant", st.Waiting, comfy.ID())
+	}
+}
+
 // A park call that fails puts the lease back on the drain and says why on
 // the event stream, so a park that never works is seen.
 func TestParkFailedSaysWhy(t *testing.T) {

@@ -153,6 +153,37 @@ func drained(t *testing.T, l *Lease) string {
 	return ""
 }
 
+// granted waits for an engine's grant, failing with the reason the queue
+// last gave, and returns its lease.
+func granted(t *testing.T, b *Broker, engine string, ch chan result) *Lease {
+	t.Helper()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			t.Fatalf("acquire: %v", r.err)
+		}
+		return r.l
+	case <-time.After(time.Second):
+	}
+	st := b.Status()
+	t.Fatalf("%s was never granted: waiting = %+v, last wait reason %q", engine, st.Waiting, lastWaiting(b))
+	return nil
+}
+
+// grantDetail is the detail an engine's newest grant event carried, and
+// fails the test when no grant event names it.
+func grantDetail(t *testing.T, b *Broker, engine string) string {
+	t.Helper()
+	evs, _, _ := b.Events(0, false)
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Kind == proto.EvGranted && evs[i].Engine == engine {
+			return evs[i].Detail
+		}
+	}
+	t.Fatalf("no grant event names %s", engine)
+	return ""
+}
+
 // The v0 exit test in miniature: Strata asks while NInfer holds the card.
 // NInfer is drained, and Strata is let in only once the card shows NInfer's
 // memory gone, not when NInfer's wrapper merely disconnects.
