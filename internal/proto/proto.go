@@ -115,12 +115,13 @@ type Msg struct {
 	// ParkTTL is how long the lease may stay parked, in seconds, in place
 	// of the node's [park] ttl. OpAcquire and OpReattach; 0 = the node's.
 	ParkTTL float64 `json:"park_ttl,omitempty"`
-	// Container is the container the engine runs in: OpAcquire and
-	// OpReattach carry the name the operator gave (--container), OpAttach
-	// the full ID berth run resolved it to. The broker matches GPU
-	// processes by the ID and reports it shortened.
-	Container string `json:"container,omitempty"`
-	Lease     string `json:"lease,omitempty"`
+	// Containers is the containers the engine runs in: OpAcquire and
+	// OpReattach carry the names the operator gave (--container), OpAttach
+	// the full IDs berth run resolved them to. A Compose project is a set;
+	// a lone --container is a set of one, so the runner has one path. The
+	// broker matches GPU processes by the IDs and reports them shortened.
+	Containers []string `json:"containers,omitempty"`
+	Lease      string   `json:"lease,omitempty"`
 	// OpStop: Leases is the reply, the leases the daemon asked to drain.
 	Leases   []string  `json:"leases,omitempty"`
 	Reason   string    `json:"reason,omitempty"`
@@ -467,18 +468,17 @@ type Lease struct {
 	Needs    uint64 `json:"needs"`
 	PID      int    `json:"pid,omitempty"`
 	PIDStart uint64 `json:"pid_start,omitempty"`
-	// Container is the container the engine runs in (the full ID berth run
-	// resolved), "" for a host process; ContainerName is the name the
-	// operator gave.
-	Container     string  `json:"container,omitempty"`
-	ContainerName string  `json:"container_name,omitempty"`
-	GPUPIDs       []int   `json:"gpu_pids,omitempty"`
-	Used          uint64  `json:"used"`
-	GTTUsed       uint64  `json:"gtt_used,omitempty"`
-	GTTContested  uint64  `json:"gtt_contested,omitempty"`
-	Contested     uint64  `json:"contested,omitempty"`
-	Age           float64 `json:"age_seconds"`
-	Pinned        bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
+	// Containers are the containers the engine runs in, as the full IDs
+	// berth run resolved them; empty for a host process. A Compose engine
+	// lists the whole project.
+	Containers   []string `json:"containers,omitempty"`
+	GPUPIDs      []int    `json:"gpu_pids,omitempty"`
+	Used         uint64   `json:"used"`
+	GTTUsed      uint64   `json:"gtt_used,omitempty"`
+	GTTContested uint64   `json:"gtt_contested,omitempty"`
+	Contested    uint64   `json:"contested,omitempty"`
+	Age          float64  `json:"age_seconds"`
+	Pinned       bool     `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
 	// ParkedSince is how long the engine has been parked, in seconds; 0
 	// when it is not parked.
 	ParkedSince float64 `json:"parked_since,omitempty"`

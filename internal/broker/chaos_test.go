@@ -97,7 +97,7 @@ func TestChaosScenario8ContainerHandoff(t *testing.T) {
 	c.set(gpu.Proc{PID: 101, Name: "python", Used: 8 * GiB})
 	b.Tick(context.Background())
 
-	vllm := acquire(b, Request{Engine: "vllm", Container: "vllm", Priority: Foreground})
+	vllm := acquire(b, Request{Engine: "vllm", Containers: []string{"vllm"}, Priority: Foreground})
 	pending(t, vllm)
 	if why := drained(t, comfy); !strings.Contains(why, "vllm") {
 		t.Fatalf("drain reason %q does not name the requester", why)
@@ -107,7 +107,7 @@ func TestChaosScenario8ContainerHandoff(t *testing.T) {
 	b.Tick(context.Background())
 	vl := must(t, vllm)
 	vl.Attach(102) // the docker CLI; containerd-shim parents the engine
-	vl.AttachContainer(vllmID)
+	vl.AttachContainers([]string{vllmID})
 
 	// The containerized engine loads: not a tree descendant of the docker
 	// CLI, attributed to the lease by container id all the same.

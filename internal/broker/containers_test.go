@@ -5,12 +5,14 @@ package broker
 
 // Containerized engines: a GPU process inside a container is parented by
 // containerd-shim, so the process tree cannot reach it. A lease that names
-// the container owns its processes anyway; a container no lease names is a
-// stowaway, named in the report.
+// the container owns its processes anyway, and a Compose lease owns the
+// processes of every container of its project; a container no lease names is
+// a stowaway, named in the report.
 
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +20,48 @@ import (
 	"github.com/T-Crypt/berth/internal/procs"
 )
 
-const vllmID = "9b5f6c4d3e2a1b0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f"
+const (
+	vllmID = "9b5f6c4d3e2a1b0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f"
+	// A Compose project's other two containers.
+	ocrID     = "5f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f9b5f6c4d3e2a1b0f9e8d7c6b5a"
+	sidecarID = "3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d"
+)
+
+// A Compose engine is one lease over several containers: the GPU process in
+// each of them is the lease's, and none of them is a stowaway.
+func TestComposeLeaseOwnsEveryContainerOfItsProject(t *testing.T) {
+	tree := procs.Map{101: 100}
+	b, c, r := setup(t, tree)
+	b.cfg.Containers = func(pid int) (string, bool) {
+		switch pid {
+		case 201:
+			return vllmID, true
+		case 202:
+			return ocrID, true
+		}
+		return "", false
+	}
+
+	l := must(t, acquire(b, Request{Engine: "paddleocr", Needs: 16 * GiB}))
+	l.Attach(100) // the compose CLI; containerd-shim parents the services, not it
+	l.AttachContainers([]string{vllmID, ocrID})
+	c.set(
+		gpu.Proc{PID: 201, Name: "paddle", Used: 6 * GiB},
+		gpu.Proc{PID: 202, Name: "det", Used: 3 * GiB},
+	)
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].Used != 9*GiB {
+		t.Fatalf("leases = %+v, want both containers under the one lease", st.Leases)
+	}
+	if got := strings.Join(st.Leases[0].Containers, ","); got != vllmID+","+ocrID {
+		t.Fatalf("lease containers = %q, want the whole project", got)
+	}
+	if len(st.Squatters) != 0 || len(r.seen) != 0 {
+		t.Fatalf("squatters = %+v, reports = %v", st.Squatters, r.seen)
+	}
+}
 
 func TestContainerEngineBelongsToItsLease(t *testing.T) {
 	tree := procs.Map{101: 100}
@@ -30,9 +73,9 @@ func TestContainerEngineBelongsToItsLease(t *testing.T) {
 		return "", false
 	}
 
-	l := must(t, acquire(b, Request{Engine: "vllm", Container: "vllm", Needs: 16 * GiB}))
+	l := must(t, acquire(b, Request{Engine: "vllm", Containers: []string{"vllm"}, Needs: 16 * GiB}))
 	l.Attach(100) // the docker CLI; containerd-shim parents the engine, not it
-	l.AttachContainer(vllmID)
+	l.AttachContainers([]string{vllmID})
 	c.set(
 		gpu.Proc{PID: 201, Name: "vllm", Used: 18 * GiB},
 	)
@@ -42,8 +85,8 @@ func TestContainerEngineBelongsToItsLease(t *testing.T) {
 	if len(st.Leases) != 1 || st.Leases[0].Used != 18*GiB {
 		t.Fatalf("leases = %+v, want the container's memory under the lease", st.Leases)
 	}
-	if st.Leases[0].Container != vllmID || st.Leases[0].ContainerName != "vllm" {
-		t.Fatalf("lease = %+v, want its container and the name it was given", st.Leases[0])
+	if !slices.Equal(st.Leases[0].Containers, []string{vllmID}) {
+		t.Fatalf("lease = %+v, want the container it was resolved to", st.Leases[0])
 	}
 	if len(st.Squatters) != 0 || len(r.seen) != 0 {
 		t.Fatalf("squatters = %+v, reports = %v", st.Squatters, r.seen)
@@ -96,8 +139,8 @@ func TestContainerStowawayIsNamed(t *testing.T) {
 
 	// A lease may still claim the same container later: the memory becomes
 	// the lease's and the stowaway report is withdrawn.
-	l := must(t, acquire(b, Request{Engine: "vllm", Container: "leaker"}))
-	l.AttachContainer(vllmID)
+	l := must(t, acquire(b, Request{Engine: "vllm", Containers: []string{"leaker"}}))
+	l.AttachContainers([]string{vllmID})
 	b.Tick(context.Background())
 	st = b.Status()
 	if len(st.Squatters) != 0 || len(st.Leases) != 1 {
@@ -134,15 +177,85 @@ func TestReattachCarriesTheContainer(t *testing.T) {
 		}
 		return "", false
 	}
-	l, err := b.Reattach(Request{Engine: "vllm", Container: vllmID}, 100, 7)
+	l, err := b.Reattach(Request{Engine: "vllm", Containers: []string{vllmID}}, 100, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.set(gpu.Proc{PID: 201, Name: "vllm", Used: 18 * GiB})
 	b.Tick(context.Background())
-	if st := b.Status(); len(st.Leases) != 1 || st.Leases[0].Container != vllmID ||
+	if st := b.Status(); len(st.Leases) != 1 || !slices.Equal(st.Leases[0].Containers, []string{vllmID}) ||
 		st.Leases[0].Used != 18*GiB {
 		t.Fatalf("leases = %+v, want the reattached lease owning the container", st.Leases)
 	}
 	_ = l
+}
+
+// WSL2 gives Berth no per-container GPU number: every container of the VM
+// shows up as the VM's one process row. With exactly one container lease on
+// the card that row is the engine's memory, and the lease counts the larger
+// of its needs and the row.
+func TestWSLVMRowCountsForTheOnlyContainerLease(t *testing.T) {
+	b, c, r := setup(t, procs.Map{})
+	b.cfg.Containers = func(int) (string, bool) { return "", false } // no cgroups to read
+
+	l := must(t, acquire(b, Request{Engine: "pet-tagger", Containers: []string{vllmID}, Needs: 2 * GiB}))
+	l.AttachContainers([]string{vllmID})
+	c.set(gpu.Proc{PID: 4, Name: "vmwp.exe", Used: 20 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Leases) != 1 || st.Leases[0].Used != 20*GiB {
+		t.Fatalf("leases = %+v, want the VM's 20 GiB under the container lease", st.Leases)
+	}
+	if len(st.Squatters) != 0 || len(r.seen) != 0 {
+		t.Fatalf("squatters = %+v, reports = %v, want the VM row never a stowaway", st.Squatters, r.seen)
+	}
+
+	// The budget is the larger of needs and the row: with 20 GiB measured on
+	// a 24 GiB card there is no room for a 6 GiB waiter, even though the
+	// engine only asked for 2 GiB.
+	next := acquire(b, Request{Engine: "next", Needs: 6 * GiB})
+	b.Tick(context.Background())
+	pending(t, next)
+}
+
+// Two container leases share the VM's one row, and Berth cannot split it.
+// Each counts its needs, and the row stays a stowaway counted once.
+func TestWSLVMRowBelongsToNeitherOfTwoContainerLeases(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	b.cfg.Containers = func(int) (string, bool) { return "", false }
+	a := must(t, acquire(b, Request{Engine: "tagger", Needs: 3 * GiB}))
+	a.AttachContainers([]string{vllmID})
+	z := must(t, acquire(b, Request{Engine: "ocr", Needs: 4 * GiB}))
+	z.AttachContainers([]string{sidecarID})
+
+	c.set(gpu.Proc{PID: 4, Name: "vmwp.exe", Used: 6 * GiB})
+	b.Tick(context.Background())
+
+	st := b.Status()
+	if len(st.Squatters) != 1 || st.Squatters[0].Name != "vmwp.exe" || st.Squatters[0].Used != 6*GiB {
+		t.Fatalf("squatters = %+v, want the VM row counted once and owned by neither", st.Squatters)
+	}
+	for _, l := range st.Leases {
+		if l.Used != 0 {
+			t.Fatalf("lease %s = %d MiB used, want none of the VM row charged to it", l.ID, l.Used/GiB)
+		}
+	}
+}
+
+// A host lease is not a container lease: a WSL VM row beside it stays a
+// stowaway, and nothing of the VM is charged to the engine on the card.
+func TestWSLVMRowIsNotAHostLease(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	b.cfg.Containers = func(int) (string, bool) { return "", false }
+	must(t, acquire(b, Request{Engine: "ninfer", Needs: 4 * GiB}))
+	c.set(gpu.Proc{PID: 4, Name: "vmwp.exe", Used: 6 * GiB})
+	b.Tick(context.Background())
+	st := b.Status()
+	if len(st.Squatters) != 1 {
+		t.Fatalf("squatters = %+v, want the VM row a stowaway", st.Squatters)
+	}
+	if len(st.Leases) != 1 || st.Leases[0].Used != 0 {
+		t.Fatalf("leases = %+v, want none of it under the host lease", st.Leases)
+	}
 }

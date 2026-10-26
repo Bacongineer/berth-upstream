@@ -940,3 +940,32 @@ func TestLendValidated(t *testing.T) {
 		}
 	}
 }
+
+// A Compose engine is one absolute Compose file, never also a container: the
+// project names its own containers.
+func TestEngineComposeParsedAndValidated(t *testing.T) {
+	const base = "[[engine]]\nname = \"tagger\"\ntype = \"custom\"\nurl = \"http://127.0.0.1:8000\"\nhealth = \"/healthz\"\n"
+	abs := filepath.Join(t.TempDir(), "compose.yaml")
+	c, err := Load(write(t, base+"compose = \""+abs+"\"\n"))
+	if err != nil {
+		t.Fatalf("a valid compose was refused: %v", err)
+	}
+	if c.Engine[0].Compose != abs {
+		t.Fatalf("compose = %q, want %q", c.Engine[0].Compose, abs)
+	}
+
+	for _, tc := range []struct {
+		engine  string
+		wantErr string
+	}{
+		{"compose = \"compose.yaml\"", `engine[0] "tagger": compose "compose.yaml" must be an absolute path`},
+		{"compose = \"./compose.yaml\"", `engine[0] "tagger": compose "./compose.yaml" must be an absolute path`},
+		{"compose = \"/srv/tagger/compose.yaml\"\ncontainer = \"tagger\"",
+			`engine[0] "tagger": compose and container are mutually exclusive`},
+	} {
+		_, err := Load(write(t, base+tc.engine+"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error lacks %q: %v", tc.engine, tc.wantErr, err)
+		}
+	}
+}

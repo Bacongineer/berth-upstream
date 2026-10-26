@@ -322,9 +322,10 @@ function rowTitle(entry) {
   if (entry.isWaiting && l.position != null) {
     bits.push("waiting at queue position " + l.position + (l.estimate_s != null ? ", est. " + ageWord(l.estimate_s) + " to a berth" : ""));
   }
-  if (l.container_name) {
-    bits.push("runs in container " + l.container_name + (l.container ? " (" + l.container + ")" : ""));
-  }
+  // A container engine is shown by what it runs in: every container ID of
+  // its Compose project, or the one container a --container engine has.
+  const ids = (l.containers || []).join(", ");
+  if (ids) bits.push("runs in container " + ids);
   return bits.join("; ");
 }
 // ageWord reads a seconds figure the way the log does: 6m 2s, 1h 30m.

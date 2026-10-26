@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,7 +40,8 @@ func runRun(c *Context) int {
 	keyEnv := fs.String("api-key-env", "", "environment variable holding the bearer token for engine drain requests")
 	parkMode := fs.String("park", "", "off, hook or checkpoint (cuda-checkpoint moves the engine's VRAM into RAM on a drain; needs --front), over the entry's park")
 	frontAddr := fs.String("front", "", "loopback address the engine's requests come to (llama-swap's ${PORT}); the engine takes a free port at "+runner.PortPlaceholder+" in its command, and requests wait here while it sleeps")
-	container := fs.String("container", "", "NAME of the container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper (Linux-only in this release)")
+	container := fs.String("container", "", "NAME of the one container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper")
+	composeFile := fs.String("compose", "", "absolute PATH of the Compose file CMD's project runs from: the lease covers every container of the project and the drain stops it with compose stop, never down; exclusive with --container")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD without berthd or stop it without a safe boundary")
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: the engine entry matching --as (or --group) supplies the settings a flag does not set; a set flag wins and says so; missing = no defaults ($BERTH_CONFIG)")
@@ -62,7 +64,11 @@ func runRun(c *Context) int {
 	if entry := engineEntry(merged, *engine, *group); entry != nil {
 		e = *entry
 	}
-	applyEngineEntry(c, &e, prio, needs, drainPost, drainSlots, drainComfy, keepComfy, drainMax, minTurn, container)
+	applyEngineEntry(c, &e, engineFlags{
+		priority: prio, needsMiB: needs, drainPost: drainPost, drainSlots: drainSlots,
+		drainComfyUI: drainComfy, keepComfyUI: keepComfy, drainMax: drainMax, minTurn: minTurn,
+		container: container, compose: composeFile,
+	})
 	if c.Changed("api-key-env") {
 		e.APIKeyEnv = *keyEnv
 	}
@@ -94,7 +100,9 @@ func runRun(c *Context) int {
 	if _, err := broker.ParsePriority(e.Priority); err != nil {
 		return c.fail(Systemf("%v", err))
 	}
-	if err := checkRunFlags(e.KeepComfyUI, e.DrainComfyUI); err != nil {
+	if err := checkRunFlags(runFlags{
+		keepComfyUI: e.KeepComfyUI, drainComfyUI: e.DrainComfyUI, container: e.Container, compose: e.Compose,
+	}); err != nil {
 		return c.fail(Systemf("%v", err))
 	}
 	// Nothing here goes to stdout: the engine owns it. berth's own notices are
@@ -149,11 +157,28 @@ func engineEntry(cfg config.Config, as, group string) *config.Engine {
 	return nil
 }
 
+// engineFlags are the `berth run` flags that fold onto an engine's entry.
+type engineFlags struct {
+	priority     *string
+	needsMiB     *uint64
+	drainPost    *string
+	drainSlots   *string
+	drainComfyUI *string
+	keepComfyUI  *bool
+	drainMax     *time.Duration
+	minTurn      *time.Duration
+	container    *string
+	compose      *string
+}
+
 // applyEngineEntry folds the run's flags into the engine's entry copy e:
 // a flag the operator set wins and says so, in the file's key and value;
 // an unset flag defers to the entry.
-func applyEngineEntry(c *Context, e *config.Engine,
-	prio *string, needs *uint64, drainPost, drainSlots, drainComfy *string, keepComfy *bool, drainMax, minTurn *time.Duration, container *string) {
+func applyEngineEntry(c *Context, e *config.Engine, f engineFlags) {
+	prio, needs, drainPost := f.priority, f.needsMiB, f.drainPost
+	drainSlots, drainComfy, keepComfy := f.drainSlots, f.drainComfyUI, f.keepComfyUI
+	drainMax, minTurn := f.drainMax, f.minTurn
+	container, composeFile := f.container, f.compose
 	notice := func(flag, key, toml string) {
 		fmt.Fprintf(c.Err, "berth: --%s overrides berth.toml %s = %s for %s\n", flag, key, toml, e.Name)
 	}
@@ -181,6 +206,7 @@ func applyEngineEntry(c *Context, e *config.Engine,
 		{"drain-slots", "drain_slots", e.DrainSlots, drainSlots, func(s string) { e.DrainSlots = s }},
 		{"drain-comfyui", "drain_comfyui", e.DrainComfyUI, drainComfy, func(s string) { e.DrainComfyUI = s }},
 		{"container", "container", e.Container, container, func(s string) { e.Container = s }},
+		{"compose", "compose", e.Compose, composeFile, func(s string) { e.Compose = s }},
 	}
 	for _, d := range drains {
 		if !c.Changed(d.flag) {
@@ -214,11 +240,26 @@ func applyEngineEntry(c *Context, e *config.Engine,
 	}
 }
 
+// runFlags are the `berth run` settings that cannot stand on their own or
+// cannot stand together.
+type runFlags struct {
+	keepComfyUI  bool
+	drainComfyUI string
+	container    string
+	compose      string
+}
+
 // checkRunFlags rejects flag combinations that can never work, mirroring
 // the berth.toml validation, before anything starts.
-func checkRunFlags(keepComfy bool, drainComfy string) error {
-	if keepComfy && drainComfy == "" {
+func checkRunFlags(f runFlags) error {
+	if f.keepComfyUI && f.drainComfyUI == "" {
 		return fmt.Errorf("--keep-comfyui-up needs --drain-comfyui, the ComfyUI base URL to unload on drain")
+	}
+	if f.container != "" && f.compose != "" {
+		return fmt.Errorf("--container and --compose are mutually exclusive: a Compose project names its own containers")
+	}
+	if f.compose != "" && !filepath.IsAbs(f.compose) {
+		return fmt.Errorf("--compose %s must be an absolute path: engines start from the daemon's working directory", f.compose)
 	}
 	return nil
 }
