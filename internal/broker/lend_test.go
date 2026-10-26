@@ -201,6 +201,43 @@ func TestLendOnACardWithABaseline(t *testing.T) {
 	}
 }
 
+// An engine can give a little less than it was asked (Strata frees its cache
+// in segments), while the card's own free memory makes up the gap. Once a card
+// read shows the waiter's room free, the waiter is granted and the holder
+// keeps serving. Seen live on the 4090: asked 3072 MiB, Strata gave 2939 MiB
+// with 406 MiB already free, and the holder was drained in the same tick.
+func TestALendTheCardCoversIsGrantedWhenTheEngineGaveLess(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "maya", 100, 101, 22*GiB)
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	if got, want := takeLend(t, holder), (LendAsk{MiB: 4096, FreeMiB: 2048}); got != want {
+		t.Fatalf("lend ask = %+v, want %+v", got, want)
+	}
+
+	holder.Lent("t1", 3*GiB)
+	c.used = 19 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB})
+	b.Tick(context.Background())
+	borrower := granted(t, b, "voice", w)
+	noDrain(t, holder)
+	if got := statusOf(t, b, "maya"); got.State != "active" {
+		t.Fatalf("holder state = %s, want active: a lending engine keeps serving", got.State)
+	}
+
+	borrower.Attach(200)
+	c.used = 23 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB}, gpu.Proc{PID: 201, Name: "voice", Used: 4 * GiB})
+	b.Tick(context.Background())
+	borrower.Release()
+	c.used = 19 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB})
+	b.Tick(context.Background())
+	if got, want := takeReturn(t, holder), (ReturnAsk{ID: "t1"}); got != want {
+		t.Fatalf("return ask = %+v, want %+v", got, want)
+	}
+}
+
 // A lend the engine refuses falls through to a drain of that same holder,
 // once, and the waiter is told it is draining.
 func TestRefusedLendFallsThroughToADrain(t *testing.T) {

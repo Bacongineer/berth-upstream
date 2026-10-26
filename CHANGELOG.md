@@ -41,6 +41,11 @@ has a matching GitHub release whose body comes from its section below.
   Once the card confirmed the lend, the waiter was still short by the baseline and berthd drained the holder it
   had just lent from, and a lend that did land was never asked back. A whole-card holder now counts what the card
   can hand out. Found and measured by TacoTakumi on a 4060 Ti with a 121 MiB baseline (#189).
+- A lend where the engine gives a little less than asked, and the card's own free memory makes up the rest, now
+  grants the waiter. berthd confirmed the lend from the driver's reading but granted from the engine's number, so the
+  waiter was short by the gap and berthd drained the holder. Seen live with Strata on an RTX 4090: asked 3072 MiB,
+  Strata freed 2939 MiB in cache segments with 406 MiB already free, and berthd drained it. The books now credit the
+  room the card shows free (#189).
 
 ### Added
 
