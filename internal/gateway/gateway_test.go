@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -238,14 +239,31 @@ func call(t *testing.T, method, url, body string) *http.Response {
 	return resp
 }
 
+// pickedPorts are the ports freeAddr handed out in this test binary.
+var pickedPorts sync.Map
+
+// freeAddr is a loopback address for a fake engine to bind later. A port the
+// kernel picked (127.0.0.1:0) goes back to the ephemeral pool once closed,
+// and any socket opened before the engine binds can take it: an httptest
+// server, or a client's local port. So the port comes from below every OS's
+// ephemeral range (Linux starts at 32768, Windows and macOS at 49152), which
+// the kernel never hands out on its own, and never twice in one binary.
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 200 {
+		port := 20000 + rand.IntN(12000)
+		if _, taken := pickedPorts.LoadOrStore(port, true); taken {
+			continue
+		}
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			continue // something on this machine already listens there
+		}
+		ln.Close()
+		return ln.Addr().String()
 	}
-	defer ln.Close()
-	return ln.Addr().String()
+	t.Fatal("no free loopback port below the ephemeral range")
+	return ""
 }
 
 func daemon(t *testing.T) (string, *broker.Broker) {
