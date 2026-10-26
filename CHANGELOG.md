@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth run --front` picks the engine's port from 20000-29999. It took a port the kernel had just handed out and
+  released, and the engine binds it only once its lease is granted, which can be minutes later. In that time any
+  outgoing connection could take the port, and the engine failed to start. Ports below the ephemeral range are never
+  handed out on their own, and the range stops below Kubernetes' NodePorts.
 - A custom park hook (`park_url`, `resume_url`) sends `{}` with `Content-Type: application/json`. It sent an
   empty body, which Strata's `/v1/unload` and `/v1/load` refuse with 415, so a Strata entry could not park through
   them. The built-in vLLM and SGLang calls and the Berth park protocol are unchanged (#96).

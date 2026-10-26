@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -80,15 +81,28 @@ func listenSoon(addr string, within time.Duration) (net.Listener, error) {
 	}
 }
 
-// freePort is a loopback port free right now, for the engine to bind.
+// freePort is a loopback port free right now, for the engine to bind once
+// its lease is granted, which can be minutes later. A port the kernel picked
+// (127.0.0.1:0) goes back to the ephemeral pool once closed, where any
+// outgoing connection can take it before the engine binds. So the port comes
+// from below every OS's ephemeral range (Linux starts at 32768, Windows and
+// macOS at 49152) and below Kubernetes' NodePorts (30000), which the kernel
+// never hands out on its own; one something listens on is skipped.
 func freePort() (int, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+	for range 200 {
+		port := pickPort()
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		return port, nil
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port, nil
+	return 0, errors.New("no free loopback port in 20000-29999")
 }
+
+// pickPort is one candidate for freePort. Tests name the candidates.
+var pickPort = func() int { return 20000 + rand.IntN(10000) }
 
 // askResume asks berthd to give the engine's parked lease the card back,
 // as berth resume does. It returns once the ask is queued; a refusal
