@@ -17,7 +17,9 @@ lend     = "hook"
 lend_url = "http://127.0.0.1:9000"
 ```
 
-Berth does not call these routes yet. The broker side, which decides when to ask for a lend, ships next.
+Berth calls these routes for a run whose entry sets `lend = "hook"`: it asks for a lend when a sized engine does
+not fit beside that holder, and for a return once the borrower's memory is measured gone. The rules it decides by
+are `docs/gateway.md`'s Lending section, and this document stays the contract for engine authors.
 
 ## The three endpoints
 

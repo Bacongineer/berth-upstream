@@ -59,6 +59,23 @@ const (
 	OpResume     = "resume"
 	OpAwake      = "awake"
 
+	// OpLend: the daemon asks a serving holder's runner to give part of its
+	// memory on one card to a waiter that does not fit while the holder keeps
+	// serving: Needs is the bytes to give, Free the card's driver free figure
+	// in MiB, GPU the card's PCI address when the snapshot has one. OpLent
+	// answers with the engine's ticket (LendID) and what it gave (Needs);
+	// OpLendFailed answers with the Reason and its Kind (TooBig, Busy,
+	// Pending, Unsupported). OpReturn asks the holder's runner to take the
+	// memory back once the borrower is gone, naming its ticket (LendID); the
+	// runner answers OpReturned, or OpReturnFailed with the Reason and Retry
+	// set when Berth should ask again later.
+	OpLend         = "lend"
+	OpLent         = "lent"
+	OpLendFailed   = "lend_failed"
+	OpReturn       = "return"
+	OpReturned     = "returned"
+	OpReturnFailed = "return_failed"
+
 	// Device pairing for the harbor's actions; berthd owns the file. A
 	// client mints a code (OpPairCode, reply Code), the harbor trades one
 	// for a device token (OpPairRedeem: Code and DeviceName in, Token out)
@@ -84,6 +101,10 @@ type Msg struct {
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
 	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
 	Parked   bool    `json:"parked,omitempty"`    // OpReattach: the engine's weights are parked in RAM; its lease comes back parked
+	// Lend marks a run whose engine has lend calls (its entry says
+	// lend = "hook"): OpAcquire and OpReattach declare it, and the broker
+	// never asks a lease that did not.
+	Lend bool `json:"lend,omitempty"`
 	// Switched marks a person's switch (the wake page's Launch,
 	// /v1/berth/switch): it wins a juggle. OpAcquire and OpResume.
 	Switched bool `json:"switched,omitempty"`
@@ -121,6 +142,18 @@ type Msg struct {
 	// back, so the runner knows to call the adapter's resume instead of
 	// starting anything.
 	Resume bool `json:"resume,omitempty"`
+	// Lending (the OpLend / OpLent / OpLendFailed / OpReturn* ops). Needs
+	// carries the bytes to give on OpLend and what the engine gave on OpLent;
+	// Free is the card's driver free figure in MiB and GPU its PCI address,
+	// both for the engine's lend call; LendID is the engine's ticket, on
+	// OpLent, OpReturn and OpReturned. Kind names a failed lend (TooBig,
+	// Busy, Pending, Unsupported), and Retry says a return the engine refused
+	// should be asked again.
+	Free   uint64 `json:"free,omitempty"`
+	GPU    string `json:"gpu,omitempty"`
+	LendID string `json:"lend_id,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Retry  bool   `json:"retry,omitempty"`
 	// Pairing (the OpPair* ops). Code and Token are secrets: never logged.
 	Code       string         `json:"code,omitempty"`
 	Token      string         `json:"token,omitempty"`
@@ -178,6 +211,10 @@ const (
 	EvUnparked       = "lease.unparked"     // a parked engine loaded back onto the card with no resume; it is active again
 	EvParkRefused    = "lease.park_refused" // the RAM could not take the park; the drain runs as before
 	EvParkEvicted    = "lease.park_evicted" // the parked engine is being stopped: ttl, RAM floor or pressure
+	EvLending        = "lease.lending"      // a serving holder was asked to give part of its card to a waiter
+	EvLent           = "lease.lent"         // the engine gave it, and a card read after the answer shows it free
+	EvReturned       = "lease.returned"     // the borrower is gone; the holder took its memory back
+	EvLendFailed     = "lease.lend_failed"  // the lend did not free the memory; the waiter falls back to park or drain
 	// EvFootprint: a freed run measured far more VRAM than the engine's
 	// learned footprint, so the estimate a next run is offered grows.
 	EvFootprint = "engine.footprint"

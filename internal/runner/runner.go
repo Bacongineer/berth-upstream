@@ -30,6 +30,7 @@ import (
 	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/front"
 	"github.com/T-Crypt/berth/internal/httpauth"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -117,6 +118,11 @@ type Options struct {
 	// "checkpoint"): its device memory moves into its own RAM and back.
 	// It needs Front, so no request reaches the engine while it sleeps.
 	Checkpoint bool
+	// Lend is the engine's lend calls, built from its entry's lend = "hook"
+	// (internal/lend). The run declares the capability to berthd, and only a
+	// run that declares it is ever asked to give part of the card to a waiter
+	// or to take it back.
+	Lend *lend.Adapter
 	// front is the open front, set by Run.
 	front *front.Front
 	// Container is the container the engine runs in (berth run
@@ -195,7 +201,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -322,6 +328,10 @@ func Run(o Options) int {
 					startDrain(o, m.Reason)
 				case m.Op == proto.OpParkOK || m.Op == proto.OpRefused:
 					line.note(m)
+				case m.Op == proto.OpLend:
+					go line.lendStep(o, m, say)
+				case m.Op == proto.OpReturn:
+					go line.returnStep(o, m.LendID, say)
 				case m.Op == proto.OpGranted && m.Resume:
 					go line.resume(o, cmd, done, say)
 				}
@@ -391,7 +401,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 		if err != nil {
 			continue
 		}
-		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id(), Parked: parked})
+		err = conn.Send(proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(), PID: pid, PIDStart: start, Container: cid.id(), Parked: parked})
 		var m proto.Msg
 		if err == nil {
 			m, err = conn.Recv()

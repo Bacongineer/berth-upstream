@@ -101,6 +101,10 @@ export function kindWord(kind) {
     case "lease.unparked": return "UNPARKED";
     case "lease.park_refused": return "PARK FAILED";
     case "lease.park_evicted": return "EVICTED";
+    case "lease.lending": return "LENDING";
+    case "lease.lent": return "LENT";
+    case "lease.returned": return "RETURNED";
+    case "lease.lend_failed": return "LEND FAILED";
     case "lease.juggle": return "JUGGLE";
     case "squatter.appeared": return "STOWAWAY";
     case "squatter.gone": return "STOWAWAY GONE";
@@ -168,6 +172,10 @@ const KIND_SI = {
   "lease.unparked": "warn",
   "lease.park_refused": "crit",
   "lease.park_evicted": "warn",
+  "lease.lending": "half",
+  "lease.lent": "docked",
+  "lease.returned": "docked",
+  "lease.lend_failed": "warn",
   "lease.released": "adrift",
   "lease.orphaned": "adrift",
   "lease.freed": "adrift",

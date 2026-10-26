@@ -552,3 +552,70 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   gain is small. llama-swap still stops an idle model after its `ttl`, so set
   the ttl longer than the time you spend in the other engine. A missing
   `cuda-checkpoint` leaves the drain as it was, with a warning.
+
+## Lending part of a card
+
+A sized engine that does not fit beside a serving holder waits for that holder to
+drain. A lend asks the holder to give the shortfall to the waiter and keep
+serving: its engine shrinks a cache it can shrink, the card shows the memory
+free, and the waiter builds beside it. When the borrower is gone, the holder is
+asked to grow back. The holder answers requests the whole time, and nothing is
+reloaded.
+
+- **Who can lend.** Only a run whose entry sets `lend = "hook"`, and its wrapper
+  says so when it takes the lease, so berthd never asks a run that cannot answer.
+  An engine that serves the routes in
+  [contrib/LEND-PROTOCOL.md](../contrib/LEND-PROTOCOL.md) is reached at its
+  `lend_url`. Strata's `/v1/vram` is built in, so a `type = "strata"` entry needs
+  `lend = "hook"` alone and a server started with `--vram-elastic`.
+
+  ```toml
+  [[engine]]
+  name     = "maya"
+  type     = "custom"
+  url      = "http://127.0.0.1:9000"
+  lend     = "hook"
+  lend_url = "http://127.0.0.1:9000"
+  ```
+
+  `berth config check` warns about a `lend_url` on an entry that does not set
+  `lend = "hook"`, and about `lend = "hook"` on a kind with no built-in calls and
+  no `lend_url`. An APU lease is exclusive and a sized wait there is refused, so
+  nothing is ever asked on an APU.
+
+- **When it is asked.** Where a sized waiter does not fit, the holder asked for the
+  whole card, and the cheaper options have already failed: fitting now, or fitting
+  beside a parked residual. The ask goes to the first holder a drain would have
+  been allowed to take, and that holder's budget must be at least the shortfall. A
+  holder that is pinned, holds the card, is inside its `min_turn`, or is kept by a
+  juggle is never asked: priorities and holds still decide whether a holder gives
+  room at all, the lend only decides how. One lend is open per holder at a time,
+  and a lease in a lend is never parked at the same time.
+
+- **What is counted, and when.** The ask names the shortfall in MiB, the card's
+  last free figure and the card's PCI address. The holder keeps counting the whole
+  card until a card read taken after the engine answered shows the borrower's need
+  plus the card's reserve free. That read is what stops the lent memory from
+  counting against the holder, and only after it is the borrower granted: an
+  engine's word never frees memory. The holder stays `active` in `berth status`
+  throughout, and its HOLDS is what the driver measures under it.
+
+- **Taking it back.** The holder is asked for its memory once the borrower's lease
+  is released and the card shows that memory gone, and only when the card has room
+  for it again: a lease granted into that space holds the take-back until it lets
+  go. A refusal that says the memory is still in use leaves it lent, and the ask
+  goes out again on a later tick, no more than once a second.
+
+- **The way back.** A lend is not a sleep. The holder stays active and drainable,
+  and a lend the engine refuses, or one the card has not confirmed within
+  `--release-grace` (30 s), falls through to the park or drain that would have run
+  anyway. A drain or a release of the holder drops the lend and asks the engine to
+  take back what it gave. A borrower that gives up waiting hands the memory back
+  too, so the next waiter may have it. A lend the engine answered too late to say
+  (its `503`) counts as refused for that waiter: its ticket is asked back, and the
+  ledger at `GET /vram/state` is what reconciles it when the run re-attaches.
+
+- **On the record.** `lease.lending`, `lease.lent`, `lease.returned` and
+  `lease.lend_failed` name the engines and the MiB on `berth events --format json`
+  and in the harbor's stream. What a holder has lent is not a column of
+  `berth status` in this release.

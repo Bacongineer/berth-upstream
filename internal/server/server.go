@@ -232,6 +232,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		Pinned:    req.Pinned,
 		Switched:  req.Switched,
 		Parked:    req.Parked,
+		Lend:      req.Lend,
 		MinTurn:   time.Duration(req.MinTurn * float64(time.Second)),
 		ParkTTL:   time.Duration(req.ParkTTL * float64(time.Second)),
 		Container: req.Container,
@@ -281,6 +282,18 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			if !u.send(proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Resume: true}) {
 				return
 			}
+		case <-lease.Lends():
+			if ask := lease.TakeLend(); ask != nil {
+				if !u.send(proto.Msg{Op: proto.OpLend, Needs: ask.MiB, Free: ask.FreeMiB, GPU: ask.GPU}) {
+					return
+				}
+			}
+		case <-lease.Returns():
+			if ask := lease.TakeReturn(); ask != nil {
+				if !u.send(proto.Msg{Op: proto.OpReturn, LendID: ask.ID}) {
+					return
+				}
+			}
 		case m := <-incoming:
 			switch {
 			case m.Op == proto.OpPark:
@@ -295,6 +308,14 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 				lease.ParkFailed(m.Reason)
 			case m.Op == proto.OpAwake:
 				lease.Awake()
+			case m.Op == proto.OpLent:
+				lease.Lent(m.LendID, m.Needs)
+			case m.Op == proto.OpLendFailed:
+				lease.LendFailed(m.Reason)
+			case m.Op == proto.OpReturned:
+				lease.Returned()
+			case m.Op == proto.OpReturnFailed:
+				lease.ReturnFailed(m.Reason, m.Retry)
 			case m.Op == proto.OpAttach && m.PID > 0:
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)

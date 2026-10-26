@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/park"
 )
 
@@ -107,6 +108,14 @@ func OptionsFor(e *config.Engine, o Over) Options {
 	// says when a restore serves again.
 	if e.Park == "checkpoint" {
 		opts.Checkpoint, opts.Front, opts.ParkProbe = true, o.Front, probe
+	}
+	// lend = "hook" gives the run its engine's lend calls. berthd asks for a
+	// lend only from a run whose entry has them: the protocol base is
+	// lend_url, and a kind with built-in calls (strata) uses its own URL.
+	if e.Lend == "hook" {
+		if adapter, ok := lend.For(e.Type, e.URL, e.LendURL); ok {
+			opts.Lend = &adapter
+		}
 	}
 	return opts
 }
