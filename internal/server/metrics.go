@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // ServeMetrics serves Prometheus text on a loopback address only. It is
 // read-only, and requests whose Host header is not a loopback name are
 // refused, so a web page cannot read it through DNS rebinding.
-func ServeMetrics(ctx context.Context, addr string, b *broker.Broker, engines func() []proto.Engine, log *slog.Logger) error {
+func ServeMetrics(ctx context.Context, addr string, n *node.Node, engines func() []proto.Engine, log *slog.Logger) error {
 	if err := config.Loopback(addr); err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func ServeMetrics(ctx context.Context, addr string, b *broker.Broker, engines fu
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		st := b.Status()
+		st := n.Status()
 		st.Engines = engines()
 		st.Counters.SendTimeouts = sendTimeouts.Load()
 		st.Counters.DroppedConsumers = droppedConsumers.Load()

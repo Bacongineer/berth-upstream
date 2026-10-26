@@ -19,6 +19,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/server"
@@ -68,7 +69,7 @@ func parkDaemon(t *testing.T, card gpu.Probe) (string, *broker.Broker) {
 	// not read yet sees a zero total and waits.
 	b.Tick(ctx)
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{}, log)
 	return sock, b
 }
 

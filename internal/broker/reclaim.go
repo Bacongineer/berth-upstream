@@ -38,7 +38,7 @@ func (b *Broker) Reclaim(id string) ([]proto.Holder, error) {
 	} else {
 		l, ok := b.leases[id]
 		if !ok {
-			return nil, fmt.Errorf("no lease named %s", id)
+			return nil, notFound("no lease named " + id)
 		}
 		if l.state != releasing && l.state != stuck {
 			return nil, fmt.Errorf("lease %s is %s, not stuck", id, l.state)

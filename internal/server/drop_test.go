@@ -16,6 +16,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -85,7 +86,7 @@ func TestSlowEventsConsumerDroppedHealthyKept(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go b.Run(ctx)
-	go Serve(ctx, ln, b, Extras{}, log)
+	go Serve(ctx, ln, node.One(b), Extras{}, log)
 	t0, d0 := sendTimeouts.Load(), droppedConsumers.Load()
 
 	// Build no backlog: both watchers subscribe first, then a paced

@@ -46,7 +46,7 @@ func (b *Broker) Stop(engine string) ([]string, error) {
 		b.askDrain(l, stopReason)
 	}
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("no running engine named %s under a lease", engine)
+		return nil, notFound(fmt.Sprintf("no running engine named %s under a lease", engine))
 	}
 	sort.Strings(ids)
 	return ids, nil

@@ -22,6 +22,7 @@ import (
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/server"
@@ -59,7 +60,7 @@ func startDaemon(t *testing.T) string {
 	ev := alerts.New(alerts.FromConfig(config.AlertsConfig{}), 3, nil)
 	lastAlerts := &atomic.Pointer[proto.Alerts]{}
 	lastAlerts.Store(ev.Snapshot())
-	go server.Serve(ctx, ln, b, server.Extras{Alerts: lastAlerts.Load}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Alerts: lastAlerts.Load}, log)
 	return sock
 }
 
@@ -144,7 +145,7 @@ func startFootprintDaemon(t *testing.T) (string, *broker.Broker, *procCard) {
 		return []proto.Engine{{Name: "llama", Type: "llamacpp", URL: "http://127.0.0.1:8080",
 			Up: true, State: "up", Models: []proto.Model{{Name: "m", State: "loaded"}}}}
 	}
-	go server.Serve(ctx, ln, b, server.Extras{Engines: engines}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Engines: engines}, log)
 	return sock, b, c
 }
 

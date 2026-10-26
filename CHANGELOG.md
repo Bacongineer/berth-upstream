@@ -57,6 +57,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- berthd runs its card as part of a node, the groundwork for one berthd governing every card on a machine. The
+  status JSON names each GPU, lease, waiter and stowaway's card (`card`), every event names the card it happened
+  on, and a client may name its card when it asks for one (`card` on the socket); a request that names none goes to
+  the first card, as before. The node keeps one event sequence and one set of lease IDs for the machine. Nothing
+  changes yet for a berthd with one card.
 - `berth run` warns when a container it names on a lease has restart policy `always`, with `--container` or
   `--compose`. Docker restarts such a container when its daemon starts, even after a drain stopped it, so it comes
   back on the card without a lease after a reboot. docs/engines.md says which policy fits (#172).

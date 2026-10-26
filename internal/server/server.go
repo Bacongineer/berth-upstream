@@ -20,6 +20,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -116,7 +117,7 @@ type Extras struct {
 }
 
 // Serve answers clients on ln.
-func Serve(ctx context.Context, ln net.Listener, b *broker.Broker, x Extras, log *slog.Logger) error {
+func Serve(ctx context.Context, ln net.Listener, n *node.Node, x Extras, log *slog.Logger) error {
 	if x.Engines == nil {
 		x.Engines = func() []proto.Engine { return []proto.Engine{} }
 	}
@@ -147,11 +148,11 @@ func Serve(ctx context.Context, ln net.Listener, b *broker.Broker, x Extras, log
 			}
 			return err
 		}
-		go handle(ctx, c, b, x, log)
+		go handle(ctx, c, n, x, log)
 	}
 }
 
-func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *slog.Logger) {
+func handle(ctx context.Context, c net.Conn, n *node.Node, x Extras, log *slog.Logger) {
 	defer c.Close()
 	conn := proto.NewConn(c)
 	first, err := conn.Recv()
@@ -160,7 +161,7 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 	}
 	switch first.Op {
 	case proto.OpStatus:
-		st := b.Status()
+		st := n.Status()
 		st.Engines, st.Host, st.Insights = x.Engines(), x.Host(), x.Insights()
 		st.Alerts = x.Alerts()
 		st.Counters.SendTimeouts = sendTimeouts.Load()
@@ -176,23 +177,23 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		}
 		reply(conn, log, proto.Msg{Op: proto.OpRequests, Requests: rs})
 	case proto.OpAcquire, proto.OpReattach:
-		hold(ctx, conn, first, b, log)
+		hold(ctx, conn, first, n, log)
 	case proto.OpReclaim:
-		reclaim(conn, log, first, b)
+		reclaim(conn, log, first, n)
 	case proto.OpStop:
-		stop(conn, log, first, b)
+		stop(conn, log, first, n)
 	case proto.OpPairCode, proto.OpPairRedeem, proto.OpPairCheck, proto.OpPairList, proto.OpPairRevoke:
 		pairing(conn, log, first, x.Pair)
 	case proto.OpResume:
-		resume(conn, log, first, b)
+		resume(conn, log, first, n)
 	case proto.OpEvents:
-		events(ctx, c, conn, first, b, log)
+		events(ctx, c, conn, first, n, log)
 	default:
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: fmt.Sprintf("unknown op %q", first.Op)})
 	}
 }
 
-func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker, log *slog.Logger) {
+func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, log *slog.Logger) {
 	u := &consumer{conn: conn, log: log}
 	prio, err := broker.ParsePriority(req.Priority)
 	if err != nil || req.Engine == "" {
@@ -202,6 +203,12 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return
 	}
+	card, err := n.Card(req.Card)
+	if err != nil {
+		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
+		return
+	}
+	b := card.B
 
 	// The client's later messages (attach) and its disconnect both arrive
 	// through this reader. A disconnect cancels the wait or ends the lease.
@@ -332,9 +339,9 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 
 // events replays the ring after Since, then, with Watch, streams new events
 // until the client goes away or falls too far behind.
-func events(ctx context.Context, c net.Conn, conn *proto.Conn, req proto.Msg, b *broker.Broker, log *slog.Logger) {
+func events(ctx context.Context, c net.Conn, conn *proto.Conn, req proto.Msg, n *node.Node, log *slog.Logger) {
 	u := &consumer{conn: conn, log: log}
-	backlog, live, stop := b.Events(req.Since, req.Watch)
+	backlog, live, stop := n.Events.Events(req.Since, req.Watch)
 	defer stop()
 	for i := range backlog {
 		if !u.send(proto.Msg{Op: proto.OpEvent, Event: &backlog[i]}) {

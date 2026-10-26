@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/eventlog"
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/host"
 	"github.com/T-Crypt/berth/internal/procs"
@@ -90,6 +91,15 @@ type Reporter interface {
 }
 
 type Config struct {
+	// Card is the card's name on its node (gpu0, gpu1), stamped on every
+	// event this broker emits. Events and IDs are the node's event stream and
+	// lease number counter, shared by every card's broker so a machine has
+	// one ordered stream and no two leases share an ID. Each defaults to the
+	// broker's own, as for a node with one card.
+	Card   string
+	Events *eventlog.Log
+	IDs    *atomic.Uint64
+
 	Poll         time.Duration // how often the card is read
 	Reserve      uint64        // bytes never handed out
 	APUHeadroom  uint64        // minimum host MemAvailable for APU admission; 0 = 2 GiB
@@ -440,13 +450,9 @@ type Broker struct {
 	// comfyPoke while a waiter is blocked.
 	comfyPoked map[string]time.Time
 	runs       []runs.Record
-	nextID     int
 	ord        uint64 // the last order number stamped on a lease event
 	started    time.Time
 
-	events   []proto.Event // ring, oldest first
-	seq      uint64
-	subs     map[chan proto.Event]struct{}
 	counters proto.Counters
 	// saved is the board as last written to cfg.CountersFile; saveMu keeps
 	// two writers off the file, saveFailed logs a failing write once.
@@ -510,27 +516,14 @@ func (b *Broker) claimedBytes() uint64 {
 }
 
 // EventRing is how many events berthd keeps in memory.
-const EventRing = 1000
+const EventRing = eventlog.Ring
 
 // emit records an event and fans it out. Called with b.mu held. A watcher
 // too slow to keep up is cut off rather than allowed to stall scheduling;
 // it reconnects with Since and loses nothing still in the ring.
 func (b *Broker) emit(e proto.Event) {
-	b.seq++
-	e.Seq, e.At = b.seq, b.now()
-	if len(b.events) == EventRing {
-		copy(b.events, b.events[1:])
-		b.events = b.events[:EventRing-1]
-	}
-	b.events = append(b.events, e)
-	for ch := range b.subs {
-		select {
-		case ch <- e:
-		default:
-			close(ch)
-			delete(b.subs, ch)
-		}
-	}
+	e.At, e.Card = b.now(), b.cfg.Card
+	b.cfg.Events.Emit(e)
 }
 
 // Note records an event raised outside the tick cycle (the alert layer)
@@ -545,27 +538,7 @@ func (b *Broker) Note(e proto.Event) {
 // later one plus a func to stop watching. The channel closes if the watcher
 // falls more than 256 events behind.
 func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.Event, func()) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	var out []proto.Event
-	for _, e := range b.events {
-		if e.Seq > since {
-			out = append(out, e)
-		}
-	}
-	if !watch {
-		return out, nil, func() {}
-	}
-	ch := make(chan proto.Event, 256)
-	b.subs[ch] = struct{}{}
-	return out, ch, func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if _, ok := b.subs[ch]; ok {
-			delete(b.subs, ch)
-			close(ch)
-		}
-	}
+	return b.cfg.Events.Events(since, watch)
 }
 
 // order is the next number in the broker's own sequence. b.mu must be held.
@@ -584,6 +557,12 @@ func (b *Broker) now() time.Time {
 }
 
 func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
+	if cfg.Events == nil {
+		cfg.Events = eventlog.New()
+	}
+	if cfg.IDs == nil {
+		cfg.IDs = &atomic.Uint64{}
+	}
 	if cfg.APUHeadroom == 0 {
 		cfg.APUHeadroom = 2 * gpu.GiB
 	}
@@ -682,7 +661,6 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 		containerNames: map[string]string{},
 		containerAsked: map[string]bool{},
 		comfyPoked:     map[string]time.Time{},
-		subs:           map[chan proto.Event]struct{}{},
 		counters:       counters,
 		saved:          counters,
 		verdicts:       map[string]verdict{},
@@ -1639,9 +1617,8 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 			return nil, fmt.Errorf("%w: pid %d already holds %s", ErrRefused, pid, l.id)
 		}
 	}
-	b.nextID++
 	now := b.now()
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, now)
 	l.arrivedN = b.order()
 	l.containers = containerSet(r.Containers)
 	l.state, l.reattach = active, true
@@ -1676,6 +1653,26 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 // ErrRefused wraps every reason Acquire gives up.
 var ErrRefused = errors.New("refused")
 
+// notFound is an answer that this card has no such engine or lease, as
+// opposed to one it has but cannot act on. A node with several cards asks
+// each in turn and takes the first that is not notFound (IsNotFound).
+type notFound string
+
+func (e notFound) Error() string { return string(e) }
+
+// EventLog is the event stream this broker writes to, and IDs the counter its
+// lease numbers come from: the node's when it was built with them.
+func (b *Broker) EventLog() *eventlog.Log { return b.cfg.Events }
+
+// IDs is the counter this broker's lease numbers come from.
+func (b *Broker) IDs() *atomic.Uint64 { return b.cfg.IDs }
+
+// IsNotFound is whether err says the card has no such engine or lease.
+func IsNotFound(err error) bool {
+	var nf notFound
+	return errors.As(err, &nf)
+}
+
 // Acquire queues for a berth and blocks until it is granted, ctx ends, or
 // the wait runs out. onWait hears each new reason for waiting.
 func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*Lease, error) {
@@ -1696,8 +1693,7 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 		b.mu.Unlock()
 		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
 	}
-	b.nextID++
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, b.now())
 	l.arrivedN = b.order()
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
