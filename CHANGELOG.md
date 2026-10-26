@@ -49,6 +49,20 @@ has a matching GitHub release whose body comes from its section below.
   hangs on a checkpointed engine. A 23.1 GB NInfer comes back in 3.3 s instead of a 14 s reload. `park =
   "checkpoint"` on an engine entry is refused: a front is one run's address. docs/design.md is the model this and
   the coming lends, multi-card leases and networked nodes follow.
+- Experimental: an engine that can shrink a cache lends part of its card to a sized waiter instead of being drained for it:
+  `lend = "hook"` on the entry, with `lend_url` for an engine that serves the lend routes
+  ([contrib/LEND-PROTOCOL.md](contrib/LEND-PROTOCOL.md)), and Strata's `/v1/vram` built in. The holder keeps
+  serving while the borrower builds beside it. Berth grants the borrower only once a card read taken after the
+  engine answered shows the memory free, and the lend stops counting against the holder at that read, never at
+  the engine's word. The holder is asked for its memory back once the borrower's is measured gone, and only when
+  the card has room for it again. A lend the engine refuses, or one the card has not confirmed within
+  `--release-grace` (30 s), falls through to the park or drain that would have run anyway. Nothing is asked of a
+  run that did not declare lend calls, of a pinned holder or a hold, or on an APU. This is the broker's decision
+  and the wrapper's calls: the engine's own ledger (`GET /vram/state`) that reconciles a lend after a restart
+  lands next. Until then, a lend the engine did not answer in time is treated as refused, and nothing asks for that
+  memory back.
+  `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
+  docs/gateway.md's Lending section states the rules.
 
 ## [v0.3.6] - 2026-10-23
 

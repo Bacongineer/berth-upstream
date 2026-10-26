@@ -198,6 +198,10 @@ type Request struct {
 	// lease comes back parked, so a waiter builds beside its residual and a
 	// resume wakes it, as before the daemon restarted.
 	Parked bool
+	// Lend: the engine was started with lend calls (its entry says
+	// lend = "hook"), so this lease is asked to give part of the card to a
+	// sized waiter that does not fit, instead of being drained for one.
+	Lend bool
 	// MinTurn is a minimum turn: while the lease is younger than it after
 	// the grant, no waiter drains it, whatever the waiter's priority,
 	// except a hold (a game, a call, the operator's own berth hold). When
@@ -283,11 +287,39 @@ type lease struct {
 	resumed    bool
 	beside     string
 
+	// The lend sub-state (docs/design.md): at most one open lend per holder,
+	// and never a park at the same time. lentBytes is what the engine said it
+	// gave; it counts against the card no more only once a card read newer
+	// than lentRead (b.reads when the engine answered) shows the memory free.
+	// lendAsked is when the ask went out, for rule 4's grace; noLend names the
+	// waiter a lend failed for, so that waiter drains instead of asking the
+	// same holder again; lendRetry is the last return ask, so a retry waits a
+	// second instead of calling the engine every tick.
+	lend      lendState
+	lentBytes uint64
+	lentID    string
+	lentTo    *lease
+	lentRead  uint64
+	lendAsked time.Time
+	noLend    *lease
+	lendRetry time.Time
+	// lendCap is the run's declaration that its engine has lend calls
+	// (Request.Lend); the broker never asks a lease that did not declare it.
+	lendCap bool
+
 	grantCh  chan struct{}
 	resumeCh chan struct{}
 	drainCh  chan string
 	waitCh   chan string
-	lastWait string
+	// lendAsk and returnAsk are the asks the broker made and this lease's
+	// runner has not picked up yet; lendSig and returnSig wake its connection.
+	// One ask of each kind per lease, so a runner that stops reading loses
+	// nothing: the next ask replaces the unread one.
+	lendAsk   *LendAsk
+	returnAsk *ReturnAsk
+	lendSig   chan struct{}
+	returnSig chan struct{}
+	lastWait  string
 }
 
 func (l *lease) used() uint64 {
@@ -330,22 +362,25 @@ func (l *lease) turnWhy(now time.Time) string {
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
 	return &lease{
-		id:       id,
-		engine:   r.Engine,
-		group:    r.Group,
-		prio:     r.Priority,
-		needs:    r.Needs,
-		pinned:   r.Pinned,
-		switched: r.Switched,
-		minTurn:  r.MinTurn,
-		parkTTL:  r.ParkTTL,
-		gpu:      map[ident]gpu.Proc{},
-		desc:     map[ident]struct{}{},
-		arrived:  now,
-		grantCh:  make(chan struct{}),
-		resumeCh: make(chan struct{}, 1),
-		drainCh:  make(chan string, 1),
-		waitCh:   make(chan string, 8),
+		id:        id,
+		engine:    r.Engine,
+		group:     r.Group,
+		prio:      r.Priority,
+		needs:     r.Needs,
+		pinned:    r.Pinned,
+		switched:  r.Switched,
+		minTurn:   r.MinTurn,
+		parkTTL:   r.ParkTTL,
+		lendCap:   r.Lend,
+		gpu:       map[ident]gpu.Proc{},
+		desc:      map[ident]struct{}{},
+		arrived:   now,
+		grantCh:   make(chan struct{}),
+		resumeCh:  make(chan struct{}, 1),
+		drainCh:   make(chan string, 1),
+		waitCh:    make(chan string, 8),
+		lendSig:   make(chan struct{}, 1),
+		returnSig: make(chan struct{}, 1),
 	}
 }
 
@@ -850,6 +885,7 @@ func (b *Broker) Tick(ctx context.Context) {
 				b.counters.VRAMHandedOff += l.peak
 				b.foldFootprint(l, now)
 				b.emit(proto.Event{Kind: proto.EvFreed, Lease: key, Engine: l.engine, Bytes: l.peak})
+				b.lendFreed(l) // a holder lending to this lease takes its memory back now
 				delete(b.leases, key)
 			} else if l.state == releasing && now.Sub(l.released) > b.cfg.ReleaseGrace {
 				// Never grant on process exit alone: the lease keeps blocking
@@ -872,6 +908,10 @@ func (b *Broker) Tick(ctx context.Context) {
 		case parked:
 			b.parkedTick(key, l, now)
 		}
+		// A lending holder stays active, so its lend is watched here: the
+		// card read that confirms the memory free, and the grace after which
+		// the waiter falls back to park or drain.
+		b.lendTick(key, l, now, read)
 		b.measureParkedRAM(l)
 	}
 	b.claimed = claimed
@@ -1097,6 +1137,9 @@ func (b *Broker) schedule(now time.Time) {
 		}
 		for _, v := range victims {
 			v.state = draining
+			// Its memory goes with the drain: an open lend is dropped, and
+			// never asked back, since the borrower still holds it (rule 2).
+			b.clearLend(v, "it is draining")
 			msg := fmt.Sprintf("%s (%s) needs the card", w.engine, w.prio)
 			select {
 			case v.drainCh <- msg:
@@ -1124,7 +1167,8 @@ func (b *Broker) setWait(w *lease, reason string) {
 }
 
 // budget is what a holder counts against the card: the whole card if it
-// asked for it, else whichever is larger of what it asked for and what it holds.
+// asked for it, else whichever is larger of what it asked for and what it
+// holds, less the memory a confirmed lend gave to a borrower.
 func (b *Broker) budget(l *lease) uint64 {
 	if l.state == parking || l.state == parked || l.awaitingGrant() {
 		// A parked engine cannot load anything more; what it counts for
@@ -1134,10 +1178,20 @@ func (b *Broker) budget(l *lease) uint64 {
 		// its weights have not come back onto the card yet.
 		return l.used()
 	}
+	var held uint64
 	if l.needs == 0 {
-		return b.snap.Total
+		held = b.snap.Total
+	} else {
+		held = max(l.needs, l.used())
 	}
-	return max(l.needs, l.used())
+	if l.lend == lent {
+		// A confirmed lend is memory the engine handed to a borrower and
+		// cannot use until it takes it back (docs/design.md rule 2), so it
+		// stops counting here. What the driver still measures under this
+		// holder always counts: an estimate never frees more than a reading.
+		return max(l.used(), sat(held, l.lentBytes))
+	}
+	return held
 }
 
 func (b *Broker) holders() []*lease {
@@ -1386,6 +1440,14 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 	if avail+leaving >= w.needs {
 		return false, "waiting for " + describe(pending) + " to free memory", nil
 	}
+	// Making room step 3 (docs/design.md): before a park or a drain, a holder
+	// that can give the shortfall keeps serving beside the waiter. Only the
+	// holders a drain would be allowed to take are asked, so priorities,
+	// holds, turns and juggles still decide whether this holder gives room at
+	// all; the lend only decides how.
+	if why, wait := b.lendRoom(w, budget, drainable, now); wait {
+		return false, why, nil
+	}
 	var victims []*lease
 	freed := avail + leaving
 	for _, h := range drainable {
@@ -1495,6 +1557,9 @@ func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	// A resumed lease waits in the queue while it is still a lease; once
 	// released it must never be granted.
 	b.queue = slices.DeleteFunc(b.queue, func(q *lease) bool { return q == x })
+	// A released holder's memory goes with it: an open lend is dropped, and
+	// the engine is asked to take the memory back when it has a ticket.
+	b.clearLend(x, "it released")
 	x.state = releasing
 	x.released = now
 	x.releasedRead = b.reads.Load()
@@ -1510,6 +1575,7 @@ func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	if nothing {
 		b.counters.VRAMHandedOff += x.peak
 		b.emit(proto.Event{Kind: proto.EvFreed, Lease: x.id, Engine: x.engine, Bytes: x.peak})
+		b.lendFreed(x)
 		delete(b.leases, x.id)
 	}
 }
@@ -1655,6 +1721,9 @@ func (b *Broker) abandon(l *lease, why string) error {
 			break
 		}
 	}
+	// A waiter that leaves the queue never gets the lend, so the holder that
+	// was asked (or has already given the memory) takes it back.
+	b.dropLend(l, "it gave up waiting")
 	if l.state != waiting {
 		b.beginRelease(l, b.now(), false)
 	}
