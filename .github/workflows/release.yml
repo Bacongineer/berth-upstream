@@ -5,6 +5,10 @@ name: Release
 # Release notes come from three places, first match wins:
 # notes/<tag>.md if it exists, the tag's section in CHANGELOG.md if it has
 # one, otherwise GitHub's auto-generated notes.
+# A tag with a pre-release label (v0.4.0-rc.1) publishes as a GitHub
+# pre-release. GitHub never returns a pre-release as releases/latest, so the
+# README's download link and `berth update` stay on the last release. Its
+# notes are CHANGELOG.md's Unreleased section, from the branch it was cut on.
 on:
   push:
     tags: ["v*"]
@@ -45,6 +49,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          case "$GITHUB_REF_NAME" in
+            *-*)
+              awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > prerelease-notes.md
+              {
+                echo "A pre-release for testing. Production installs stay on the latest release; \`berth update\` never offers a pre-release."
+                echo
+                cat prerelease-notes.md
+              } > prerelease-body.md
+              gh release create "$GITHUB_REF_NAME" dist/* --prerelease --title "Berth ${GITHUB_REF_NAME}" --notes-file prerelease-body.md
+              exit 0
+              ;;
+          esac
           if [ -f "notes/${GITHUB_REF_NAME}.md" ]; then
             gh release create "$GITHUB_REF_NAME" dist/* --title "Berth ${GITHUB_REF_NAME}" --notes-file "notes/${GITHUB_REF_NAME}.md"
             exit 0
