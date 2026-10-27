@@ -174,7 +174,7 @@ func runDaemon(c *Context) int {
 			Reporter:        rep,
 			Log:             log,
 		}, probe, procs.System{})
-		cards = append(cards, &node.Card{Name: name, Addr: sel.addr, UUID: cardUUID(ctx, snap, log), B: b})
+		cards = append(cards, &node.Card{Name: name, Addr: cardAddr(sel, snap), UUID: cardUUID(ctx, snap, log), B: b})
 	}
 	n, err := node.New(events, ids, cards...)
 	if err != nil {
@@ -347,6 +347,15 @@ func inventory(ctx context.Context, probe gpu.Probe, addr string, log *slog.Logg
 		return snap, true, nil
 	}
 	return snap, false, nil
+}
+
+// cardAddr is the card's PCI address in sysfs form, so a run can name the
+// card by address however --gpu picked it.
+func cardAddr(sel gpuSel, snap gpu.Snapshot) string {
+	if sel.addr != "" {
+		return sel.addr
+	}
+	return gpu.SysfsAddr(gpu.BusID(snap))
 }
 
 // cardUUID is the governed card's NVIDIA UUID, read once at startup, so a

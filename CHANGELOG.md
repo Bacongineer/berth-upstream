@@ -15,6 +15,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth run --gpu` takes a card's PCI address when berthd picked its cards by index, as `--gpu all` (the
+  default) and `--gpu 3` do. berthd recorded an address only for a card it was told to govern by address, so
+  `--gpu 0000:09:00.0` was refused with "no card 0000:09:00.0 on this node". TacoTakumi found it on rc.4 (#189).
 - berthd uses less CPU when idle. The claims watcher reads the process table every 2 s, and each scan now
   takes a third of the syscalls: 2.0 ms instead of 7.2 ms for 534 processes. The AMD probe reads the fdinfo of a
   process's GPU device files only, not of every open file, and walks the processes again only when the card's used
