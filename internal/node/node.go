@@ -42,11 +42,12 @@ type Node struct {
 	IDs    *atomic.Uint64 // the machine's lease numbers, shared by every card's broker
 }
 
-// Shared returns the event log, lease counter and parking ledger a node's
-// brokers must be built with, so the machine has one ordered stream, one ID
-// space and one budget of RAM for parks.
-func Shared() (*eventlog.Log, *atomic.Uint64, *park.Ledger) {
-	return eventlog.New(), &atomic.Uint64{}, &park.Ledger{}
+// Shared returns the event log, lease counter, arrival order and parking
+// ledger a node's brokers must be built with, so the machine has one ordered
+// stream, one ID space, one queue order across its cards and one budget of
+// RAM for parks.
+func Shared() (*eventlog.Log, *atomic.Uint64, *atomic.Uint64, *park.Ledger) {
+	return eventlog.New(), &atomic.Uint64{}, &atomic.Uint64{}, &park.Ledger{}
 }
 
 // New is a node over cards, which must have distinct names and addresses.

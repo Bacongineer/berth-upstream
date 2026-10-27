@@ -48,12 +48,12 @@ func (quiet) Alert(string, string, string) {}
 // each, with the shared event log, lease counter and parking ledger.
 func twoCards(t *testing.T) *Node {
 	t.Helper()
-	events, ids, ledger := Shared()
+	events, ids, seq, ledger := Shared()
 	var cards []*Card
 	for i, addr := range []string{"0000:01:00.0", "0000:02:00.0"} {
 		name := []string{"gpu0", "gpu1"}[i]
 		b := broker.New(broker.Config{
-			Card: name, Events: events, IDs: ids, Ledger: ledger, Reporter: quiet{},
+			Card: name, Events: events, IDs: ids, Seq: seq, Ledger: ledger, Reporter: quiet{},
 			ReleaseGrace: time.Hour, DefaultWait: 2 * time.Second, JuggleWindow: -1,
 			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}, &card{index: i, total: 24 * gib}, procs.Map{})
@@ -178,7 +178,7 @@ func TestStopAndResumeFindTheEngineOnItsCard(t *testing.T) {
 // A card in a VM at startup is named by its address, and that is one card,
 // not two cards with the same name.
 func TestNewTakesACardNamedByItsAddress(t *testing.T) {
-	events, ids, _ := Shared()
+	events, ids, _, _ := Shared()
 	b := broker.New(broker.Config{Events: events, IDs: ids}, &card{total: 24 * gib}, procs.Map{})
 	n, err := New(events, ids, &Card{Name: "0000:02:00.0", Addr: "0000:02:00.0", B: b})
 	if err != nil {

@@ -119,7 +119,7 @@ func runDaemon(c *Context) int {
 	// names. Without it every whole-card request is granted over the squat
 	// and dies on it.
 	comfy := comfyEngines(cfg)
-	events, ids, ledger := node.Shared()
+	events, ids, seq, ledger := node.Shared()
 	var cards []*node.Card
 	var snaps []gpu.Snapshot
 	for i, sel := range sels {
@@ -144,6 +144,7 @@ func runDaemon(c *Context) int {
 			Card:           name,
 			Events:         events,
 			IDs:            ids,
+			Seq:            seq,
 			Ledger:         ledger,
 			Poll:           *poll,
 			CardAddr:       sel.addr,
