@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -894,5 +895,35 @@ func TestParkCostIsLearnedPerEngineNotPerGroup(t *testing.T) {
 	ok, why := big.Park()
 	if want := "park refused: needs 23.0 GiB, 16.0 GiB available above the floor"; ok || why != want {
 		t.Fatalf("park of a 23 GiB model after a small one in its group added 1 GiB = %v, %q; want false, %q", ok, why, want)
+	}
+}
+
+// Parks on two cards draw on one machine's RAM. A park in flight on gpu0
+// has not landed in MemAvailable yet, so it counts against a park on gpu1
+// as it would against one on its own card: the second is refused.
+func TestParksOnTwoCardsShareTheMachinesRAM(t *testing.T) {
+	ledger := &park.Ledger{}
+	cardSetup := func(name string, root, eng int, engine string) (*Broker, *card, *Lease) {
+		tree := procs.Fake{Parents: map[int]int{eng: root, root: 1}, Starts: map[int]uint64{root: 1, eng: 1}}
+		b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+		b.cfg.ParkFloor, b.cfg.Card, b.cfg.Ledger = 4*GiB, name, ledger
+		l := must(t, acquire(b, Request{Engine: engine, Needs: 10 * GiB}))
+		l.Attach(root)
+		c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: 10 * GiB})
+		b.Tick(context.Background())
+		w := acquire(b, Request{Engine: "whole", Priority: Foreground})
+		pending(t, w)
+		drained(t, l)
+		return b, c, l
+	}
+	_, _, first := cardSetup("gpu0", 100, 101, "comfyui")
+	_, _, second := cardSetup("gpu1", 102, 103, "vllm")
+
+	if ok, why := first.Park(); !ok {
+		t.Fatalf("park on gpu0 refused: %s", why)
+	}
+	ok, why := second.Park()
+	if want := "park refused: needs 10.0 GiB, 2.0 GiB available above the floor"; ok || why != want {
+		t.Fatalf("park on gpu1 while gpu0's is in flight = %v, %q; want false, %q", ok, why, want)
 	}
 }

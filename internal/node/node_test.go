@@ -45,15 +45,15 @@ func (quiet) Squatter(bool, gpu.Proc)      {}
 func (quiet) Alert(string, string, string) {}
 
 // twoCards is a node over gpu0 (0000:01:00.0) and gpu1 (0000:02:00.0), 24 GiB
-// each, with the shared event log and lease counter.
+// each, with the shared event log, lease counter and parking ledger.
 func twoCards(t *testing.T) *Node {
 	t.Helper()
-	events, ids := Shared()
+	events, ids, ledger := Shared()
 	var cards []*Card
 	for i, addr := range []string{"0000:01:00.0", "0000:02:00.0"} {
 		name := []string{"gpu0", "gpu1"}[i]
 		b := broker.New(broker.Config{
-			Card: name, Events: events, IDs: ids, Reporter: quiet{},
+			Card: name, Events: events, IDs: ids, Ledger: ledger, Reporter: quiet{},
 			ReleaseGrace: time.Hour, DefaultWait: 2 * time.Second, JuggleWindow: -1,
 			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}, &card{index: i, total: 24 * gib}, procs.Map{})

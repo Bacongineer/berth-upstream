@@ -20,6 +20,7 @@ import (
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/eventlog"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -40,9 +41,12 @@ type Node struct {
 	IDs    *atomic.Uint64 // the machine's lease numbers, shared by every card's broker
 }
 
-// Shared returns the event log and lease counter a node's brokers must be
-// built with, so the machine has one ordered stream and one ID space.
-func Shared() (*eventlog.Log, *atomic.Uint64) { return eventlog.New(), &atomic.Uint64{} }
+// Shared returns the event log, lease counter and parking ledger a node's
+// brokers must be built with, so the machine has one ordered stream, one ID
+// space and one budget of RAM for parks.
+func Shared() (*eventlog.Log, *atomic.Uint64, *park.Ledger) {
+	return eventlog.New(), &atomic.Uint64{}, &park.Ledger{}
+}
 
 // New is a node over cards, which must have distinct names and addresses.
 func New(events *eventlog.Log, ids *atomic.Uint64, cards ...*Card) (*Node, error) {
