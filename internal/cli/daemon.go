@@ -181,7 +181,7 @@ func runDaemon(c *Context) int {
 	// Claims: games and apps Berth does not run hold the card or have their
 	// memory named, from the process table. Validate already compiled them.
 	if rules, err := cfg.ClaimRules(); err == nil && len(rules) > 0 {
-		cw := &claims.Watcher{Rules: rules, Every: cfg.Claims.Every.Duration, B: b, Log: log}
+		cw := &claims.Watcher{Rules: rules, Every: cfg.Claims.Every.Duration, Cards: []claims.Broker{b}, Log: log}
 		go cw.Run(ctx)
 		hold, track := 0, 0
 		for _, r := range rules {
