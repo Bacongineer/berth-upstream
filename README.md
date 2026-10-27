@@ -184,22 +184,27 @@ AMD Windows are not supported. See [scope and validation](contrib/amd/README.md)
 
 ### Multiple GPUs (experimental)
 
-Today each card gets its own berthd, with its own socket and state files. Name an NVIDIA card by its
-PCI address, so berthd keeps the right card when `nvidia-smi` renumbers them. An AMD card is named by
-its DRM `cardN` number (`--gpu 1` for card1). `--gpu` does not take an AMD card's PCI address yet.
+`berth daemon --gpu all` governs every card it finds under one berthd, or give a comma list of indices and
+NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`). Each card is named `gpu` plus its index and keeps its own leases
+and queue, so a foreground request on gpu0 never drains a holder on gpu1. `berth status` lists every card and
+names each lease's card. Name an NVIDIA card by its PCI address when it can be passed through to a VM, so berthd
+keeps the right card when `nvidia-smi` renumbers them. A berthd named by address starts while its card is in a VM
+and takes it over when it comes back. An AMD card is named by its DRM `cardN` number (`--gpu 1` for card1).
+`--gpu` does not take an AMD card's PCI address yet.
+
+`berth run` can't name a card yet, so every lease goes to the first card. Until it can, an engine on another card
+needs a berthd of its own, with its own socket and state files:
 
 ```sh
 berth daemon --gpu 0000:02:00.0 --socket "$XDG_RUNTIME_DIR/berth-gpu1.sock" ...   # state flags in the guide
 ```
 
-Engines for that card take `BERTH_SOCKET` set to its socket, and `CUDA_VISIBLE_DEVICES` set to the
-card's UUID so they never open the other card. A berthd named by address starts while its card is in a
-VM and takes it over when it comes back. [Two NVIDIA cards](docs/vfio.md#two-nvidia-cards) has the full
-setup, state files included.
+Engines for that card take `BERTH_SOCKET` set to its socket, and `CUDA_VISIBLE_DEVICES` set to the card's UUID so
+they never open the other card. [Two NVIDIA cards](docs/vfio.md#two-nvidia-cards) has the full setup, state files
+included.
 
-Planned for v0.4 as preview tags: one berthd and one gateway for every card, cards named `gpu0` and
-`gpu1` (or a name you pick), an engine pinned to one card or holding two at once under one lease, and
-then "any card that fits".
+Planned for v0.4 as preview tags: `berth run --gpu` and a `gpu` key on engine entries, `--gpu all` as the default,
+one gateway for every card, an engine holding two cards at once under one lease, and then "any card that fits".
 
 ## Quick start
 
@@ -278,7 +283,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
 | AMD on Linux | Experimental: discrete RDNA3/RDNA4 and Phoenix APUs through amdgpu sysfs/DRM. W7900 and 780M bounded allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APU leases are exclusive, with independent UMA/GTT accounting and host-RAM admission checks. [Scope and checks](contrib/amd/README.md). |
 | Intel, Apple | Not supported yet |
-| Multiple GPUs | Experimental: one berthd per card, each named by its PCI address. One card can be passed through to a VM while the other keeps serving ([two NVIDIA cards](docs/vfio.md#two-nvidia-cards)). One berthd for every card, and one lease across two cards, are planned for v0.4. |
+| Multiple GPUs | Experimental: one berthd governs every card with `--gpu all`, but `berth run` can't name a card yet, so an engine on another card still runs under a berthd per card, each named by its PCI address. One card can be passed through to a VM while the other keeps serving ([two NVIDIA cards](docs/vfio.md#two-nvidia-cards)). `berth run --gpu` and one lease across two cards are planned for v0.4. |
 
 ## Tested hardware
 

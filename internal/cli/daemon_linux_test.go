@@ -41,11 +41,11 @@ func TestInventoryStartsWithItsCardInAVM(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	if _, err := inventory(context.Background(), goneProbe{}, "0000:02:00.0", log); err != nil {
-		t.Fatalf("card in a VM: %v, want berthd to start", err)
+	if _, inVM, err := inventory(context.Background(), goneProbe{}, "0000:02:00.0", log); err != nil || !inVM {
+		t.Fatalf("card in a VM: in VM %v, %v, want berthd to start", inVM, err)
 	}
 	for _, addr := range []string{"", "0000:01:00.0", "0000:03:00.0"} {
-		if _, err := inventory(context.Background(), goneProbe{}, addr, log); err == nil {
+		if _, _, err := inventory(context.Background(), goneProbe{}, addr, log); err == nil {
 			t.Fatalf("addr %q: started without its card", addr)
 		}
 	}

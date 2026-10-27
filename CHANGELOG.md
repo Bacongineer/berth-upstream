@@ -70,6 +70,15 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- One berthd can govern several cards (experimental). `berth daemon --gpu all` opens every card it finds, and
+  `--gpu` also takes a comma list of indices and NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`). Each card keeps its
+  own leases, queue, drains and parks, so a foreground request on gpu0 never drains a holder on gpu1. The cards share
+  one event log, one set of lease IDs and one park budget. A card is named `gpu` plus its index, or by its address
+  when it is in a VM at startup. A running game holds every card, because Berth can't tell which card it will use.
+  Alerts read the hottest and fullest card and name it. `berth status` adds a CARD column to the lease, waiting and
+  stowaway tables when there is more than one card. The first card keeps the plain state files, and each other card
+  writes its own (`usage.gpu1.json`). The default is still `--gpu 0`: `berth run` can't name a card yet, so every
+  lease goes to the first card. `berth run --gpu` and the `all` default come next.
 - berthd runs its card as part of a node, the groundwork for one berthd governing every card on a machine. The
   status JSON names each GPU, lease, waiter and stowaway's card (`card`), every event names the card it happened
   on, and a client may name its card when it asks for one (`card` on the socket); a request that names none goes to
