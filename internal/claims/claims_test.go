@@ -117,7 +117,7 @@ func (f *fakeBroker) Note(e proto.Event) {
 func TestWatcherHoldLifecycle(t *testing.T) {
 	procs := steam
 	fb := &fakeBroker{held: make(chan struct{}, 4)}
-	w := &Watcher{Rules: Builtin(), B: fb, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	w := &Watcher{Rules: Builtin(), Cards: []Broker{fb}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Scan: func() ([]Proc, error) { return procs, nil }, holds: map[string]*hold{}}
 	w.Rules = compiled(t, w.Rules...)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -151,6 +151,44 @@ func TestWatcherHoldLifecycle(t *testing.T) {
 	}
 	if len(fb.asked) != 1 {
 		t.Fatalf("hold requested %d times", len(fb.asked))
+	}
+}
+
+// A game holds every card on the node: the process table cannot say which
+// card it will draw on. Every card learns the claims, and the machine's one
+// event log hears the hold start and end once.
+func TestWatcherHoldsEveryCard(t *testing.T) {
+	procs := steam
+	gpu0 := &fakeBroker{held: make(chan struct{}, 4)}
+	gpu1 := &fakeBroker{held: make(chan struct{}, 4)}
+	w := &Watcher{Rules: Builtin(), Cards: []Broker{gpu0, gpu1}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Scan: func() ([]Proc, error) { return procs, nil }, holds: map[string]*hold{}}
+	w.Rules = compiled(t, w.Rules...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t0 := time.Now()
+
+	w.Tick(ctx, t0)
+	for i, fb := range []*fakeBroker{gpu0, gpu1} {
+		select {
+		case <-fb.held:
+		case <-time.After(time.Second):
+			t.Fatalf("gpu%d: no hold requested", i)
+		}
+		fb.mu.Lock()
+		if len(fb.asked) != 1 || fb.asked[0].Engine != "claim:steam-game" || fb.tracked[50] != "blender" || len(fb.states) == 0 {
+			t.Errorf("gpu%d: asked %+v, tracked %v, %d claim states", i, fb.asked, fb.tracked, len(fb.states))
+		}
+		fb.mu.Unlock()
+	}
+
+	procs = steam[:3]
+	w.Tick(ctx, t0.Add(DefaultLinger+time.Second))
+	if got := strings.Join(gpu0.events, ","); got != "claim.started,claim.ended" {
+		t.Errorf("gpu0 events = %s", got)
+	}
+	if len(gpu1.events) != 0 {
+		t.Errorf("gpu1 events = %v, want none: the node has one event log", gpu1.events)
 	}
 }
 
