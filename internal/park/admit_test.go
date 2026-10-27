@@ -169,3 +169,22 @@ func TestEvict(t *testing.T) {
 		})
 	}
 }
+
+// The cap on parked RAM is the machine's: what another card has parked
+// counts toward it. A machine of one card (a nil ledger) sees only its own.
+func TestLedgerCapsTheMachinesParkedRAM(t *testing.T) {
+	b := Budget{Available: 32 << 30, Max: 10 << 30}
+	var one *Ledger
+	if ok, why := one.Admit("gpu1", Totals{}, b, 5<<30); !ok {
+		t.Fatalf("one card, nothing parked: refused %q", why)
+	}
+	l := &Ledger{}
+	l.Set("gpu0", Totals{Parked: 6 << 30})
+	ok, why := l.Admit("gpu1", Totals{}, b, 5<<30)
+	if want := "park refused: 11.0 GiB parked would pass the 10.0 GiB cap"; ok || why != want {
+		t.Fatalf("gpu1 beside 6 GiB parked on gpu0 = %v, %q; want false, %q", ok, why, want)
+	}
+	if got := l.Others("gpu0"); got != (Totals{}) {
+		t.Fatalf("a refused park was recorded: gpu0 sees %+v", got)
+	}
+}

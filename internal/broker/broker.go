@@ -727,6 +727,7 @@ func (b *Broker) Tick(ctx context.Context) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	defer func() { b.cfg.Ledger.Set(b.cfg.Card, b.parkTotals()) }() // runs before the unlock
 	now := b.now()
 	b.runs = rs
 	b.accountUsage(now)

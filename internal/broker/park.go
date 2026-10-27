@@ -111,6 +111,19 @@ func (b *Broker) parkCost(l *lease) uint64 {
 	return b.footprintOf(l)
 }
 
+// parkTotals is this card's parking RAM for the machine's ledger: the
+// expected cost of every park in flight and what parked engines hold.
+// b.mu must be held.
+func (b *Broker) parkTotals() park.Totals {
+	t := park.Totals{Parked: b.parkedRAM()}
+	for _, l := range b.leases {
+		if l.state == parking {
+			t.Parking += b.parkCost(l)
+		}
+	}
+	return t
+}
+
 // parkedRAM is the RAM all parked engines hold: the sum of ramOf. b.mu
 // must be held.
 func (b *Broker) parkedRAM() uint64 {
@@ -175,18 +188,16 @@ func (b *Broker) Park(id string) (bool, string) {
 		return false, why
 	}
 	// A park still in flight has not landed in MemAvailable yet: two
-	// cards parking at once must not both claim the same free RAM.
+	// parks at once, on this card or another, must not both claim the
+	// same free RAM. The ledger adds the other cards.
+	mine := b.parkTotals()
 	avail := b.cfg.MemAvailable()
-	for _, o := range b.leases {
-		if o != l && o.state == parking {
-			avail -= min(avail, b.parkCost(o))
-		}
-	}
+	avail -= min(avail, mine.Parking)
 	cost := b.parkCost(l)
-	ok, why := park.Admit(park.Budget{
+	ok, why := b.cfg.Ledger.Admit(b.cfg.Card, mine, park.Budget{
 		Available: avail,
 		Floor:     b.cfg.ParkFloor,
-		Parked:    b.parkedRAM(),
+		Parked:    mine.Parked,
 		Max:       b.cfg.ParkMax,
 	}, cost)
 	if !ok {
@@ -278,7 +289,7 @@ func (b *Broker) evictParked(now time.Time) {
 	names := park.Evict(entries, park.Budget{
 		Available: avail,
 		Floor:     b.cfg.ParkFloor,
-		Parked:    b.parkedRAM(),
+		Parked:    b.parkedRAM() + b.cfg.Ledger.Others(b.cfg.Card).Parked,
 		Max:       b.cfg.ParkMax,
 	}, b.cfg.MemPressure(), b.cfg.ParkPressure, now, b.cfg.ParkTTL)
 	for _, name := range names {
