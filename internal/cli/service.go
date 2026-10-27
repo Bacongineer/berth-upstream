@@ -183,7 +183,7 @@ func runServiceInstall(c *Context) int {
 	notifyToo := fs.Bool("notify", false, "also install berth notify, desktop notifications (Linux)")
 	dryRun := fs.Bool("dry-run", false, "print what would be written and run, change nothing")
 	backend := fs.String("gpu-backend", "auto", "daemon GPU probe: auto, nvidia or amd")
-	card := fs.String("gpu", "0", "daemon cards: all, or a comma list of GPU indices (AMD: DRM cardN numbers) and NVIDIA PCI addresses (0000:02:00.0)")
+	card := fs.String("gpu", "all", "daemon cards: all, or a comma list of GPU indices (AMD: DRM cardN numbers) and NVIDIA PCI addresses (0000:02:00.0)")
 	if code, done := c.Parse(fs); done {
 		return code
 	}

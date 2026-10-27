@@ -14,6 +14,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/suite"
 )
@@ -41,6 +42,7 @@ func runRun(c *Context) int {
 	parkMode := fs.String("park", "", "off, hook or checkpoint (cuda-checkpoint moves the engine's VRAM into RAM on a drain; needs --front), over the entry's park")
 	frontAddr := fs.String("front", "", "loopback address the engine's requests come to (llama-swap's ${PORT}); the engine takes a free port at "+runner.PortPlaceholder+" in its command, and requests wait here while it sleeps")
 	container := fs.String("container", "", "NAME of the one container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper")
+	card := fs.String("gpu", "", "card to run on: its name on the node (gpu1) or its PCI address; the lease goes there and the engine gets CUDA_VISIBLE_DEVICES set to the card's UUID unless its environment sets it; over the entry's gpu; default the node's first card")
 	composeFile := fs.String("compose", "", "absolute PATH of the Compose file CMD's project runs from: the lease covers every container of the project and the drain stops it with compose stop, never down; exclusive with --container")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD without berthd or stop it without a safe boundary")
@@ -92,6 +94,17 @@ func runRun(c *Context) int {
 	}
 	if c.Changed("park") {
 		e.Park = *parkMode
+	}
+	if c.Changed("gpu") {
+		if e.GPU != "" && e.GPU != *card {
+			fmt.Fprintf(c.Err, "berth: --gpu overrides berth.toml gpu = %s for %s\n", e.GPU, *engine)
+		}
+		e.GPU = *card
+	}
+	if e.GPU != "" {
+		if err := gpu.CheckCard(e.GPU); err != nil {
+			return c.fail(Systemf("%v", err))
+		}
 	}
 	if err := checkFront(e.Park, *frontAddr, c.Args); err != nil {
 		return c.fail(Systemf("%v", err))

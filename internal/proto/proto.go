@@ -99,7 +99,10 @@ type Msg struct {
 	Needs    uint64 `json:"needs,omitempty"` // bytes; 0 = the whole card
 	// Card is the card an OpAcquire or OpReattach is for: its name on the
 	// node (gpu1) or its PCI address. "" is the node's first card.
-	Card     string  `json:"card,omitempty"`
+	Card string `json:"card,omitempty"`
+	// CardUUID is the granted card's NVIDIA UUID on OpGranted, "" when
+	// unknown: a run that named its card sets CUDA_VISIBLE_DEVICES to it.
+	CardUUID string  `json:"card_uuid,omitempty"`
 	Wait     float64 `json:"wait,omitempty"` // seconds to wait before refusing; 0 = server default
 	PID      int     `json:"pid,omitempty"`
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused

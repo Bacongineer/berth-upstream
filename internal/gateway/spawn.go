@@ -76,6 +76,9 @@ func runArgv(o runner.Options) []string {
 	if o.Group != "" {
 		args = append(args, "--group", o.Group)
 	}
+	if o.Card != "" {
+		args = append(args, "--gpu", o.Card)
+	}
 	if o.APIKeyFile != "" {
 		args = append(args, "--api-key-file", o.APIKeyFile)
 	}

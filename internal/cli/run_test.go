@@ -332,3 +332,15 @@ func TestCheckFront(t *testing.T) {
 		}
 	}
 }
+
+// A card that no node could name fails at the CLI, before berthd is dialed.
+func TestRunRejectsABadCard(t *testing.T) {
+	isolate(t)
+	code, _, errOut := runCLI(t, "run", "--as", "x", "--gpu", "1", "--", "true")
+	if code != ExitSystem {
+		t.Fatalf("exit = %d, want %d", code, ExitSystem)
+	}
+	if !strings.Contains(errOut, `gpu "1" must be a card name like gpu1`) {
+		t.Errorf("stderr = %q", errOut)
+	}
+}

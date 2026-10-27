@@ -35,7 +35,7 @@ import (
 func runDaemon(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "Unix socket to listen on ($BERTH_SOCKET)")
-	card := fs.String("gpu", "0", "cards to govern: all, or a comma list of GPU indices and NVIDIA PCI addresses (0000:02:00.0), which berthd follows into and out of a VM")
+	card := fs.String("gpu", "all", "cards to govern: all, or a comma list of GPU indices and NVIDIA PCI addresses (0000:02:00.0), which berthd follows into and out of a VM")
 	backend := fs.String("gpu-backend", "auto", "GPU probe: auto, nvidia or amd (AMD --gpu is the DRM cardN number)")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
@@ -173,7 +173,7 @@ func runDaemon(c *Context) int {
 			Reporter:        rep,
 			Log:             log,
 		}, probe, procs.System{})
-		cards = append(cards, &node.Card{Name: name, Addr: sel.addr, B: b})
+		cards = append(cards, &node.Card{Name: name, Addr: sel.addr, UUID: cardUUID(ctx, snap, log), B: b})
 	}
 	n, err := node.New(events, ids, cards...)
 	if err != nil {
@@ -346,6 +346,24 @@ func inventory(ctx context.Context, probe gpu.Probe, addr string, log *slog.Logg
 		return snap, true, nil
 	}
 	return snap, false, nil
+}
+
+// cardUUID is the governed card's NVIDIA UUID, read once at startup, so a
+// run that names the card can keep its engine on it. "" for an AMD card
+// or one in a VM, which reads no devices.
+func cardUUID(ctx context.Context, snap gpu.Snapshot, log *slog.Logger) string {
+	for _, d := range snap.Devices {
+		if d.Index != snap.Index || d.BusID == "" || snap.Guarded {
+			continue
+		}
+		uuid, err := gpu.UUID(ctx, d.BusID)
+		if err != nil {
+			log.Warn("card UUID unread; a run that names this card leaves CUDA_VISIBLE_DEVICES to the engine", "pci", d.BusID, "err", err)
+			return ""
+		}
+		return uuid
+	}
+	return ""
 }
 
 // logInventory lists every device the probes see once, and which card on

@@ -24,12 +24,13 @@ import (
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-// Card is one governed card: its name on the node (gpu0, gpu1, in the order
-// the node was given them), its PCI address in sysfs form when known, and the
-// broker that schedules it.
+// Card is one governed card: its name on the node (gpu0, gpu1), its PCI
+// address in sysfs form when known, its NVIDIA UUID when known (what
+// CUDA_VISIBLE_DEVICES takes), and the broker that schedules it.
 type Card struct {
 	Name string
 	Addr string
+	UUID string
 	B    *broker.Broker
 }
 

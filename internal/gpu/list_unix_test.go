@@ -24,3 +24,20 @@ func TestListEveryNvidiaCard(t *testing.T) {
 		t.Fatalf("devices = %+v", devs)
 	}
 }
+
+// UUID reads one card's UUID by its PCI address.
+func TestUUIDByAddress(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in\n*00000000:02:00.0*uuid*|*uuid*00000000:02:00.0*) echo GPU-7f3c2a10-aaaa-bbbb-cccc-000000000002 ;;\n*) echo 'No devices were found' >&2; exit 6 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "nvidia-smi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	got, err := UUID(context.Background(), "00000000:02:00.0")
+	if err != nil || got != "GPU-7f3c2a10-aaaa-bbbb-cccc-000000000002" {
+		t.Fatalf("UUID = %q, %v", got, err)
+	}
+	if got, err := UUID(context.Background(), "00000000:03:00.0"); err == nil {
+		t.Fatalf("a missing card gave %q", got)
+	}
+}
