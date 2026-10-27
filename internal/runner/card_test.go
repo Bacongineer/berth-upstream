@@ -27,9 +27,9 @@ import (
 // environment is left alone, so an engine split across cards keeps them.
 func TestRunOnANamedCard(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	events, ids, ledger := node.Shared()
+	events, ids, seq, ledger := node.Shared()
 	card := func(name string) *node.Card {
-		b := broker.New(broker.Config{Card: name, Events: events, IDs: ids, Ledger: ledger,
+		b := broker.New(broker.Config{Card: name, Events: events, IDs: ids, Seq: seq, Ledger: ledger,
 			Poll: 20 * time.Millisecond, DefaultWait: 5 * time.Second, JuggleWindow: -1, Log: log},
 			&parkCard{total: 24 << 30}, procs.System{})
 		return &node.Card{Name: name, UUID: "GPU-" + name + "-uuid", B: b}

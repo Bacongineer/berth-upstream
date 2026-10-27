@@ -100,6 +100,10 @@ type Config struct {
 	Card   string
 	Events *eventlog.Log
 	IDs    *atomic.Uint64
+	// Seq is the node's arrival order, shared like IDs: every card orders
+	// its queue by it, so a lease on several cards stands in the same
+	// place on each of them. Defaults to the broker's own.
+	Seq *atomic.Uint64
 
 	Poll         time.Duration // how often the card is read
 	Reserve      uint64        // bytes never handed out
@@ -246,6 +250,9 @@ type ident struct {
 }
 
 type lease struct {
+	// gang is the lease's shares on its other cards, nil for a lease on
+	// one card. A share is never granted alone (see AcquireAll).
+	gang     *gang
 	id       string
 	engine   string
 	group    string
@@ -454,7 +461,6 @@ type Broker struct {
 	// comfyPoke while a waiter is blocked.
 	comfyPoked map[string]time.Time
 	runs       []runs.Record
-	ord        uint64 // the last order number stamped on a lease event
 	started    time.Time
 
 	counters proto.Counters
@@ -545,10 +551,9 @@ func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.E
 	return b.cfg.Events.Events(since, watch)
 }
 
-// order is the next number in the broker's own sequence. b.mu must be held.
+// order is the next number in the node's arrival sequence (Config.Seq).
 func (b *Broker) order() uint64 {
-	b.ord++
-	return b.ord
+	return b.cfg.Seq.Add(1)
 }
 
 // now is the broker's clock. It reads the pinned b.nowFn in tests, and the
@@ -566,6 +571,9 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 	}
 	if cfg.IDs == nil {
 		cfg.IDs = &atomic.Uint64{}
+	}
+	if cfg.Seq == nil {
+		cfg.Seq = &atomic.Uint64{}
 	}
 	if cfg.APUHeadroom == 0 {
 		cfg.APUHeadroom = 2 * gpu.GiB
@@ -1070,12 +1078,7 @@ func (b *Broker) schedule(now time.Time) {
 		b.notifyWait(b.queue, why)
 		return
 	}
-	sort.SliceStable(b.queue, func(i, j int) bool {
-		if b.queue[i].prio != b.queue[j].prio {
-			return b.queue[i].prio > b.queue[j].prio
-		}
-		return b.queue[i].arrivedN < b.queue[j].arrivedN
-	})
+	b.sortQueue()
 	for len(b.queue) > 0 {
 		w := b.queue[0]
 		// A fresh daemon does not yet know what engines that ran under the
@@ -1092,46 +1095,17 @@ func (b *Broker) schedule(now time.Time) {
 				ok, reason = false, why
 			}
 		}
+		if ok && w.gang != nil {
+			// A share of a lease on several cards fits here. It takes
+			// nothing until every card fits; its gang grants them all
+			// at once. Until then it keeps its place at the head.
+			b.setWait(w, fmt.Sprintf("fits on %s; waiting for its other cards", b.cfg.Card))
+			b.notifyWait(b.queue[1:], fmt.Sprintf("next in line: %s waits for its other cards", w.engine))
+			w.gang.poke()
+			return
+		}
 		if ok {
-			b.queue = b.queue[1:]
-			w.state = active
-			w.granted = now
-			w.grantedN = b.order()
-			w.releaseBaseline = b.snap.Baseline()
-			w.releaseGTTBaseline = b.snap.GTTBaseline()
-			w.contested = b.squatBytes()
-			w.contestedGTT = b.squatGTTBytes()
-			b.leases[w.id] = w
-			beside := w.beside
-			w.beside = ""
-			if w.resumed {
-				w.resumed = false
-				// A resume is a one-shot signal per grant, and a lease can
-				// cycle park and resume many times: never close the
-				// channel, and never double-send.
-				select {
-				case w.resumeCh <- struct{}{}:
-				default:
-				}
-			} else {
-				close(w.grantCh)
-			}
-			if beside != "" {
-				b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
-			}
-			if w.contested > 0 || w.contestedGTT > 0 {
-				b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB, "squatters_gtt_mib", w.contestedGTT/gpu.MiB)
-				b.counters.ContestedGrants++
-			}
-			if w.lastWait != "" {
-				b.counters.CollisionsAvoided++
-			}
-			detail := fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))
-			if beside != "" {
-				detail += "; " + beside
-			}
-			b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested, Detail: detail})
-			b.log.Info("granted", "lease", w.id, "engine", w.engine, "priority", w.prio, "needs_mib", w.needs/gpu.MiB, "waited", now.Sub(w.arrived).Round(time.Millisecond))
+			b.grant(w, now)
 			continue
 		}
 		for _, v := range victims {
@@ -1151,6 +1125,61 @@ func (b *Broker) schedule(now time.Time) {
 		b.notifyWait(b.queue, reason)
 		return
 	}
+}
+
+// grant gives the card to w, a waiter at the head of the queue. b.mu must be
+// held.
+func (b *Broker) grant(w *lease, now time.Time) {
+	b.queue = slices.DeleteFunc(b.queue, func(q *lease) bool { return q == w })
+	w.state = active
+	w.granted = now
+	w.grantedN = b.order()
+	w.releaseBaseline = b.snap.Baseline()
+	w.releaseGTTBaseline = b.snap.GTTBaseline()
+	w.contested = b.squatBytes()
+	w.contestedGTT = b.squatGTTBytes()
+	b.leases[w.id] = w
+	beside := w.beside
+	w.beside = ""
+	if w.resumed {
+		w.resumed = false
+		// A resume is a one-shot signal per grant, and a lease can
+		// cycle park and resume many times: never close the
+		// channel, and never double-send.
+		select {
+		case w.resumeCh <- struct{}{}:
+		default:
+		}
+	} else {
+		close(w.grantCh)
+	}
+	if beside != "" {
+		b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
+	}
+	if w.contested > 0 || w.contestedGTT > 0 {
+		b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB, "squatters_gtt_mib", w.contestedGTT/gpu.MiB)
+		b.counters.ContestedGrants++
+	}
+	if w.lastWait != "" {
+		b.counters.CollisionsAvoided++
+	}
+	detail := fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))
+	if beside != "" {
+		detail += "; " + beside
+	}
+	b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested, Detail: detail})
+	b.log.Info("granted", "lease", w.id, "engine", w.engine, "priority", w.prio, "needs_mib", w.needs/gpu.MiB, "waited", now.Sub(w.arrived).Round(time.Millisecond))
+}
+
+// sortQueue orders the waiters: higher priority first, then by arrival on
+// the node. b.mu must be held.
+func (b *Broker) sortQueue() {
+	sort.SliceStable(b.queue, func(i, j int) bool {
+		if b.queue[i].prio != b.queue[j].prio {
+			return b.queue[i].prio > b.queue[j].prio
+		}
+		return b.queue[i].arrivedN < b.queue[j].arrivedN
+	})
 }
 
 func (b *Broker) setWait(w *lease, reason string) {
@@ -1682,21 +1711,9 @@ func IsNotFound(err error) bool {
 // the wait runs out. onWait hears each new reason for waiting.
 func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*Lease, error) {
 	b.mu.Lock()
-	if b.snap.APU && r.Needs > 0 {
-		why := "APU requires an exclusive lease; omit needs-mib (VRAM and GTT are separate pools)"
-		b.counters.Refused++
-		b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
+	if err := b.refuse(r); err != nil {
 		b.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
-	}
-	// A request bigger than the card can never fit, and would block the
-	// queue behind it until it timed out.
-	if limit := sat(b.snap.Total, b.cfg.Reserve); r.Needs > 0 && b.snap.Total > 0 && r.Needs > limit {
-		why := fmt.Sprintf("%s needs %d MiB; the card can never give more than %d MiB", r.Engine, r.Needs/gpu.MiB, limit/gpu.MiB)
-		b.counters.Refused++
-		b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
-		b.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
+		return nil, err
 	}
 	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, b.now())
 	l.arrivedN = b.order()
@@ -1739,6 +1756,25 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 			return nil, b.abandon(l, fmt.Sprintf("gave up after %s", wait))
 		}
 	}
+}
+
+// refuse is why r can never be granted on this card, nil when it can be.
+// b.mu must be held.
+func (b *Broker) refuse(r Request) error {
+	why := ""
+	switch limit := sat(b.snap.Total, b.cfg.Reserve); {
+	case b.snap.APU && r.Needs > 0:
+		why = "APU requires an exclusive lease; omit needs-mib (VRAM and GTT are separate pools)"
+	case r.Needs > 0 && b.snap.Total > 0 && r.Needs > limit:
+		// A request bigger than the card can never fit, and would block
+		// the queue behind it until it timed out.
+		why = fmt.Sprintf("%s needs %d MiB; the card can never give more than %d MiB", r.Engine, r.Needs/gpu.MiB, limit/gpu.MiB)
+	default:
+		return nil
+	}
+	b.counters.Refused++
+	b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
+	return fmt.Errorf("%w: %s", ErrRefused, why)
 }
 
 // abandon takes a waiter out of the queue, unless it was granted in the
