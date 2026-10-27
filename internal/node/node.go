@@ -101,6 +101,23 @@ func (n *Node) Card(key string) (*Card, error) {
 	return nil, fmt.Errorf("no card %s on this node (cards: %s)", key, strings.Join(names, ", "))
 }
 
+// Pick is the cards a request names: one card as Card takes it, or a comma
+// list of them for one lease on several cards. "" is the first card.
+func (n *Node) Pick(key string) ([]*Card, error) {
+	var out []*Card
+	for _, k := range strings.Split(key, ",") {
+		c, err := n.Card(k)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(out, c) {
+			return nil, fmt.Errorf("%s is named twice in %s", c.Name, key)
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
 // Stop drains every lease of engine on every card.
 func (n *Node) Stop(engine string) ([]string, error) {
 	var ids []string
@@ -116,8 +133,9 @@ func (n *Node) Stop(engine string) ([]string, error) {
 	if len(ids) == 0 {
 		return nil, first
 	}
+	// A lease on several cards is drained on each of them, under one ID.
 	slices.Sort(ids)
-	return ids, nil
+	return slices.Compact(ids), nil
 }
 
 // Resume puts engine's parked lease back in line on the card it parked on.

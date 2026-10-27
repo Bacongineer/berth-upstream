@@ -23,7 +23,7 @@ func node(t *testing.T, names ...string) []*Broker {
 	for _, name := range names {
 		b := New(Config{Card: name, Events: events, IDs: ids, Seq: seq, ReleaseGrace: time.Hour,
 			DefaultWait: 5 * time.Second, JuggleWindow: -1, Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
-			&card{total: 24 * GiB}, procs.Map{})
+			&card{total: 24 * GiB}, procs.Fake{Starts: map[int]uint64{100: 7}})
 		b.Tick(context.Background())
 		bs = append(bs, b)
 	}
@@ -141,5 +141,35 @@ func TestTwoGangsInOppositeCardOrderBothFinish(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatalf("round %d: the second gang never got both cards", i)
 		}
+	}
+}
+
+// An engine that held a lease on two cards comes back on both under one
+// lease ID after a berthd restart, or on neither.
+func TestReattachAllIsOneLeaseOnEveryCard(t *testing.T) {
+	cards := node(t, "gpu0", "gpu1")
+	ls, err := ReattachAll(cards, Request{Engine: "maya"}, 100, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ls) != 2 || ls[0].ID() != ls[1].ID() {
+		t.Fatalf("shares %v, want one lease ID on both cards", ls)
+	}
+	for _, b := range cards {
+		if !holds(b, "maya") {
+			t.Errorf("%s does not hold maya", b.cfg.Card)
+		}
+	}
+
+	cards = node(t, "gpu0", "gpu1")
+	if _, err := cards[1].Reattach(Request{Engine: "voice"}, 100, 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReattachAll(cards, Request{Engine: "maya"}, 100, 7); err == nil {
+		t.Fatal("pid 100 already holds a lease on gpu1, and the re-attach was granted")
+	}
+	tickAll(cards)
+	if holds(cards[0], "maya") {
+		t.Error("gpu0 kept its share of a re-attach gpu1 refused")
 	}
 }

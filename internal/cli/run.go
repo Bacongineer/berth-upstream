@@ -42,7 +42,7 @@ func runRun(c *Context) int {
 	parkMode := fs.String("park", "", "off, hook or checkpoint (cuda-checkpoint moves the engine's VRAM into RAM on a drain; needs --front), over the entry's park")
 	frontAddr := fs.String("front", "", "loopback address the engine's requests come to (llama-swap's ${PORT}); the engine takes a free port at "+runner.PortPlaceholder+" in its command, and requests wait here while it sleeps")
 	container := fs.String("container", "", "NAME of the one container CMD runs in: the drain stops it via docker/podman stop instead of signalling the wrapper")
-	card := fs.String("gpu", "", "card to run on: its name on the node (gpu1) or its PCI address; the lease goes there and the engine gets CUDA_VISIBLE_DEVICES set to the card's UUID unless its environment sets it; over the entry's gpu; default the node's first card")
+	card := fs.String("gpu", "", "card to run on: its name on the node (gpu1) or its PCI address, or a comma list of them for one lease on several cards; the lease goes there and the engine gets CUDA_VISIBLE_DEVICES set to the cards' UUIDs unless its environment sets it; over the entry's gpu; default the node's first card")
 	composeFile := fs.String("compose", "", "absolute PATH of the Compose file CMD's project runs from: the lease covers every container of the project and the drain stops it with compose stop, never down; exclusive with --container")
 	grace := fs.Duration("grace", 30*time.Second, "time each drain step gets before the next")
 	failClosed := fs.Bool("fail-closed", false, "do not start CMD without berthd or stop it without a safe boundary")

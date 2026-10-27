@@ -124,9 +124,10 @@ type Engine struct {
 	// `docker compose -f PATH up` is what starts it.
 	Compose string `toml:"compose,omitempty" json:"compose,omitempty" yaml:"compose,omitempty"`
 	// GPU is the card the engine runs on, as berth run --gpu: its name on
-	// the node (gpu1) or its PCI address. The lease goes to that card, and
-	// the run sets CUDA_VISIBLE_DEVICES to the card's UUID unless the
-	// engine's environment sets it. "" = the node's first card.
+	// the node (gpu1) or its PCI address, or a comma list of them for one
+	// lease on several cards. The lease goes to those cards, and the run
+	// sets CUDA_VISIBLE_DEVICES to their UUIDs unless the engine's
+	// environment sets it. "" = the node's first card.
 	GPU string `toml:"gpu,omitempty" json:"gpu,omitempty" yaml:"gpu,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system

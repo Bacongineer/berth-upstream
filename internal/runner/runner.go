@@ -42,7 +42,8 @@ type Options struct {
 	Socket string
 	Engine string
 	// Card is the card the run asked for (berth run --gpu, the entry's
-	// gpu): its name on the node or its PCI address. "" = the first card,
+	// gpu): its name on the node or its PCI address, or a comma list of
+	// them for one lease on several cards. "" = the first card,
 	// and the engine's environment is left as it is.
 	Card     string
 	Group    string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
@@ -713,8 +714,8 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 }
 
 // visibleDevices is the CUDA_VISIBLE_DEVICES=UUID entry that keeps the
-// engine on the card the run named, "" when the run named none, when the
-// environment already picks the devices, or when the card has no UUID (an
+// engine on the cards the run named, "" when the run named none, when the
+// environment already picks the devices, or when a card has no UUID (an
 // AMD card, or one in a VM when berthd started).
 func visibleDevices(card string, granted proto.Msg, env func(string) (string, bool), say func(string, ...any)) string {
 	if card == "" {

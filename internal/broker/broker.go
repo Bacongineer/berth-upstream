@@ -1637,6 +1637,11 @@ func (l *Lease) Release() {
 // in the middle of: parked weights, or an open lend with its ticket and
 // bytes (Request.LendID), and the lease takes that state up.
 func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
+	return b.reattach(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, pid, start)
+}
+
+// reattach is Reattach under a lease ID the caller picked.
+func (b *Broker) reattach(id string, r Request, pid int, start uint64) (*Lease, error) {
 	if pid <= 0 || start == 0 || b.tree.StartTime(pid) != start {
 		return nil, fmt.Errorf("%w: pid %d is not the process that started as %s", ErrRefused, pid, r.Engine)
 	}
@@ -1652,7 +1657,7 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 		}
 	}
 	now := b.now()
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, now)
+	l := newLease(id, r, now)
 	l.arrivedN = b.order()
 	l.containers = containerSet(r.Containers)
 	l.state, l.reattach = active, true

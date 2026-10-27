@@ -80,6 +80,12 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- One lease across several cards: `berth run --gpu gpu0,gpu1`, or `gpu = "gpu0,gpu1"` on an engine entry. berthd
+  grants the lease on every named card at once, only when each one fits, and holds no card while it waits for
+  another. The engine starts with `CUDA_VISIBLE_DEVICES` listing the cards' UUIDs in the order named, and its
+  memory on those cards counts as the lease's instead of showing as stowaways. A drain on any card stops the engine,
+  its exit frees every card, and a berthd restart re-attaches it to all of them under the same lease. A lease on
+  several cards cannot park or lend yet (#189).
 - An engine runs on the card it names: `berth run --gpu gpu1`, or `gpu = "gpu1"` on its `[[engine]]` entry (a
   PCI address works too). The lease goes to that card and stays there across a berthd restart. The engine starts
   with `CUDA_VISIBLE_DEVICES` set to the card's UUID, which berthd reads from `nvidia-smi` at startup, unless the

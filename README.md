@@ -202,8 +202,14 @@ the first card and its environment is left alone. A container engine picks its c
 berth run --as maya --gpu gpu1 -- llama-server -m maya.gguf --port 8091
 ```
 
-Planned for v0.4 as preview tags: one gateway for every card, an engine holding two cards at once under one
-lease, and then "any card that fits". Until then the gateway's cold-start check reads the first card.
+An engine that spans several cards names them all: `berth run --gpu gpu0,gpu1`, or `gpu = "gpu0,gpu1"`. It holds
+one lease across those cards, with `--needs-mib` on each. The lease is granted on every card at once, and only when each one fits, so no card
+sits reserved while another is awaited. `CUDA_VISIBLE_DEVICES` lists each card's UUID in the order named. A drain
+on any of the cards stops the engine, and its exit frees every card. A lease on several cards cannot park or lend
+yet: a drain stops it the usual way.
+
+Planned for v0.4 as preview tags: one gateway for every card, and then "any card that fits". Until then the
+gateway's cold-start check reads the first card.
 
 ## Quick start
 

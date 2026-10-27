@@ -130,19 +130,30 @@ func List(ctx context.Context, o Options) ([]Device, error) {
 }
 
 // CheckCard accepts the card a run or an engine entry names: its name on
-// the node (gpu plus its index) or its PCI address.
+// the node (gpu plus its index) or its PCI address, or a comma list of them
+// for one lease on several cards.
 func CheckCard(s string) error {
-	if strings.Contains(s, ":") {
-		if SysfsAddr(s) == "" {
-			return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0", s)
+	seen := map[string]bool{}
+	for _, c := range strings.Split(s, ",") {
+		if !cardName(c) {
+			return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0, or a comma list of them", s)
 		}
-		return nil
-	}
-	n, ok := strings.CutPrefix(s, "gpu")
-	if _, err := strconv.Atoi(n); !ok || err != nil || strings.HasPrefix(n, "-") || strings.HasPrefix(n, "+") {
-		return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0", s)
+		if seen[c] {
+			return fmt.Errorf("gpu %q names %s twice", s, c)
+		}
+		seen[c] = true
 	}
 	return nil
+}
+
+// cardName is whether s is one card's name on a node or its PCI address.
+func cardName(s string) bool {
+	if strings.Contains(s, ":") {
+		return SysfsAddr(s) != ""
+	}
+	n, ok := strings.CutPrefix(s, "gpu")
+	_, err := strconv.Atoi(n)
+	return ok && err == nil && !strings.HasPrefix(n, "-") && !strings.HasPrefix(n, "+")
 }
 
 // UUID is an NVIDIA card's UUID (GPU-...), read by its PCI address. It is
