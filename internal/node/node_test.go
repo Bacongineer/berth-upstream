@@ -188,3 +188,62 @@ func TestNewTakesACardNamedByItsAddress(t *testing.T) {
 		t.Fatalf("card by nvidia-smi address = %v, %v", c, err)
 	}
 }
+
+// A request names several cards with a comma list, by name or address, for
+// one lease across them; a card named twice is refused.
+func TestPickNamesEveryCardOfAList(t *testing.T) {
+	n := twoCards(t)
+	for key, want := range map[string]string{
+		"": "gpu0", "gpu1": "gpu1", "gpu0,gpu1": "gpu0,gpu1", "gpu1,0000:01:00.0": "gpu1,gpu0",
+	} {
+		cs, err := n.Pick(key)
+		if err != nil {
+			t.Fatalf("Pick(%q): %v", key, err)
+		}
+		var names []string
+		for _, c := range cs {
+			names = append(names, c.Name)
+		}
+		if got := strings.Join(names, ","); got != want {
+			t.Errorf("Pick(%q) = %s, want %s", key, got, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"gpu0,0000:01:00.0": "gpu0 is named twice in gpu0,0000:01:00.0",
+		"gpu0,gpu7":         "no card gpu7 on this node (cards: gpu0, gpu1)",
+	} {
+		if _, err := n.Pick(key); err == nil || err.Error() != want {
+			t.Errorf("Pick(%q) error = %v, want %q", key, err, want)
+		}
+	}
+}
+
+// berth stop of an engine with one lease on two cards drains both shares
+// and names the lease once.
+func TestStopNamesALeaseOnSeveralCardsOnce(t *testing.T) {
+	n := twoCards(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cs, err := n.Pick("gpu0,gpu1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := broker.AcquireAll(ctx, []*broker.Broker{cs[0].B, cs[1].B}, broker.Request{Engine: "maya", Priority: broker.Foreground}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range ls {
+		l.Attach(4242)
+	}
+	ids, err := n.Stop("maya")
+	if err != nil || len(ids) != 1 || ids[0] != ls[0].ID() {
+		t.Fatalf("Stop(maya) = %v, %v; want [%s]", ids, err, ls[0].ID())
+	}
+	for _, l := range ls {
+		select {
+		case <-l.Drains():
+		case <-time.After(time.Second):
+			t.Fatal("a share of maya was not drained")
+		}
+	}
+}

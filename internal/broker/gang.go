@@ -185,3 +185,22 @@ func AcquireAll(ctx context.Context, cards []*Broker, r Request, onWait func(str
 		}
 	}
 }
+
+// ReattachAll leases every card in cards again, under one lease ID, to an
+// engine that held a lease on all of them and outlived its daemon. It is
+// all or none: a card that refuses hands back the shares already taken.
+func ReattachAll(cards []*Broker, r Request, pid int, start uint64) ([]*Lease, error) {
+	id := fmt.Sprintf("%s-%d", r.Engine, cards[0].cfg.IDs.Add(1))
+	out := make([]*Lease, 0, len(cards))
+	for _, b := range cards {
+		l, err := b.reattach(id, r, pid, start)
+		if err != nil {
+			for _, got := range out {
+				got.Release()
+			}
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}

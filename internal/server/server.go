@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -203,11 +204,12 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return
 	}
-	card, err := n.Card(req.Card)
+	cards, err := n.Pick(req.Card)
 	if err != nil {
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return
 	}
+	card := cards[0]
 	b := card.B
 
 	// The client's later messages (attach) and its disconnect both arrive
@@ -246,6 +248,10 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 		ParkTTL:    time.Duration(req.ParkTTL * float64(time.Second)),
 		Containers: req.ContainerIDs(),
 	}
+	if len(cards) > 1 {
+		holdAll(ctx, u, req, r, cards, incoming, cancel, log)
+		return
+	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {
 		lease, err = b.Reattach(r, req.PID, req.PIDStart)
@@ -264,16 +270,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 		return
 	}
 	defer lease.Release()
-	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Card: card.Name, CardUUID: card.UUID}
-	if c := lease.Contested(); c > 0 {
-		granted.Reason = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
-	}
-	if shared := lease.ContestedGTT(); shared > 0 {
-		if granted.Reason == "" {
-			granted.Reason = "card contested: processes without a lease hold shared RAM"
-		}
-		granted.Reason += fmt.Sprintf(" (%d MiB GTT)", shared/gpu.MiB)
-	}
+	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Card: card.Name, CardUUID: card.UUID, Reason: contested(lease)}
 	if !u.send(granted) {
 		return
 	}
@@ -332,6 +329,116 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 			if ids := m.ContainerIDs(); len(ids) > 0 {
 				lease.AttachContainers(ids)
 				log.Info("attached containers", "lease", lease.ID(), "containers", ids)
+			}
+		}
+	}
+}
+
+// contested is the warning a grant carries when processes without a lease
+// held memory on the card, "" when none did.
+func contested(lease *broker.Lease) string {
+	why := ""
+	if c := lease.Contested(); c > 0 {
+		why = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
+	}
+	if shared := lease.ContestedGTT(); shared > 0 {
+		if why == "" {
+			why = "card contested: processes without a lease hold shared RAM"
+		}
+		why += fmt.Sprintf(" (%d MiB GTT)", shared/gpu.MiB)
+	}
+	return why
+}
+
+// holdAll holds one lease on several cards, granted on all of them at once.
+// Each card schedules and drains its own share, and a drain on any card is a
+// drain of the engine, which runs on all of them. The connection's end frees
+// every card. A share cannot park or lend yet: a park is refused, so the run
+// drains the usual way, and no card asks the lease to lend.
+func holdAll(ctx context.Context, u *consumer, req proto.Msg, r broker.Request, cards []*node.Card, incoming <-chan proto.Msg, cancel context.CancelFunc, log *slog.Logger) {
+	bs := make([]*broker.Broker, len(cards))
+	names := make([]string, len(cards))
+	uuids := make([]string, len(cards))
+	for i, c := range cards {
+		bs[i], names[i], uuids[i] = c.B, c.Name, c.UUID
+	}
+	r.Lend = false
+	var leases []*broker.Lease
+	var err error
+	if req.Op == proto.OpReattach {
+		leases, err = broker.ReattachAll(bs, r, req.PID, req.PIDStart)
+	} else {
+		leases, err = broker.AcquireAll(ctx, bs, r, func(reason string) {
+			if !u.send(proto.Msg{Op: proto.OpWaiting, Reason: reason}) {
+				cancel()
+			}
+		})
+	}
+	if err != nil {
+		u.send(proto.Msg{Op: proto.OpRefused, Reason: strings.TrimPrefix(err.Error(), broker.ErrRefused.Error()+": ")})
+		return
+	}
+	defer func() {
+		for _, l := range leases {
+			l.Release()
+		}
+	}()
+	granted := proto.Msg{Op: proto.OpGranted, Lease: leases[0].ID(), Card: strings.Join(names, ",")}
+	// CUDA_VISIBLE_DEVICES takes every card or none: a card with no UUID
+	// leaves the engine to pick its cards itself.
+	if !slices.Contains(uuids, "") {
+		granted.CardUUID = strings.Join(uuids, ",")
+	}
+	var warns []string
+	for i, l := range leases {
+		if why := contested(l); why != "" {
+			warns = append(warns, names[i]+": "+why)
+		}
+	}
+	granted.Reason = strings.Join(warns, "; ")
+	if !u.send(granted) {
+		return
+	}
+	drains := make(chan string)
+	for i, l := range leases {
+		go func() {
+			for {
+				select {
+				case why := <-l.Drains():
+					select {
+					case drains <- names[i] + ": " + why:
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case why := <-drains:
+			if !u.send(proto.Msg{Op: proto.OpDrain, Reason: why}) {
+				return
+			}
+		case m := <-incoming:
+			switch {
+			case m.Op == proto.OpPark:
+				u.send(proto.Msg{Op: proto.OpRefused, Reason: "a lease on several cards cannot park"})
+			case m.Op == proto.OpAttach && m.PID > 0:
+				for _, l := range leases {
+					l.Attach(m.PID)
+				}
+				log.Info("attached", "lease", leases[0].ID(), "cards", granted.Card, "pid", m.PID)
+			}
+			if ids := m.ContainerIDs(); len(ids) > 0 {
+				for _, l := range leases {
+					l.AttachContainers(ids)
+				}
+				log.Info("attached containers", "lease", leases[0].ID(), "containers", ids)
 			}
 		}
 	}
