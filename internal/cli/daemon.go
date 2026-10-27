@@ -5,9 +5,11 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -33,7 +35,7 @@ import (
 func runDaemon(c *Context) int {
 	fs := c.FlagSet()
 	sock := fs.String("socket", defaultSocket(), "Unix socket to listen on ($BERTH_SOCKET)")
-	card := fs.String("gpu", "0", "GPU index, or an NVIDIA card's PCI address (0000:02:00.0), which berthd follows into and out of a VM")
+	card := fs.String("gpu", "0", "cards to govern: all, or a comma list of GPU indices and NVIDIA PCI addresses (0000:02:00.0), which berthd follows into and out of a VM")
 	backend := fs.String("gpu-backend", "auto", "GPU probe: auto, nvidia or amd (AMD --gpu is the DRM cardN number)")
 	poll := fs.Duration("poll", 2*time.Second, "how often the card is read")
 	reserve := fs.Uint64("reserve-mib", 0, "memory never handed to sized leases")
@@ -55,11 +57,8 @@ func runDaemon(c *Context) int {
 	if code, done := c.noArgs(); done {
 		return code
 	}
-	index, addr, err := gpu.ParseCard(*card)
+	sels, err := parseGPUs(*card, *backend)
 	if err != nil {
-		return c.fail(Failf("%v", err))
-	}
-	if err := gpu.ValidateSelection(*backend, index); err != nil {
 		return c.fail(Failf("%v", err))
 	}
 
@@ -95,9 +94,17 @@ func runDaemon(c *Context) int {
 
 	// The machine's one nvidia-smi reader; it reads nothing on an AMD card.
 	stream := &gpu.Stream{Interval: *poll, Log: log}
-	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: index, Addr: addr, Interval: *poll, Stream: stream, Log: log})
-	if err != nil {
-		return c.fail(Systemf("gpu backend: %v", err))
+	if sels == nil {
+		devs, err := gpu.List(ctx, gpu.Options{Backend: *backend, Log: log})
+		if err != nil {
+			return c.fail(Systemf("gpu inventory: %v", err))
+		}
+		if len(devs) == 0 {
+			return c.fail(Systemf("gpu inventory: no card to govern"))
+		}
+		for _, d := range devs {
+			sels = append(sels, gpuSel{index: d.Index})
+		}
 	}
 	rep := server.Reporter{Notify: *notify, Webhook: *webhook, Log: log}
 	// The engine readers exist before the broker: a juggle asks them whether
@@ -112,36 +119,68 @@ func runDaemon(c *Context) int {
 	// names. Without it every whole-card request is granted over the squat
 	// and dies on it.
 	comfy := comfyEngines(cfg)
-	b := broker.New(broker.Config{
-		Poll:           *poll,
-		CardAddr:       addr,
-		Reserve:        *reserve * gpu.MiB,
-		APUHeadroom:    *headroomMib * gpu.MiB,
-		ReleaseGrace:   *grace,
-		DefaultWait:    *wait,
-		Allow:          splitList(*allow),
-		RunsDir:        runs.Dir(*sock),
-		CountersFile:   *countersFile,
-		UsageFile:      *usageFile,
-		FootprintFile:  *footprintFile,
-		Order:          cfg.Priority.Order,
-		JuggleWindow:   cfg.Priority.JuggleWindow.Duration,
-		Busy:           watcher.Busy,
-		Comfy:          comfy,
-		ReattachWindow: *reattachWin,
-		// The park budget, from [park]: the floor adds the headroom floor
-		// the gateway's guard uses, so a parked copy and a cold start
-		// share one picture of the machine's room.
-		ParkFloor:       parkFloorBytes(cfg, *headroomMib),
-		ParkMax:         parkMaxBytes(cfg),
-		ParkTTL:         cfg.ParkTTL(),
-		ParkResidualMax: cfg.ParkResidualMax(),
-		ParkPressure:    cfg.ParkPressure(),
-		Version:         c.Version,
-		Reporter:        rep,
-		Log:             log,
-	}, probe, procs.System{})
-	n := node.One(b)
+	events, ids, ledger := node.Shared()
+	var cards []*node.Card
+	var snaps []gpu.Snapshot
+	for i, sel := range sels {
+		probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: sel.index, Addr: sel.addr, Interval: *poll, Stream: stream, Log: log})
+		if err != nil {
+			return c.fail(Systemf("gpu backend: %v", err))
+		}
+		snap, inVM, err := inventory(ctx, probe, sel.addr, log)
+		if err != nil {
+			return c.fail(Systemf("gpu inventory: %v", err))
+		}
+		name := fmt.Sprintf("gpu%d", snap.Index)
+		if inVM {
+			name = sel.addr
+		} else {
+			snaps = append(snaps, snap)
+		}
+		if len(snap.Unobserved) > 0 {
+			log.Warn("some same-user GPU process data is inaccessible; unknown allocations remain in the driver baseline", "card", name, "pids", snap.Unobserved)
+		}
+		b := broker.New(broker.Config{
+			Card:           name,
+			Events:         events,
+			IDs:            ids,
+			Ledger:         ledger,
+			Poll:           *poll,
+			CardAddr:       sel.addr,
+			Reserve:        *reserve * gpu.MiB,
+			APUHeadroom:    *headroomMib * gpu.MiB,
+			ReleaseGrace:   *grace,
+			DefaultWait:    *wait,
+			Allow:          splitList(*allow),
+			RunsDir:        runs.Dir(*sock),
+			CountersFile:   cardFile(*countersFile, i, name),
+			UsageFile:      cardFile(*usageFile, i, name),
+			FootprintFile:  cardFile(*footprintFile, i, name),
+			Order:          cfg.Priority.Order,
+			JuggleWindow:   cfg.Priority.JuggleWindow.Duration,
+			Busy:           watcher.Busy,
+			Comfy:          comfy,
+			ReattachWindow: *reattachWin,
+			// The park budget, from [park]: the floor adds the headroom floor
+			// the gateway's guard uses, so a parked copy and a cold start
+			// share one picture of the machine's room.
+			ParkFloor:       parkFloorBytes(cfg, *headroomMib),
+			ParkMax:         parkMaxBytes(cfg),
+			ParkTTL:         cfg.ParkTTL(),
+			ParkResidualMax: cfg.ParkResidualMax(),
+			ParkPressure:    cfg.ParkPressure(),
+			Version:         c.Version,
+			Reporter:        rep,
+			Log:             log,
+		}, probe, procs.System{})
+		cards = append(cards, &node.Card{Name: name, Addr: sel.addr, B: b})
+	}
+	n, err := node.New(events, ids, cards...)
+	if err != nil {
+		return c.fail(Failf("%v", err))
+	}
+	logInventory(log, snaps, cards)
+	first := cards[0].B
 
 	// The alert table is the node's own thresholds: the built-in danger
 	// keys plus what the operator enabled. One level crossing is one
@@ -149,25 +188,20 @@ func runDaemon(c *Context) int {
 	ev := alerts.New(alerts.FromConfig(cfg.Alerts), *cfg.Alerts.ClearPolls,
 		func(key alerts.Key, lv alerts.Level, raised bool, msg string) {
 			if raised {
-				b.Note(proto.Event{Kind: proto.EvAlertRaised, Detail: lv.Name() + ": " + msg})
+				first.Note(proto.Event{Kind: proto.EvAlertRaised, Detail: lv.Name() + ": " + msg})
 				rep.Alert(lv.Name(), string(key), msg)
 			} else {
-				b.Note(proto.Event{Kind: proto.EvAlertCleared, Detail: msg})
+				first.Note(proto.Event{Kind: proto.EvAlertCleared, Detail: msg})
 			}
 		})
 
-	snap, err := inventory(ctx, probe, addr, log)
-	if err != nil {
-		return c.fail(Systemf("gpu inventory: %v", err))
-	}
-	if len(snap.Unobserved) > 0 {
-		log.Warn("some same-user GPU process data is inaccessible; unknown allocations remain in the driver baseline", "pids", snap.Unobserved)
-	}
-	// Seed the broker before accepting clients, not in a racing goroutine:
+	// Seed every broker before accepting clients, not in a racing goroutine:
 	// guarded admission must never see an uninitialised lease-only snapshot.
-	b.Tick(ctx)
-	if st := b.Status(); st.ProbeErr != "" {
-		return c.fail(Systemf("gpu initial observation: %s", st.ProbeErr))
+	for _, cd := range cards {
+		cd.B.Tick(ctx)
+		if st := cd.B.Status(); st.ProbeErr != "" {
+			return c.fail(Systemf("gpu initial observation on %s: %s", cd.Name, st.ProbeErr))
+		}
 	}
 
 	ln, err := server.Listen(*sock)
@@ -177,11 +211,15 @@ func runDaemon(c *Context) int {
 	defer os.Remove(*sock)
 	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *card)
 	go stream.Run(ctx)
-	go b.Run(ctx)
+	brokers := make([]claims.Broker, len(cards))
+	for i, cd := range cards {
+		brokers[i] = cd.B
+		go cd.B.Run(ctx)
+	}
 	// Claims: games and apps Berth does not run hold the card or have their
 	// memory named, from the process table. Validate already compiled them.
 	if rules, err := cfg.ClaimRules(); err == nil && len(rules) > 0 {
-		cw := &claims.Watcher{Rules: rules, Every: cfg.Claims.Every.Duration, Cards: []claims.Broker{b}, Log: log}
+		cw := &claims.Watcher{Rules: rules, Every: cfg.Claims.Every.Duration, Cards: brokers, Log: log}
 		go cw.Run(ctx)
 		hold, track := 0, 0
 		for _, r := range rules {
@@ -219,7 +257,7 @@ func runDaemon(c *Context) int {
 	var lastHost atomic.Pointer[proto.Host]
 	var lastAlerts atomic.Pointer[proto.Alerts]
 	lastAlerts.Store(ev.Snapshot())
-	go samplerLoop(ctx, rec, hr, b, watcher, ev, &lastHost, &lastAlerts)
+	go samplerLoop(ctx, rec, hr, n, watcher, ev, &lastHost, &lastAlerts)
 	x := server.Extras{Engines: watcher.Snapshot, Host: lastHost.Load, History: rec.Get,
 		Insights: func() *proto.Insights { return watcher.Insights(time.Now()) },
 		Requests: watcher.Requests, Alerts: lastAlerts.Load}
@@ -236,7 +274,7 @@ func runDaemon(c *Context) int {
 // history and runs the alert evaluator on that same sample, so the
 // levels, the events and the notifications all come from one clock. The
 // first tick fires immediately, then every rec.Every until ctx is done.
-func samplerLoop(ctx context.Context, rec *history.Recorder, hr *host.Reader, b *broker.Broker,
+func samplerLoop(ctx context.Context, rec *history.Recorder, hr *host.Reader, n *node.Node,
 	watcher *engines.Watcher, ev *alerts.Evaluator,
 	hostOut *atomic.Pointer[proto.Host], alertsOut *atomic.Pointer[proto.Alerts]) {
 	t := time.NewTicker(rec.Every)
@@ -244,7 +282,7 @@ func samplerLoop(ctx context.Context, rec *history.Recorder, hr *host.Reader, b 
 	for {
 		hs := proto.Host(hr.Read())
 		hostOut.Store(&hs)
-		st := b.Status()
+		st := n.Status()
 		st.Engines, st.Host, st.Insights = watcher.Snapshot(), &hs, watcher.Insights(time.Now())
 		rec.Add(history.Sample(st))
 		ev.Tick(alerts.FromStatus(st))
@@ -294,22 +332,78 @@ func splitList(s string) []string {
 	return out
 }
 
-// inventory reads every card with its real limits before berthd takes any
+// inventory reads a card with its real limits before berthd takes any
 // lease, and refuses a card that does not exist. A card named by its
-// address and bound to vfio-pci exists: it is in a VM, and the broker
-// reports it passed through until it comes back.
-func inventory(ctx context.Context, probe gpu.Probe, addr string, log *slog.Logger) (gpu.Snapshot, error) {
-	snap, err := probe.Read(ctx)
+// address and bound to vfio-pci exists: it is in a VM (inVM), and its
+// broker reports it passed through until it comes back.
+func inventory(ctx context.Context, probe gpu.Probe, addr string, log *slog.Logger) (snap gpu.Snapshot, inVM bool, err error) {
+	snap, err = probe.Read(ctx)
 	if err != nil && (addr == "" || gpu.DriverFor(addr) != gpu.VFIODriver) {
-		return snap, err
+		return snap, false, err
 	}
 	if err != nil {
 		log.Info("gpu is passed through to a VM; berthd governs it when it comes back", "pci", addr)
+		return snap, true, nil
 	}
-	for _, d := range snap.Devices {
-		log.Info("gpu found", "index", d.Index, "name", d.Name, "pci", d.BusID, "total_mib", d.Total/gpu.MiB, "scheduled", err == nil && d.Index == snap.Index)
+	return snap, false, nil
+}
+
+// logInventory lists every device the probes see once, and which card on
+// the node governs it.
+func logInventory(log *slog.Logger, snaps []gpu.Snapshot, cards []*node.Card) {
+	governed := map[int]bool{}
+	for _, s := range snaps {
+		governed[s.Index] = true
 	}
-	return snap, nil
+	if len(snaps) > 0 {
+		for _, d := range snaps[0].Devices {
+			log.Info("gpu found", "index", d.Index, "name", d.Name, "pci", d.BusID, "total_mib", d.Total/gpu.MiB, "scheduled", governed[d.Index])
+		}
+	}
+	names := make([]string, len(cards))
+	for i, cd := range cards {
+		names[i] = cd.Name
+	}
+	log.Info("governing", "cards", strings.Join(names, ","))
+}
+
+// gpuSel is one card --gpu names: an index, or a PCI address in sysfs form.
+type gpuSel struct {
+	index int
+	addr  string
+}
+
+// parseGPUs reads --gpu: nil for "all", else each card of the comma list.
+func parseGPUs(s, backend string) ([]gpuSel, error) {
+	if err := gpu.ValidateSelection(backend, 0); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(s) == "all" {
+		return nil, nil
+	}
+	var sels []gpuSel
+	for _, part := range strings.Split(s, ",") {
+		index, addr, err := gpu.ParseCard(strings.TrimSpace(part))
+		if err != nil {
+			return nil, err
+		}
+		if err := gpu.ValidateSelection(backend, index); err != nil {
+			return nil, err
+		}
+		sels = append(sels, gpuSel{index: index, addr: addr})
+	}
+	return sels, nil
+}
+
+// cardFile is a card's own copy of a state file. The first card keeps the
+// plain path, so a one-card berthd reads the file it always has; the others
+// put their card's name before the extension (usage.gpu1.json).
+func cardFile(path string, i int, name string) string {
+	if path == "" || i == 0 {
+		return path
+	}
+	ext := filepath.Ext(path)
+	return strings.TrimSuffix(path, ext) + "." + strings.ReplaceAll(name, ":", "-") + ext
 }
 
 // parkFloorBytes is the RAM a park must leave the machine: the [park]

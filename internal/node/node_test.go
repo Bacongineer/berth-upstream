@@ -174,3 +174,17 @@ func TestStopAndResumeFindTheEngineOnItsCard(t *testing.T) {
 		t.Fatalf("Resume(nope) error = %v", err)
 	}
 }
+
+// A card in a VM at startup is named by its address, and that is one card,
+// not two cards with the same name.
+func TestNewTakesACardNamedByItsAddress(t *testing.T) {
+	events, ids, _ := Shared()
+	b := broker.New(broker.Config{Events: events, IDs: ids}, &card{total: 24 * gib}, procs.Map{})
+	n, err := New(events, ids, &Card{Name: "0000:02:00.0", Addr: "0000:02:00.0", B: b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := n.Card("00000000:02:00.0"); err != nil || c.Name != "0000:02:00.0" {
+		t.Fatalf("card by nvidia-smi address = %v, %v", c, err)
+	}
+}

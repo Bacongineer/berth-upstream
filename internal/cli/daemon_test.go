@@ -66,3 +66,20 @@ func TestGPUSelectionValidationPrecedesHardwareAndServiceAccess(t *testing.T) {
 		}
 	}
 }
+
+// berth service install writes the --gpu the daemon reads: all, or the
+// list with each address in sysfs form.
+func TestServiceInstallTakesEveryCardSelection(t *testing.T) {
+	for in, want := range map[string]string{
+		"all":                "--gpu all",
+		"1,00000000:02:00.0": "--gpu 1,0000:02:00.0",
+	} {
+		code, out, errOut := runCLI(t, "service", "install", "--gpu", in, "--dry-run")
+		if code != ExitOK || !strings.Contains(out, want) {
+			t.Errorf("--gpu %s: exit %d, stdout %q, stderr %q, want %q", in, code, out, errOut, want)
+		}
+	}
+	if code, _, _ := runCLI(t, "service", "install", "--gpu", "1,0000:02:00.0", "--gpu-backend", "amd", "--dry-run"); code != ExitFail {
+		t.Errorf("an AMD list with a PCI address: exit %d, want %d", code, ExitFail)
+	}
+}

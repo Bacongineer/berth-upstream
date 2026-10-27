@@ -4,6 +4,7 @@
 package alerts
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/T-Crypt/berth/internal/config"
@@ -293,5 +294,29 @@ func TestFromStatusIdle(t *testing.T) {
 		if _, ok := r2.V[k]; ok {
 			t.Errorf("%q present without insights", k)
 		}
+	}
+}
+
+// With several cards on the node, each level reads the worst card, and the
+// note names it, so a hot gpu1 alerts while gpu0 is cool.
+func TestFromStatusWorstCard(t *testing.T) {
+	st := proto.Status{GPUs: []proto.GPU{
+		{Index: 0, Card: "gpu0", Scheduled: true, Total: 1000, Used: 500, Temp: 60, Power: 100, PowerLimit: 400},
+		{Index: 1, Card: "gpu1", Scheduled: true, Total: 1000, Used: 950, Temp: 88, Power: 300, PowerLimit: 400},
+	}}
+	r := FromStatus(st)
+	if r.V[KeyTemp] != 88 || r.V[KeyVRAM] != 0.95 || r.V[KeyPower] != 0.75 {
+		t.Fatalf("V = %v", r.V)
+	}
+	for _, k := range []Key{KeyTemp, KeyVRAM, KeyPower} {
+		if r.Note[k] != "gpu1" {
+			t.Errorf("Note[%q] = %q, want gpu1", k, r.Note[k])
+		}
+	}
+	if msg := msgFor(KeyTemp, proto.Threshold{Warn: 85, Crit: 95}, LevelWarn, r); !strings.HasSuffix(msg, " on gpu1") {
+		t.Errorf("message = %q, want it to name gpu1", msg)
+	}
+	if r := FromStatus(proto.Status{GPUs: st.GPUs[1:]}); r.Note[KeyTemp] != "" {
+		t.Errorf("one card: Note[temp] = %q, want none, so one-card messages stay as they were", r.Note[KeyTemp])
 	}
 }

@@ -55,7 +55,7 @@ func New(events *eventlog.Log, ids *atomic.Uint64, cards ...*Card) (*Node, error
 	}
 	seen := map[string]bool{}
 	for _, c := range cards {
-		for _, k := range []string{c.Name, c.Addr} {
+		for _, k := range slices.Compact([]string{c.Name, c.Addr}) {
 			if k == "" {
 				continue
 			}

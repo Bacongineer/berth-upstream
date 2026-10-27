@@ -102,31 +102,40 @@ type Reading struct {
 }
 
 // FromStatus reads one status into a Reading: the exact values the node
-// would evaluate and notify on. The scheduled GPU is the first one
-// marked scheduled, else the first; power is present only when the
+// would evaluate and notify on. The card levels read the worst scheduled
+// GPU, else the first GPU; power is present only when the
 // driver reports both watts and a limit; cache is present only while
 // there was request traffic, so an idle engine never alarms.
 func FromStatus(st proto.Status) Reading {
 	r := Reading{V: map[Key]float64{}, Note: map[Key]string{}}
-	var g *proto.GPU
-	for i := range st.GPUs {
-		if st.GPUs[i].Scheduled {
-			g = &st.GPUs[i]
-			break
+	var cards []proto.GPU
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			cards = append(cards, g)
 		}
 	}
-	if g == nil && len(st.GPUs) > 0 {
-		g = &st.GPUs[0]
+	if len(cards) == 0 && len(st.GPUs) > 0 {
+		cards = st.GPUs[:1]
 	}
-	if g != nil {
+	// Each card level reads the worst card; with several, the note names it.
+	worst := func(k Key, v float64, g proto.GPU) {
+		if old, ok := r.V[k]; ok && old >= v {
+			return
+		}
+		r.V[k] = v
+		if len(cards) > 1 {
+			r.Note[k] = g.Card
+		}
+	}
+	for _, g := range cards {
 		if g.Temp >= 0 {
-			r.V[KeyTemp] = g.Temp
+			worst(KeyTemp, g.Temp, g)
 		}
 		if g.Power > 0 && g.PowerLimit > 0 {
-			r.V[KeyPower] = g.Power / g.PowerLimit
+			worst(KeyPower, g.Power/g.PowerLimit, g)
 		}
 		if g.Total > 0 {
-			r.V[KeyVRAM] = float64(g.Used) / float64(g.Total)
+			worst(KeyVRAM, float64(g.Used)/float64(g.Total), g)
 		}
 	}
 	r.V[KeyQueue] = float64(len(st.Waiting))
@@ -316,7 +325,11 @@ func msgFor(key Key, thr proto.Threshold, level Level, r Reading) string {
 	if named == LevelCrit {
 		boundary = thr.Crit
 	}
-	return fmt.Sprintf("%s %s (%s at %s)", key, valueText(key, r.V[key]), named.Name(), thrText(key, boundary))
+	msg := fmt.Sprintf("%s %s (%s at %s)", key, valueText(key, r.V[key]), named.Name(), thrText(key, boundary))
+	if card := r.Note[key]; card != "" {
+		msg += " on " + card
+	}
+	return msg
 }
 
 func valueText(key Key, v float64) string {

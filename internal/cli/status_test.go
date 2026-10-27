@@ -371,3 +371,44 @@ func TestStatusNamesAnUnreadPassthroughCardByAddress(t *testing.T) {
 		t.Fatalf("stdout = %q, want the card named by its address", s)
 	}
 }
+
+// With more than one card on the node, the lease and stowaway tables name
+// each row's card. With one card they stay as they were.
+func TestStatusNamesTheCardWithSeveral(t *testing.T) {
+	render := func(gpus []proto.GPU) string {
+		var out, errOut bytes.Buffer
+		c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+		st := &proto.Status{
+			API: proto.APIVersion, Version: "test", GPUs: gpus,
+			Leases:    []proto.Lease{{ID: "maya-3", Card: "gpu1", Engine: "maya", Priority: "interactive", State: "active", Age: 60}},
+			Waiting:   []proto.Lease{{ID: "voice-4", Card: "gpu1", Engine: "voice", Priority: "foreground", State: "waiting", Position: 1}},
+			Squatters: []proto.Squatter{{Card: "gpu0", Name: "python3", PID: 77, Used: 1 << 30}},
+		}
+		if err := (statusView{st: st}).Human(c, true); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	two := render([]proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}, {Index: 1, Card: "gpu1", Scheduled: true}})
+	heads := map[string]bool{}
+	for _, line := range strings.Split(two, "\n") {
+		if f := strings.Fields(line); len(f) > 1 {
+			heads[f[0]+" "+f[1]] = true
+		}
+	}
+	for _, want := range []string{"LEASE CARD", "WAITING CARD", "SQUATTER CARD"} {
+		if !heads[want] {
+			t.Errorf("two cards: no %q header in\n%s", want, two)
+		}
+	}
+	for _, line := range strings.Split(two, "\n") {
+		for id, card := range map[string]string{"maya-3": "gpu1", "voice-4": "gpu1", "python3": "gpu0"} {
+			if strings.HasPrefix(line, id) && !strings.Contains(line, card) {
+				t.Errorf("row %q does not name %s", line, card)
+			}
+		}
+	}
+	if one := render([]proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}}); strings.Contains(one, "CARD") {
+		t.Errorf("one card grew a CARD column:\n%s", one)
+	}
+}

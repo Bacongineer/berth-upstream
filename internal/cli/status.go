@@ -73,11 +73,24 @@ func (v statusView) Human(c *Context, ok bool) error {
 	}
 
 	tw := tabwriter.NewWriter(c.Out, 0, 4, 2, ' ', tabwriter.StripEscape)
+	// Each row names its card once the node has more than one.
+	cards := 0
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			cards++
+		}
+	}
+	cardCol := func(head, card string) string {
+		if cards < 2 {
+			return head
+		}
+		return head + "\t" + card
+	}
 	lease := func(title string, ls []proto.Lease, waiting bool) {
 		if len(ls) == 0 {
 			return
 		}
-		header := "\n" + title + "\tENGINE\tPRIORITY\tSTATE\tNEEDS\tHOLDS\tPIDS"
+		header := "\n" + cardCol(title, "CARD") + "\tENGINE\tPRIORITY\tSTATE\tNEEDS\tHOLDS\tPIDS"
 		if c.Verbose {
 			header += "\tPID"
 		}
@@ -97,7 +110,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if l.Pinned {
 				prio += ",pinned"
 			}
-			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", l.ID, l.Engine, prio, state, needs, memoryHeld(l.Used, l.GTTUsed), l.GPUPIDs)
+			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", cardCol(l.ID, l.Card), l.Engine, prio, state, needs, memoryHeld(l.Used, l.GTTUsed), l.GPUPIDs)
 			if c.Verbose {
 				row += fmt.Sprintf("\t%d", l.PID)
 			}
@@ -121,9 +134,9 @@ func (v statusView) Human(c *Context, ok bool) error {
 	lease("LEASE", st.Leases, false)
 	lease("WAITING", st.Waiting, true)
 	if len(st.Squatters) > 0 {
-		fmt.Fprint(tw, "\nSQUATTER\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
+		fmt.Fprint(tw, "\n"+cardCol("SQUATTER", "CARD")+"\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
 		for _, s := range st.Squatters {
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", s.Name, s.PID, memoryHeld(s.Used, s.GTTUsed), age(s.Age), s.Run)
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", cardCol(s.Name, s.Card), s.PID, memoryHeld(s.Used, s.GTTUsed), age(s.Age), s.Run)
 		}
 	}
 	var active []proto.Claim

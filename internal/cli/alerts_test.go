@@ -19,6 +19,7 @@ import (
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/history"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -87,7 +88,7 @@ func TestAlertCrossingFiresEventAndNotificationTogether(t *testing.T) {
 	var lastAlerts atomic.Pointer[proto.Alerts]
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	t.Cleanup(cancel)
-	go samplerLoop(ctx, rec, &host.Reader{}, b, nil, ev, &hostOut, &lastAlerts)
+	go samplerLoop(ctx, rec, &host.Reader{}, node.One(b), nil, ev, &hostOut, &lastAlerts)
 	<-ctx.Done()
 
 	// One crossing: exactly one alert.raised event in the ring, named
