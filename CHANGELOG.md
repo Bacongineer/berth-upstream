@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth status`, `berth run` and the other commands find the user service's socket from a shell without
+  `XDG_RUNTIME_DIR`, such as ssh. They looked in `/tmp/berth-<uid>.sock` while berthd listened in
+  `/run/user/<uid>/berth.sock`, and reported berthd unreachable. When `XDG_RUNTIME_DIR` is unset, Berth now uses
+  `/run/user/<uid>` if it exists (#196).
 - The gateway forwards a request for a parked llama-swap model to llama-swap, and the model's front (`berth run
   --front`) wakes it. With one llama-swap model parked, the gateway counted all of llama-swap as parked and answered
   every llama-swap model with a 404 until llama-swap unloaded the parked one. A chat to a parked NInfer now wakes it
