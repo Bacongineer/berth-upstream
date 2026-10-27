@@ -184,8 +184,9 @@ AMD Windows are not supported. See [scope and validation](contrib/amd/README.md)
 
 ### Multiple GPUs (experimental)
 
-Today each card gets its own berthd, with its own socket and state files. Name the card by its PCI
-address, so berthd keeps the right card when `nvidia-smi` renumbers them:
+Today each card gets its own berthd, with its own socket and state files. Name an NVIDIA card by its
+PCI address, so berthd keeps the right card when `nvidia-smi` renumbers them. An AMD card is named by
+its DRM `cardN` number (`--gpu 1` for card1). `--gpu` does not take an AMD card's PCI address yet.
 
 ```sh
 berth daemon --gpu 0000:02:00.0 --socket "$XDG_RUNTIME_DIR/berth-gpu1.sock" ...   # state flags in the guide
