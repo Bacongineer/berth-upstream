@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The gateway forwards a request for a parked llama-swap model to llama-swap, and the model's front (`berth run
+  --front`) wakes it. With one llama-swap model parked, the gateway counted all of llama-swap as parked and answered
+  every llama-swap model with a 404 until llama-swap unloaded the parked one. A chat to a parked NInfer now wakes it
+  in about 6 s instead of failing for up to five minutes.
 - `berth run --front` picks the engine's port from 20000-29999. It took a port the kernel had just handed out and
   released, and the engine binds it only once its lease is granted, which can be minutes later. In that time any
   outgoing connection could take the port, and the engine failed to start. Ports below the ephemeral range are never
