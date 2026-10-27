@@ -63,6 +63,19 @@ func openAMD(o Options) (Probe, error) {
 	return &AMDGPU{Index: o.Index, SysRoot: o.SysRoot, ProcRoot: o.ProcRoot, MaxAge: age, walk: &amdWalk{}}, nil
 }
 
+// listAMD is the amdgpu cards Berth can govern, by DRM card number.
+func listAMD(o Options) ([]Device, error) {
+	cards, err := AMDGPU{SysRoot: o.SysRoot}.cards()
+	if err != nil {
+		return nil, err
+	}
+	devs := make([]Device, len(cards))
+	for i, c := range cards {
+		devs[i] = c.Device
+	}
+	return devs, nil
+}
+
 func hasAMD(o Options) (bool, error) {
 	a := AMDGPU{SysRoot: o.SysRoot}
 	cards, err := a.cards()

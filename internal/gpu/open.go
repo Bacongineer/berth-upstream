@@ -4,6 +4,7 @@
 package gpu
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,19 +73,9 @@ func Open(o Options) (Probe, error) {
 	if err := ValidateSelection(o.Backend, o.Index); err != nil {
 		return nil, err
 	}
-	backend := o.Backend
-	if backend == "" || backend == "auto" {
-		backend = "nvidia"
-		if _, err := exec.LookPath("nvidia-smi"); err != nil {
-			amd, err := hasAMD(o)
-			if err != nil {
-				return nil, err
-			}
-			if !amd {
-				return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
-			}
-			backend = "amd"
-		}
+	backend, err := pickBackend(o)
+	if err != nil {
+		return nil, err
 	}
 	if backend == "amd" {
 		if o.Addr != "" {
@@ -96,4 +87,44 @@ func Open(o Options) (Probe, error) {
 		return o.Stream.Card(o.Index, o.Addr), nil
 	}
 	return NvidiaSMI{Index: o.Index, BusID: o.Addr, Log: o.Log}, nil
+}
+
+// pickBackend resolves auto: NVIDIA whenever nvidia-smi is installed, AMD
+// only without it.
+func pickBackend(o Options) (string, error) {
+	if o.Backend != "" && o.Backend != "auto" {
+		return o.Backend, nil
+	}
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		return "nvidia", nil
+	}
+	amd, err := hasAMD(o)
+	if err != nil {
+		return "", err
+	}
+	if !amd {
+		return "", fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
+	}
+	return "amd", nil
+}
+
+// List is every card the backend can govern, in index order, from one
+// reading: the cards berthd --gpu all opens. An NVIDIA card in a VM is not
+// listed; berthd governs it only when --gpu names its address.
+func List(ctx context.Context, o Options) ([]Device, error) {
+	if err := ValidateSelection(o.Backend, 0); err != nil {
+		return nil, err
+	}
+	backend, err := pickBackend(o)
+	if err != nil {
+		return nil, err
+	}
+	if backend == "amd" {
+		return listAMD(o)
+	}
+	mem, err := NvidiaSMI{Log: o.Log}.run(ctx, "--query-gpu="+Query, "--format=csv,noheader,nounits")
+	if err != nil {
+		return nil, err
+	}
+	return ParseDevices(mem)
 }

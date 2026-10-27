@@ -365,3 +365,18 @@ func TestAMDWalksProcessesWhenTheCardMoves(t *testing.T) {
 		t.Fatalf("after ProcsEvery %q", got)
 	}
 }
+
+// --gpu all on AMD opens the cards Berth can govern, by DRM number, and
+// leaves out the ones it cannot.
+func TestListAMDCards(t *testing.T) {
+	a := amdFixture(t)
+	amdFixtureCard(t, a, 1, "0000:0a:00.0", 11, 5, 0)
+	amdFixtureCard(t, a, 10, "0001:04:00.0", 12, 0, 1)
+	devs, err := List(context.Background(), Options{Backend: "amd", SysRoot: a.SysRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devs) != 2 || devs[0].Index != 0 || devs[1].Index != 10 {
+		t.Fatalf("devices = %+v", devs)
+	}
+}
