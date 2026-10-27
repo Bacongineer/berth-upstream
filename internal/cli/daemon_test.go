@@ -79,6 +79,9 @@ func TestServiceInstallTakesEveryCardSelection(t *testing.T) {
 			t.Errorf("--gpu %s: exit %d, stdout %q, stderr %q, want %q", in, code, out, errOut, want)
 		}
 	}
+	if code, out, _ := runCLI(t, "service", "install", "--dry-run"); code != ExitOK || !strings.Contains(out, "--gpu all") {
+		t.Errorf("no --gpu: exit %d, stdout %q, want the unit to govern every card", code, out)
+	}
 	if code, _, _ := runCLI(t, "service", "install", "--gpu", "1,0000:02:00.0", "--gpu-backend", "amd", "--dry-run"); code != ExitFail {
 		t.Errorf("an AMD list with a PCI address: exit %d, want %d", code, ExitFail)
 	}
