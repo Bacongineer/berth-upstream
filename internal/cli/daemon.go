@@ -93,7 +93,9 @@ func runDaemon(c *Context) int {
 	log.Debug("config", "path", *cfgPath, "engines", len(cfg.Engine), "discover", *cfg.Engines.Discover,
 		"metrics", cfg.Metrics.Listen, "juggle_window", cfg.Priority.JuggleWindow.String())
 
-	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: index, Addr: addr, Interval: *poll, Log: log})
+	// The machine's one nvidia-smi reader; it reads nothing on an AMD card.
+	stream := &gpu.Stream{Interval: *poll, Log: log}
+	probe, err := gpu.Open(gpu.Options{Backend: *backend, Index: index, Addr: addr, Interval: *poll, Stream: stream, Log: log})
 	if err != nil {
 		return c.fail(Systemf("gpu backend: %v", err))
 	}
@@ -174,9 +176,7 @@ func runDaemon(c *Context) int {
 	}
 	defer os.Remove(*sock)
 	log.Info("berthd up", "version", c.Version, "socket", *sock, "gpu", *card)
-	if stream, ok := probe.(interface{ Run(context.Context) }); ok {
-		go stream.Run(ctx)
-	}
+	go stream.Run(ctx)
 	go b.Run(ctx)
 	// Claims: games and apps Berth does not run hold the card or have their
 	// memory named, from the process table. Validate already compiled them.
