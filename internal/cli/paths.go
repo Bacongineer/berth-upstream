@@ -10,6 +10,10 @@ import (
 	"runtime"
 )
 
+// userRuntimeRoot holds each user's session runtime directory, the one
+// systemd sets XDG_RUNTIME_DIR to.
+var userRuntimeRoot = "/run/user"
+
 // defaultSocket is $BERTH_SOCKET, else $XDG_RUNTIME_DIR/berth.sock, else a
 // per-user file in the temp dir.
 func defaultSocket() string {
