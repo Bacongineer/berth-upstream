@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -95,4 +96,77 @@ func Evict(parked []Parked, b Budget, pressure, threshold float64, now time.Time
 		}
 	}
 	return out
+}
+
+// Ledger is the machine's parking RAM, shared by every card's broker: what
+// each card has parking (admitted, not yet out of the kernel's available
+// RAM) and parked. Admit reads the other cards' figures and records the
+// admitted park under one lock, so two cards never admit parks against the
+// same free RAM. A nil Ledger is a machine of one card.
+type Ledger struct {
+	mu    sync.Mutex
+	cards map[string]Totals
+}
+
+// Totals is one card's parking RAM, in bytes.
+type Totals struct {
+	Parking uint64 // admitted parks that have not landed yet
+	Parked  uint64 // what parked engines hold
+}
+
+// Set records card's figures; the card's broker calls it every tick.
+func (l *Ledger) Set(card string, t Totals) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.cards == nil {
+		l.cards = map[string]Totals{}
+	}
+	l.cards[card] = t
+}
+
+// Others is the other cards' figures added up.
+func (l *Ledger) Others(card string) Totals {
+	if l == nil {
+		return Totals{}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.others(card)
+}
+
+func (l *Ledger) others(card string) Totals {
+	var t Totals
+	for c, ct := range l.cards {
+		if c != card {
+			t.Parking += ct.Parking
+			t.Parked += ct.Parked
+		}
+	}
+	return t
+}
+
+// Admit decides a park of cost on card, whose own figures are mine, against
+// b with the other cards added: their parking RAM comes off Available and
+// their parked RAM goes onto Parked. An admitted park counts as parking on
+// card at once.
+func (l *Ledger) Admit(card string, mine Totals, b Budget, cost uint64) (bool, string) {
+	if l == nil {
+		return Admit(b, cost)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	o := l.others(card)
+	b.Available -= min(b.Available, o.Parking)
+	b.Parked += o.Parked
+	ok, why := Admit(b, cost)
+	if ok {
+		if l.cards == nil {
+			l.cards = map[string]Totals{}
+		}
+		l.cards[card] = Totals{Parking: mine.Parking + cost, Parked: mine.Parked}
+	}
+	return ok, why
 }
