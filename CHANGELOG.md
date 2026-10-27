@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- berthd uses less CPU when idle. The claims watcher reads the process table every 2 s, and each scan now
+  takes a third of the syscalls: 2.0 ms instead of 7.2 ms for 534 processes. The AMD probe reads the fdinfo of a
+  process's GPU device files only, not of every open file, and walks the processes again only when the card's used
+  memory moves or every 10 s. cygnal measured the AMD probe at about 15% of a core on a desktop with a browser and
+  Electron apps (#196).
 - The gateway forwards a request for a parked llama-swap model to llama-swap, and the model's front (`berth run
   --front`) wakes it. With one llama-swap model parked, the gateway counted all of llama-swap as parked and answered
   every llama-swap model with a 404 until llama-swap unloaded the parked one. A chat to a parked NInfer now wakes it
