@@ -8,6 +8,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- berthd uses less CPU when idle. The claims watcher reads the process table every 2 s, and each scan now
+  takes a third of the syscalls: 2.0 ms instead of 7.2 ms for 534 processes. The AMD probe reads the fdinfo of a
+  process's GPU device files only, not of every open file, and walks the processes again only when the card's used
+  memory moves or every 10 s. cygnal measured the AMD probe at about 15% of a core on a desktop with a browser and
+  Electron apps (#196).
 - `berth status`, `berth run` and the other commands find the user service's socket from a shell without
   `XDG_RUNTIME_DIR`, such as ssh. They looked in `/tmp/berth-<uid>.sock` while berthd listened in
   `/run/user/<uid>/berth.sock`, and reported berthd unreachable. When `XDG_RUNTIME_DIR` is unset, Berth now uses
