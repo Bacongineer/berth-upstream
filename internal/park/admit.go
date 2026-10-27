@@ -96,3 +96,6 @@ func Evict(parked []Parked, b Budget, pressure, threshold float64, now time.Time
 	}
 	return out
 }
+
+// Ledger is the machine's parking RAM, shared by every card's broker.
+type Ledger struct{}

@@ -22,6 +22,7 @@ import (
 	"github.com/T-Crypt/berth/internal/eventlog"
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -161,6 +162,9 @@ type Config struct {
 	// the real reading, 0 when it cannot be read. Tests fake them.
 	MemAvailable func() uint64
 	MemPressure  func() float64
+	// Ledger is the machine's parking RAM, shared by every card's broker;
+	// nil = this card's parks only.
+	Ledger *park.Ledger
 	// ProcTable lists every process on the machine (procs.List on Linux):
 	// pid, parent, start time, name. Each tick the broker records every
 	// descendant of an attached lease under that lease, so a child that
