@@ -6,6 +6,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Changed
+
+- berthd and `berth service install` govern every card by default (`--gpu all`), where they took card 0. On a
+  machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
+  a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
+  the old behavior with `berth daemon --gpu 0`. A unit installed earlier keeps the `--gpu` it was written with.
+
 ### Fixed
 
 - berthd uses less CPU when idle. The claims watcher reads the process table every 2 s, and each scan now
@@ -70,6 +77,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- An engine runs on the card it names: `berth run --gpu gpu1`, or `gpu = "gpu1"` on its `[[engine]]` entry (a
+  PCI address works too). The lease goes to that card and stays there across a berthd restart. The engine starts
+  with `CUDA_VISIBLE_DEVICES` set to the card's UUID, which berthd reads from `nvidia-smi` at startup, unless the
+  environment already sets it. A gateway start passes the entry's card on. A run that names no card goes to the
+  first card and its environment is left alone, so an engine split across two cards keeps both.
 - One berthd can govern several cards (experimental). `berth daemon --gpu all` opens every card it finds, and
   `--gpu` also takes a comma list of indices and NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`). Each card keeps its
   own leases, queue, drains and parks, so a foreground request on gpu0 never drains a holder on gpu1. The cards share
@@ -77,8 +89,7 @@ has a matching GitHub release whose body comes from its section below.
   when it is in a VM at startup. A running game holds every card, because Berth can't tell which card it will use.
   Alerts read the hottest and fullest card and name it. `berth status` adds a CARD column to the lease, waiting and
   stowaway tables when there is more than one card. The first card keeps the plain state files, and each other card
-  writes its own (`usage.gpu1.json`). The default is still `--gpu 0`: `berth run` can't name a card yet, so every
-  lease goes to the first card. `berth run --gpu` and the `all` default come next.
+  writes its own (`usage.gpu1.json`).
 - berthd runs its card as part of a node, the groundwork for one berthd governing every card on a machine. The
   status JSON names each GPU, lease, waiter and stowaway's card (`card`), every event names the card it happened
   on, and a client may name its card when it asks for one (`card` on the socket); a request that names none goes to

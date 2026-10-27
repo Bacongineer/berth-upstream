@@ -72,6 +72,11 @@ next poll. A drain stops the project with `compose stop`, never `down`: `down` d
 and networks you own. Your start command stays your own, and `docker compose -f PATH up` suits it:
 it stays in the foreground while the project runs and exits after the stop.
 
+On a machine with more than one card, `gpu = "gpu1"` on the entry (or `berth run --gpu gpu1`) puts the
+lease on that card. `berth run` sets `CUDA_VISIBLE_DEVICES` for the command it starts, which is the
+`docker` CLI here, not the container. Give the container its card yourself with
+`--gpus device=<UUID>`, or `device_ids` under the service's GPU reservation in Compose.
+
 Check each service's restart policy. Docker restarts a container with `restart: always` the next time
 its daemon starts, even after a drain stopped it, so a reboot or a Docker Desktop start puts it back on
 the card without a lease. `berth run` reads the policy of each container it names on the lease and
