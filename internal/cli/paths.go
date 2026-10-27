@@ -8,9 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 )
 
-// defaultSocket is $BERTH_SOCKET, else $XDG_RUNTIME_DIR/berth.sock, else a
+// userRuntimeRoot holds each user's session runtime directory, the one
+// systemd sets XDG_RUNTIME_DIR to.
+var userRuntimeRoot = "/run/user"
+
+// defaultSocket is $BERTH_SOCKET, else $XDG_RUNTIME_DIR/berth.sock, else the
+// session runtime directory's berth.sock when it exists (a shell without
+// XDG_RUNTIME_DIR, such as ssh, still finds the user service), else a
 // per-user file in the temp dir.
 func defaultSocket() string {
 	if s := os.Getenv("BERTH_SOCKET"); s != "" {
@@ -18,6 +25,12 @@ func defaultSocket() string {
 	}
 	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
 		return filepath.Join(d, "berth.sock")
+	}
+	if runtime.GOOS == "linux" {
+		d := filepath.Join(userRuntimeRoot, strconv.Itoa(os.Getuid()))
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			return filepath.Join(d, "berth.sock")
+		}
 	}
 	// Windows (10 1803 and later has AF_UNIX): the per-user local app data
 	// folder, whose ACL already keeps other users out.
