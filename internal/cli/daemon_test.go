@@ -11,6 +11,8 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 )
 
 // broker.comfySquat fires only for engines this list names; a dropped entry
@@ -84,5 +86,33 @@ func TestServiceInstallTakesEveryCardSelection(t *testing.T) {
 	}
 	if code, _, _ := runCLI(t, "service", "install", "--gpu", "1,0000:02:00.0", "--gpu-backend", "amd", "--dry-run"); code != ExitFail {
 		t.Errorf("an AMD list with a PCI address: exit %d, want %d", code, ExitFail)
+	}
+}
+
+// A card picked by index (--gpu all, --gpu 3) still answers to its PCI
+// address in either form, as one picked by address does (#189).
+func TestCardPickedByIndexAnswersToItsAddress(t *testing.T) {
+	snap := gpu.Snapshot{Index: 3, Devices: []gpu.Device{
+		{Index: 0, BusID: "00000000:01:00.0"},
+		{Index: 3, BusID: "00000000:09:00.0"},
+	}}
+	n, err := node.New(nil, nil,
+		&node.Card{Name: "gpu0", Addr: cardAddr(gpuSel{index: 0}, gpu.Snapshot{Index: 0, Devices: snap.Devices})},
+		&node.Card{Name: "gpu3", Addr: cardAddr(gpuSel{index: 3}, snap)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"0000:09:00.0", "00000000:09:00.0", "gpu3"} {
+		c, err := n.Card(key)
+		if err != nil {
+			t.Errorf("%s: %v", key, err)
+			continue
+		}
+		if c.Name != "gpu3" {
+			t.Errorf("%s names %s, want gpu3", key, c.Name)
+		}
+	}
+	if got := cardAddr(gpuSel{index: 3, addr: "0000:09:00.0"}, gpu.Snapshot{}); got != "0000:09:00.0" {
+		t.Errorf("picked by address: %q, want 0000:09:00.0", got)
 	}
 }
