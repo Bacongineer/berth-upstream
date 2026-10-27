@@ -39,8 +39,12 @@ import (
 )
 
 type Options struct {
-	Socket   string
-	Engine   string
+	Socket string
+	Engine string
+	// Card is the card the run asked for (berth run --gpu, the entry's
+	// gpu): its name on the node or its PCI address. "" = the first card,
+	// and the engine's environment is left as it is.
+	Card     string
 	Group    string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
 	Priority string
 	Needs    uint64
@@ -204,10 +208,11 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
+	var cardEnv string
 	for granted := false; !granted; {
 		m, err := conn.Recv()
 		if err != nil {
@@ -227,10 +232,14 @@ func Run(o Options) int {
 				say("granted %s", m.Lease)
 			}
 			granted = true
+			cardEnv = visibleDevices(o.Card, m, os.LookupEnv, say)
 		}
 	}
 
 	cmd := command(o, o.Output)
+	if cardEnv != "" {
+		cmd.Env = append(os.Environ(), cardEnv)
+	}
 	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
@@ -429,7 +438,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 // the holder as `lent` instead of counting its full budget and blocking
 // waiters behind memory that is already gone.
 func reattachMsg(o Options, pid int, start uint64, cid *containerRef, parked bool, line *leaseLine) proto.Msg {
-	m := proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
+	m := proto.Msg{Op: proto.OpReattach, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
 		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil,
 		MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(),
 		PID: pid, PIDStart: start, Containers: cid.list(), Parked: parked}
@@ -701,6 +710,25 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 		fmt.Fprintf(o.Stderr, "berth: could not record the unprotected run: %v\n", err)
 	}
 	return remove
+}
+
+// visibleDevices is the CUDA_VISIBLE_DEVICES=UUID entry that keeps the
+// engine on the card the run named, "" when the run named none, when the
+// environment already picks the devices, or when the card has no UUID (an
+// AMD card, or one in a VM when berthd started).
+func visibleDevices(card string, granted proto.Msg, env func(string) (string, bool), say func(string, ...any)) string {
+	if card == "" {
+		return ""
+	}
+	if v, ok := env("CUDA_VISIBLE_DEVICES"); ok {
+		say("CUDA_VISIBLE_DEVICES=%s is set; %s keeps it", v, granted.Card)
+		return ""
+	}
+	if granted.CardUUID == "" {
+		say("%s has no CUDA UUID; the engine must pick the card itself", granted.Card)
+		return ""
+	}
+	return "CUDA_VISIBLE_DEVICES=" + granted.CardUUID
 }
 
 func command(o Options, out io.Writer) *exec.Cmd {

@@ -59,7 +59,7 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		probe = "/system_stats"
 	}
 	opts := Options{
-		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
+		Socket: o.Socket, Engine: e.Name, Card: e.GPU, Group: o.Group, Priority: prio,
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Switched: o.Switched, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
 		DrainMax: e.DrainMax.Duration, MinTurn: e.MinTurn.Duration, ParkTTL: e.ParkTTL.Duration, Container: e.Container, Compose: e.Compose,

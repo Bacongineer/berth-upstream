@@ -128,3 +128,34 @@ func List(ctx context.Context, o Options) ([]Device, error) {
 	}
 	return ParseDevices(mem)
 }
+
+// CheckCard accepts the card a run or an engine entry names: its name on
+// the node (gpu plus its index) or its PCI address.
+func CheckCard(s string) error {
+	if strings.Contains(s, ":") {
+		if SysfsAddr(s) == "" {
+			return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0", s)
+		}
+		return nil
+	}
+	n, ok := strings.CutPrefix(s, "gpu")
+	if _, err := strconv.Atoi(n); !ok || err != nil || strings.HasPrefix(n, "-") || strings.HasPrefix(n, "+") {
+		return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0", s)
+	}
+	return nil
+}
+
+// UUID is an NVIDIA card's UUID (GPU-...), read by its PCI address. It is
+// what CUDA_VISIBLE_DEVICES takes to name one card, whatever order CUDA
+// counts the cards in.
+func UUID(ctx context.Context, addr string) (string, error) {
+	out, err := NvidiaSMI{}.run(ctx, "-i", addr, "--query-gpu=uuid", "--format=csv,noheader")
+	if err != nil {
+		return "", err
+	}
+	uuid := strings.TrimSpace(out)
+	if !strings.HasPrefix(uuid, "GPU-") || strings.ContainsAny(uuid, " \n,") {
+		return "", fmt.Errorf("nvidia-smi gave no UUID for %s: %q", addr, uuid)
+	}
+	return uuid, nil
+}

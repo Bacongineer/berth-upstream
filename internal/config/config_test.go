@@ -969,3 +969,20 @@ func TestEngineComposeParsedAndValidated(t *testing.T) {
 		}
 	}
 }
+
+// gpu = names the card an engine runs on: a node card name or a PCI address.
+func TestEngineGPUParsedAndValidated(t *testing.T) {
+	const base = "[[engine]]\nname = \"maya\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8000\"\n"
+	for _, ok := range []string{"gpu1", "gpu12", "0000:41:00.0"} {
+		c, err := Load(write(t, base+"gpu = \""+ok+"\"\n"))
+		if err != nil || c.Engine[0].GPU != ok {
+			t.Errorf("gpu = %q: %v, loaded %q", ok, err, c.Engine[0].GPU)
+		}
+	}
+	for _, bad := range []string{"1", "gpu", "card1", "GPU1", "41:00.0"} {
+		_, err := Load(write(t, base+"gpu = \""+bad+"\"\n"))
+		if err == nil || !strings.Contains(err.Error(), `engine[0] "maya": gpu "`+bad+`"`) {
+			t.Errorf("gpu = %q: error %v, want it refused", bad, err)
+		}
+	}
+}

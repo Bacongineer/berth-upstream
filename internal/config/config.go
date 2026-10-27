@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/T-Crypt/berth/internal/claims"
+	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/notify"
 	"github.com/T-Crypt/berth/internal/park"
@@ -122,6 +123,11 @@ type Engine struct {
 	// container, not both. The start command stays the operator's, so
 	// `docker compose -f PATH up` is what starts it.
 	Compose string `toml:"compose,omitempty" json:"compose,omitempty" yaml:"compose,omitempty"`
+	// GPU is the card the engine runs on, as berth run --gpu: its name on
+	// the node (gpu1) or its PCI address. The lease goes to that card, and
+	// the run sets CUDA_VISIBLE_DEVICES to the card's UUID unless the
+	// engine's environment sets it. "" = the node's first card.
+	GPU string `toml:"gpu,omitempty" json:"gpu,omitempty" yaml:"gpu,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a
@@ -603,6 +609,11 @@ func (c *Config) Validate() error {
 		}
 		if e.APIKeyFile != "" && !filepath.IsAbs(e.APIKeyFile) {
 			errs = append(errs, fmt.Errorf("%s: api_key_file must be an absolute path", where))
+		}
+		if e.GPU != "" {
+			if err := gpu.CheckCard(e.GPU); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", where, err))
+			}
 		}
 		if e.Compose != "" {
 			if e.Container != "" {

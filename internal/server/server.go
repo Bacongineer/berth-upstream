@@ -264,7 +264,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 		return
 	}
 	defer lease.Release()
-	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID()}
+	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Card: card.Name, CardUUID: card.UUID}
 	if c := lease.Contested(); c > 0 {
 		granted.Reason = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
 	}
