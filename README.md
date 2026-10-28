@@ -99,7 +99,8 @@ line goes away.
 - **Your own rules.** `[[claim]]` in `berth.toml` covers anything else: a training run, a
   render farm job, a cracking session, by name, command line or launcher.
 - **`berth hold`** frees the card for a call or a game you start yourself. Ctrl-C gives it back.
-- **`berth run --pinned`** for an app that must never be stopped mid-work.
+- **`berth run --pinned`** for an app or a training run that must never be stopped mid-work, on one card or
+  several. See [Training runs](docs/leasing.md#training-runs).
 
 **One API for your engines** *(preview)*
 - **`berth gateway`**: one OpenAI-compatible port. Name a model and Berth starts its engine,

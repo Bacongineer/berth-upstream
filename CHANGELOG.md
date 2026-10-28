@@ -101,6 +101,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
+  them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
+  `--pinned` help no longer says it is only for apps.
 - On a Proxmox VE host, a GPU process inside an LXC container shows as a stowaway named by its container,
   `lxc:101 (ollama)`, where it showed as a bare PID. Berth reads the VMID from the process's cgroup (`/lxc/101/...`)
   and the name from the `hostname` in `/etc/pve/lxc/101.conf`. That file is readable by root and `www-data` only,

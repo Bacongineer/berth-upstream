@@ -110,3 +110,30 @@
   it exits).
 - A hold cannot free memory held by something outside Berth: that memory is still reported,
   as contested.
+
+## Training runs
+
+A training run that loses its cards loses everything since its last checkpoint. Run it under one pinned lease:
+
+```sh
+berth run --as train-mymodel --pinned --priority foreground --gpu gpu0,gpu1,gpu2 \
+  -- torchrun --nproc_per_node 3 train.py
+```
+
+- `--pinned` keeps every card of the lease. A foreground run, a game's hold, `berth hold` and another lease on
+  several cards all wait until the run exits. A gateway request never drains it, and the gateway's stop answers
+  `409`. `berth stop train-mymodel` still stops it, because a person asked.
+- `--priority` decides only how the run gets its cards. `foreground` drains interactive and batch engines so the
+  run can start. A hold or a pinned app already on a card makes it wait.
+- berthd grants the cards together and starts the command with `CUDA_VISIBLE_DEVICES` set to their UUIDs, in the
+  order you named them. Do not set `CUDA_VISIBLE_DEVICES` yourself, since Berth leaves it alone when it is set. Set
+  `--nproc_per_node` to the number of cards.
+- Leave `--needs-mib` at 0, the whole card. Training memory grows after the first steps.
+- The workers torchrun or `accelerate launch` starts belong to the lease, so their memory is the run's on every card.
+- A berthd restart or upgrade does not stop the run. It keeps running, and berthd re-attaches it with its pin on
+  every card.
+
+A pin does not stop memory taken outside Berth. A game started on a leased card waits behind the run in Berth but
+still allocates memory, and that can run the training out of memory. Keep the card that drives your display out of
+`--gpu`. A crash or a power cut needs checkpoints. With Hugging Face's `Trainer`, set `save_steps` and resume with
+`trainer.train(resume_from_checkpoint=True)`.
