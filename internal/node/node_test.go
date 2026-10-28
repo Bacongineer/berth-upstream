@@ -247,3 +247,62 @@ func TestStopNamesALeaseOnSeveralCardsOnce(t *testing.T) {
 		}
 	}
 }
+
+// View narrows a status to the cards a key names, by name or by PCI address
+// in either form, and keeps what holds every card.
+func TestViewIsTheCardsAKeyNames(t *testing.T) {
+	st := &proto.Status{
+		GPUs: []proto.GPU{
+			{Card: "gpu0", Addr: "0000:01:00.0", Scheduled: true},
+			{Card: "gpu1", Addr: "0000:09:00.0", Scheduled: true},
+		},
+		Leases:    []proto.Lease{{Engine: "chat", Card: "gpu0"}, {Engine: "maya", Card: "gpu1"}},
+		Waiting:   []proto.Lease{{Engine: "voice", Card: "gpu1"}},
+		Squatters: []proto.Squatter{{PID: 7, Card: "gpu0"}},
+		Claims:    []proto.Claim{{Name: "steam-game", Active: true}},
+	}
+	engines := func(ls []proto.Lease) string {
+		var out []string
+		for _, l := range ls {
+			out = append(out, l.Engine)
+		}
+		return strings.Join(out, ",")
+	}
+	for _, tc := range []struct {
+		key, gpus, leases, waiting string
+		squatters                  int
+	}{
+		{"", "gpu0", "chat", "", 1},
+		{"gpu1", "gpu1", "maya", "voice", 0},
+		{"0000:09:00.0", "gpu1", "maya", "voice", 0},
+		{"00000000:09:00.0", "gpu1", "maya", "voice", 0},
+		{"gpu1,0000:01:00.0", "gpu0,gpu1", "chat,maya", "voice", 1},
+	} {
+		v := View(st, tc.key)
+		var gpus []string
+		for _, g := range v.GPUs {
+			gpus = append(gpus, g.Card)
+		}
+		if got := strings.Join(gpus, ","); got != tc.gpus {
+			t.Errorf("%q: cards %s, want %s", tc.key, got, tc.gpus)
+		}
+		if got := engines(v.Leases); got != tc.leases {
+			t.Errorf("%q: leases %s, want %s", tc.key, got, tc.leases)
+		}
+		if got := engines(v.Waiting); got != tc.waiting {
+			t.Errorf("%q: waiting %s, want %s", tc.key, got, tc.waiting)
+		}
+		if len(v.Squatters) != tc.squatters {
+			t.Errorf("%q: %d squatters, want %d", tc.key, len(v.Squatters), tc.squatters)
+		}
+		if len(v.Claims) != 1 {
+			t.Errorf("%q: claims %v, want the active claim kept", tc.key, v.Claims)
+		}
+	}
+	if v := View(st, "gpu9"); v != nil {
+		t.Errorf("gpu9: %+v, want nil for a card the node lacks", v)
+	}
+	if len(st.Leases) != 2 || len(st.Squatters) != 1 {
+		t.Errorf("View changed the status it read: %+v", st)
+	}
+}

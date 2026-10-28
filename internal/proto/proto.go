@@ -386,6 +386,7 @@ type Alerts struct {
 // Scheduled marks the card this berthd leases; the others are inventory.
 type GPU struct {
 	Card      string  `json:"card,omitempty"` // the card's name on its node (gpu0)
+	Addr      string  `json:"addr,omitempty"` // its PCI address in sysfs form (0000:09:00.0)
 	Index     int     `json:"index"`
 	Name      string  `json:"name"`
 	Scheduled bool    `json:"scheduled"`

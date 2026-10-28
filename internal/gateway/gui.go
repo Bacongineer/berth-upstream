@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -175,7 +176,7 @@ func (g *Gateway) guiIndex(w http.ResponseWriter, _ *http.Request) {
 // guiRows is the plane's state: one row per engine in config order.
 // Up rows come from the probe; everything else reuses cardView, exactly like
 // the per-engine state handler.
-func (g *Gateway) guiRows(ctx context.Context, node *proto.Status) []guiRow {
+func (g *Gateway) guiRows(ctx context.Context, status *proto.Status) []guiRow {
 	rows := make([]guiRow, 0, len(g.Engines))
 	for i := range g.Engines {
 		e := &g.Engines[i]
@@ -191,7 +192,7 @@ func (g *Gateway) guiRows(ctx context.Context, node *proto.Status) []guiRow {
 				last = lastLine(s.stderr.String())
 			}
 			g.mu.Unlock()
-			st := cardView(e.Name, node, wk)
+			st := cardView(e.Name, node.View(status, e.GPU), wk)
 			if st.State != "failed" {
 				st.Detail = last
 			}
@@ -258,7 +259,7 @@ func (g *Gateway) guiState(w http.ResponseWriter, r *http.Request) {
 			last = lastLine(s.stderr.String())
 		}
 		g.mu.Unlock()
-		st = cardView(e.Name, g.nodeStatus(), wk)
+		st = cardView(e.Name, node.View(g.nodeStatus(), e.GPU), wk)
 		if st.State != "failed" {
 			st.Detail = last
 		}
