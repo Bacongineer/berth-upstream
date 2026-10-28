@@ -8,13 +8,24 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- berthd computes the request KPIs, token ledger and leaderboard at most once every 5 s, and once a minute while
+  no request arrives. It computed them again for every status read, so each harbor poll copied and walked the
+  whole 24 h request log (13 ms and 29 MB at 50,000 requests).
+- berthd reads the process table with one reused buffer and parses only the parent, start time and name, and every
+  card's broker shares one read per tick. The claims scan skips kernel threads' command lines. On a desktop with
+  610 processes the table read went from 5 to 11 ms and 1.9 MB of garbage to 3 ms and 138 KB, and the claims scan
+  from about 4.5 ms to 2.2 ms, each every 2 s.
 - berthd and `berth service install` govern every card by default (`--gpu all`), where they took card 0. On a
   machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
   a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
   the old behavior with `berth daemon --gpu 0`. A unit installed earlier keeps the `--gpu` it was written with.
+- `berth daemon --help` and the service unit description now say berthd governs every card, not one.
 
 ### Fixed
 
+- On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
+  and `berth service install` over an existing install stops each task before it starts it again. A second
+  `berth update` no longer fails when the previous `.old` binary is still running.
 - On Windows, closing the console window or logging off now drains `berth run` and releases its lease, where it
   died with no drain. A finished engine no longer leaks its job handle, a stale job entry can no longer stop a
   later kill from reaching the process, and `berth gateway` starts each run in its own process group, so Ctrl-C
@@ -104,6 +115,10 @@ has a matching GitHub release whose body comes from its section below.
   the card to show the memory free counts from the answer.
 
 ### Added
+
+- `/metrics` is per card. GPU memory series gain a `card` label, and each card reports its baseline, utilization,
+  temperature, power, power limit and fan speed when the driver gives them. Leases, the queue and stowaways count
+  per card, `berth_lease_used_bytes` shows what each engine holds, and `berth_build_info` carries the version.
 
 - docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
   them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
