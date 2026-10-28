@@ -12,6 +12,7 @@ has a matching GitHub release whose body comes from its section below.
   machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
   a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
   the old behavior with `berth daemon --gpu 0`. A unit installed earlier keeps the `--gpu` it was written with.
+- `berth daemon --help` and the service unit description now say berthd governs every card, not one.
 
 ### Fixed
 

@@ -20,7 +20,7 @@ func TestRenderTaskXML(t *testing.T) {
 	u := Unit{
 		Name:        "berthd",
 		Exec:        []string{`C:\berth\berth.exe`, "daemon", "--gpu", "0", "--poll", "2s"},
-		Description: "berth - GPU lease broker (one card, many inference engines)",
+		Description: "berth - GPU lease broker (every card, many inference engines)",
 	}
 	doc, err := renderTaskXML(u, `ACME\trevin`)
 	if err != nil {

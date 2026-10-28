@@ -30,7 +30,7 @@ func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	units := []Unit{{
 		Name:        "berthd",
 		Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
-		Description: "berth - GPU lease broker (one card, many inference engines)",
+		Description: "berth - GPU lease broker (every card, many inference engines)",
 	}}
 	if gateway {
 		units = append(units, Unit{
