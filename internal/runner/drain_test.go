@@ -257,6 +257,46 @@ func TestDrainSlotsWaitsThenStops(t *testing.T) {
 	}
 }
 
+// llama-swap serves no /slots at its root, only each model's own under
+// /upstream/<model>. With --drain-slots naming that path beside the unload
+// URL, the unload waits for the model's slots, not for a root that 404s and
+// lets it cut the request off (#172).
+func TestDrainSlotsPathBesideUnloadWaits(t *testing.T) {
+	stub := &slotStub{}
+	stub.busy.Store(true)
+	mux := http.NewServeMux()
+	mux.Handle("/upstream/qwen/", http.StripPrefix("/upstream/qwen", stub.handler()))
+	mux.Handle("/api/models/unload/qwen", http.StripPrefix("/api/models/unload/qwen", http.RedirectHandler("/unload", http.StatusTemporaryRedirect)))
+	mux.Handle("/unload", stub.handler())
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	cmd, waited := startSleep(t)
+	done := make(chan struct{})
+	var logs strings.Builder
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		drain(Options{Engine: "qwen", DrainPost: srv.URL + "/api/models/unload/qwen", DrainSlots: srv.URL + "/upstream/qwen",
+			Grace: 50 * time.Millisecond, Retry: 20 * time.Millisecond}, cmd, newLine(nil), done, "test", sayTo(&logs))
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	if unloads, seen := stub.counts(); unloads != 0 || seen == 0 {
+		t.Fatalf("while the model's slot was busy: %d unloads, %d busy reads, want 0 and some; log:\n%s", unloads, seen, &logs)
+	}
+	stub.busy.Store(false)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not finish after the model's slots idled")
+	}
+	if unloads, _ := stub.counts(); unloads != 1 {
+		t.Fatalf("unloads = %d, want 1", unloads)
+	}
+	<-waited
+}
+
 // A drain-post host with no /slots unloads at once instead of hanging.
 func TestDrainNoSlotsProceeds(t *testing.T) {
 	var mu sync.Mutex

@@ -63,9 +63,11 @@ type Options struct {
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
-	// drain, wait until no slot is processing, then stop the engine. For a
-	// server with no unload URL (Strata), so a drain never cuts off the
-	// request it is serving.
+	// drain, wait until no slot is processing, then post DrainPost or stop
+	// the engine, so a drain never cuts off the request it is serving. For
+	// a server with no unload URL (Strata), and for a llama-swap model,
+	// whose slots are under /upstream/<model>, not at DrainPost's origin.
+	// Without it, DrainPost's origin is the base.
 	DrainSlots string
 	// DrainComfyUI is a ComfyUI base URL: on drain, wait until its queue
 	// has nothing running or pending before any stop step, so a job is
@@ -825,8 +827,10 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			say("a request to %s outlived --drain-max %s; stopping it instead of parking it", o.Engine, o.DrainMax)
 			o.Park, o.Hook = nil, false
 		}
-	case o.DrainSlots != "" && o.DrainPost == "":
-		if !slotBoundaryAt(o, drainPostBase(o.DrainSlots), done, say) {
+	case o.DrainSlots != "":
+		// The base as given: llama-swap serves a model's slots only under
+		// /upstream/<model>, beside an unload URL on the same host.
+		if !slotBoundaryAt(o, strings.TrimRight(o.DrainSlots, "/"), done, say) {
 			return
 		}
 	case o.DrainPost != "":
