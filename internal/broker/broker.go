@@ -189,8 +189,9 @@ type Config struct {
 	// cache. nil = procs.ScopeMem; tests fake it.
 	ScopeMem func(scope string) (procs.Mem, bool)
 	// ContainerName resolves a container id to its runtime name (docker,
-	// then podman, inspect); "" when neither answers. Used to name a
-	// stowaway's container in the report; never affects scheduling.
+	// then podman, inspect), or a Proxmox LXC id to its hostname; "" when
+	// none answers. Used to name a stowaway's container in the report;
+	// never affects scheduling.
 	ContainerName func(id string) string
 	Version       string
 	Reporter      Reporter

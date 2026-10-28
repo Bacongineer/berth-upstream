@@ -101,6 +101,11 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- On a Proxmox VE host, a GPU process inside an LXC container shows as a stowaway named by its container,
+  `lxc:101 (ollama)`, where it showed as a bare PID. Berth reads the VMID from the process's cgroup (`/lxc/101/...`)
+  and the name from the `hostname` in `/etc/pve/lxc/101.conf`. That file is readable by root and `www-data` only,
+  so a berthd running as a normal user shows `lxc:101` alone. LXC's `lxc-start` monitor is not a container, and
+  Docker inside an LXC still resolves to the Docker container (#128).
 - `berth wire llama-swap --wait DUR` writes `--wait` on every model's line, so a batch request can queue
   behind a long foreground lease instead of giving up after berthd's default 120 s (#231).
 - `berth run --as NAME` with no command runs the `start` of NAME's entry in `berth.toml`, as the gateway does, so

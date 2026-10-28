@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/procs"
 )
 
 // containerSet is the container set a client named: lowercase IDs, no
@@ -140,8 +142,12 @@ func isWSLVM(name string) bool { return strings.EqualFold(name, wslVMWorker) }
 // containerNameCLI resolves a container id to its runtime name with the
 // runtime CLI: docker, then podman. "" when neither answers. Best effort:
 // the report shows the short ID either way. Each ask runs under a 5 s
-// deadline, so a hung runtime daemon leaks no goroutine.
+// deadline, so a hung runtime daemon leaks no goroutine. A Proxmox LXC id
+// (lxc:<vmid>) is named from Proxmox's config and never reaches a runtime.
 func containerNameCLI(id string) string {
+	if name, ok := procs.LXCName(id); ok {
+		return name
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, rt := range []string{"docker", "podman"} {

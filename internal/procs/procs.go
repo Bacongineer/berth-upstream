@@ -9,7 +9,10 @@ package procs
 
 import (
 	"bufio"
+	"bytes"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -65,8 +68,9 @@ type Proc struct {
 // containerID parses a cgroups file (v1, v2 or a mix: each line is
 // controllers:id:path) and returns the container id of the engine runtime
 // that owns the process, "" when it finds none. Berth reads only the
-// runtime CLI's shapes: docker, podman and containerd/CRI. A conmon scope
-// is podman's supervisor for a container, not a container.
+// runtime CLI's shapes: docker, podman and containerd/CRI, plus Proxmox
+// LXC containers, whose id is typed lxc:<vmid>. A conmon scope is podman's
+// supervisor for a container, and lxc.monitor is LXC's, not a container.
 func containerID(r io.Reader) (string, bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 4096), 64*1024)
@@ -84,13 +88,16 @@ func containerID(r io.Reader) (string, bool) {
 }
 
 // containerLine reads the path part of one cgroup line: a container id back
-// when the path names one of the known runtime shapes.
+// when the path names one of the known runtime shapes. It scans from the
+// innermost segment out, so a Docker container inside a Proxmox LXC is the
+// Docker container.
 func containerLine(path string) (string, bool) {
 	segs := strings.Split(strings.TrimSpace(path), "/")
 	for i := len(segs) - 1; i >= 0; i-- {
 		seg := strings.TrimSuffix(segs[i], ".scope")
 		switch {
-		case seg == "libpod-conmon", strings.HasPrefix(seg, "libpod-conmon-"):
+		case seg == "libpod-conmon", strings.HasPrefix(seg, "libpod-conmon-"),
+			seg == "lxc.monitor":
 			return "", false
 		}
 		for _, pre := range []string{"docker-", "cri-containerd-", "libpod-"} {
@@ -103,8 +110,71 @@ func containerLine(path string) (string, bool) {
 		if i > 0 && segs[i-1] == "docker" && hex64(seg) {
 			return seg, true
 		}
+		// Proxmox LXC: an lxc segment, then the container's numeric VMID
+		// (/lxc/100/ns/init.scope on PVE 9, cgroup v2).
+		if i > 0 && segs[i-1] == "lxc" && vmid(seg) {
+			return lxcPrefix + seg, true
+		}
 	}
 	return "", false
+}
+
+// lxcPrefix types a Proxmox LXC container id: lxc:<vmid>. No runtime CLI
+// knows the id, so the name lookup reads Proxmox's config for it instead.
+const lxcPrefix = "lxc:"
+
+// vmid is a Proxmox guest id: decimal digits only.
+func vmid(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// pveLXCDir holds each Proxmox LXC container's config, <vmid>.conf.
+const pveLXCDir = "/etc/pve/lxc"
+
+// LXCName names a Proxmox LXC container id (lxc:<vmid>) by the hostname in
+// /etc/pve/lxc/<vmid>.conf. ok is false for any other id, which the caller
+// resolves with a runtime CLI instead. Best effort: the file is root:www-data
+// mode 640, so a berthd running as a normal user reads "" and the report
+// shows the id alone.
+func LXCName(id string) (name string, ok bool) { return lxcName(pveLXCDir, id) }
+
+func lxcName(dir, id string) (string, bool) {
+	n, ok := strings.CutPrefix(id, lxcPrefix)
+	if !ok || !vmid(n) {
+		return "", false
+	}
+	b, err := os.ReadFile(filepath.Join(dir, n+".conf"))
+	if err != nil {
+		return "", true
+	}
+	return lxcHostname(bytes.NewReader(b)), true
+}
+
+// lxcHostname reads the hostname key of a Proxmox container config, ""
+// when it has none. Keys after the first [section] belong to a snapshot or
+// a pending change, not to the container as it runs.
+func lxcHostname(r io.Reader) string {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 4096), 64*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "[") {
+			break
+		}
+		key, val, found := strings.Cut(line, ":")
+		if found && strings.TrimSpace(key) == "hostname" {
+			return strings.TrimSpace(val)
+		}
+	}
+	return ""
 }
 
 // hex64 is a 64-character hex container id.
