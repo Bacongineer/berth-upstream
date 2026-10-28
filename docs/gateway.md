@@ -303,6 +303,14 @@ idle_after = "60s"                 # how long the card must stay free first (def
 - Once the card has been free for `idle_after`, the gateway starts the first background engine in `berth.toml`.
 - Any other request drains it, as it drains any `batch` lease. It stays out until the card has been free for
   `idle_after` again, so a game, a `berth hold` or an engine that stays loaded keeps it out for as long as they last.
+- A desktop app with some card memory (a browser, a terminal) is a stowaway, so on a desktop the card is seldom
+  free. List those apps in `berth.toml` and they no longer keep a background engine out. Their memory still counts as
+  used when berthd decides what fits. `berth daemon --allow` takes the same list and replaces it when given.
+
+  ```toml
+  [squatters]
+  allow = ["chrome", "WindowsTerminal", "notepad++"]   # parts of process names
+  ```
 - A card back from a VM is a free card, so a background engine also picks up after a VFIO session.
 - On a machine with more than one card, the card is the one the entry's `gpu` names (the first card when it names
   none). A lease, a waiter or a stowaway on another card does not keep it out. A running claimed app does, because a

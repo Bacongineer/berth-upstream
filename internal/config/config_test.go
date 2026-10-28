@@ -987,3 +987,13 @@ func TestEngineGPUParsedAndValidated(t *testing.T) {
 		}
 	}
 }
+
+func TestSquattersAllow(t *testing.T) {
+	c, err := Load(write(t, "[squatters]\nallow = [\"chrome\", \"WindowsTerminal\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c.Squatters.Allow, ","); got != "chrome,WindowsTerminal" {
+		t.Errorf("allow = %q, want chrome,WindowsTerminal", got)
+	}
+}

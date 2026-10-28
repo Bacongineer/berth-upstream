@@ -43,7 +43,7 @@ func runDaemon(c *Context) int {
 	wait := fs.Duration("wait", 120*time.Second, "default time a request waits before it is refused; negative = no deadline")
 	grace := fs.Duration("release-grace", 30*time.Second, "how long a released lease's processes may linger before they count as squatters")
 	reattachWin := fs.Duration("reattach-window", 15*time.Second, "after a restart, how long new grants wait for engines that ran under the last daemon to re-attach")
-	allow := fs.String("allow", "", "comma-separated process-name substrings that are never squatters (e.g. Xorg,Hyprland)")
+	allow := fs.String("allow", "", "comma-separated process-name substrings that are never squatters (e.g. Xorg,Hyprland), over [squatters] allow in berth.toml")
 	notify := fs.Bool("notify", false, "desktop notification (notify-send) when a squatter appears")
 	webhook := fs.String("webhook", "", "POST squatter events here as JSON")
 	cfgPath := fs.String("config", config.DefaultPath(), "berth.toml: engines to read, /metrics listener ($BERTH_CONFIG); missing = none")
@@ -119,6 +119,10 @@ func runDaemon(c *Context) int {
 	// names. Without it every whole-card request is granted over the squat
 	// and dies on it.
 	comfy := comfyEngines(cfg)
+	allowList := cfg.Squatters.Allow
+	if *allow != "" {
+		allowList = splitList(*allow)
+	}
 	events, ids, seq, ledger := node.Shared()
 	var cards []*node.Card
 	var snaps []gpu.Snapshot
@@ -152,7 +156,7 @@ func runDaemon(c *Context) int {
 			APUHeadroom:    *headroomMib * gpu.MiB,
 			ReleaseGrace:   *grace,
 			DefaultWait:    *wait,
-			Allow:          splitList(*allow),
+			Allow:          allowList,
 			RunsDir:        runs.Dir(*sock),
 			CountersFile:   cardFile(*countersFile, i, name),
 			UsageFile:      cardFile(*usageFile, i, name),

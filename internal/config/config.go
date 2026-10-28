@@ -217,15 +217,16 @@ type Config struct {
 		Hosts    []string `toml:"discover_hosts,omitempty" json:"discover_hosts,omitempty" yaml:"discover_hosts,omitempty"`
 		Ports    []int    `toml:"discover_ports,omitempty" json:"discover_ports,omitempty" yaml:"discover_ports,omitempty"`
 	} `toml:"engines" json:"engines" yaml:"engines"`
-	Engine   []Engine       `toml:"engine,omitempty" json:"engine,omitempty" yaml:"engine,omitempty"`
-	Alerts   AlertsConfig   `toml:"alerts" json:"alerts" yaml:"alerts"`
-	Priority PriorityConfig `toml:"priority,omitempty" json:"priority" yaml:"priority"`
-	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
-	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
-	Park     ParkConfig     `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
-	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
-	Library  LibraryConfig  `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
-	Update   UpdateConfig   `toml:"update,omitempty" json:"update,omitempty" yaml:"update,omitempty"`
+	Engine    []Engine        `toml:"engine,omitempty" json:"engine,omitempty" yaml:"engine,omitempty"`
+	Alerts    AlertsConfig    `toml:"alerts" json:"alerts" yaml:"alerts"`
+	Priority  PriorityConfig  `toml:"priority,omitempty" json:"priority" yaml:"priority"`
+	Claims    ClaimsConfig    `toml:"claims,omitempty" json:"claims" yaml:"claims"`
+	Squatters SquattersConfig `toml:"squatters,omitempty" json:"squatters" yaml:"squatters"`
+	Claim     []ClaimRule     `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
+	Park      ParkConfig      `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
+	Models    ModelsConfig    `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
+	Library   LibraryConfig   `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
+	Update    UpdateConfig    `toml:"update,omitempty" json:"update,omitempty" yaml:"update,omitempty"`
 }
 
 // UpdateConfig switches the check for a newer release. On, the harbor asks
@@ -242,6 +243,14 @@ func (c *Config) UpdateCheck() bool {
 		return *c.Update.Check
 	}
 	return true
+}
+
+// SquattersConfig is berthd's squatter check. Allow is process-name
+// substrings that are never squatters (a browser, a terminal): their memory
+// still counts as used, but the card can count as free beside them. berth
+// daemon --allow, when given, takes its place.
+type SquattersConfig struct {
+	Allow []string `toml:"allow,omitempty" json:"allow,omitempty" yaml:"allow,omitempty"`
 }
 
 // ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope
