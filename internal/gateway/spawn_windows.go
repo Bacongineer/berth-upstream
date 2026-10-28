@@ -5,9 +5,18 @@
 
 package gateway
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
+)
 
-// detach has nothing to do here: the run process stays a plain child, the
-// job object tying it to its own engine already limits what a gateway
-// restart leaves behind.
-func detach(*exec.Cmd) {}
+// detach starts the run in its own console process group, so a Ctrl-C in the
+// console running the gateway does not reach it and drain its engine. The
+// run stays a child of the gateway; the job object tying it to its own
+// engine limits what a gateway restart leaves behind.
+func detach(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
+}

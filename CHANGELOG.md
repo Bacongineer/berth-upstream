@@ -15,6 +15,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On Windows, closing the console window or logging off now drains `berth run` and releases its lease, where it
+  died with no drain. A finished engine no longer leaks its job handle, a stale job entry can no longer stop a
+  later kill from reaching the process, and `berth gateway` starts each run in its own process group, so Ctrl-C
+  in the gateway's console no longer drains engines the gateway meant to leave running.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).
