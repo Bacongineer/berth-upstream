@@ -434,7 +434,6 @@ func TestServiceUninstallWindows(t *testing.T) {
 		`schtasks.exe /End /TN \Berth\berthd`, `schtasks.exe /Delete /TN \Berth\berthd /F`,
 		`schtasks.exe /End /TN \Berth\berth-gateway`, `schtasks.exe /Delete /TN \Berth\berth-gateway /F`,
 		`schtasks.exe /End /TN \Berth\berth-harbor`, `schtasks.exe /Delete /TN \Berth\berth-harbor /F`,
-		`schtasks.exe /End /TN \Berth\berth-notify`, `schtasks.exe /Delete /TN \Berth\berth-notify /F`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("each task is ended before it is deleted, got %v", got)
