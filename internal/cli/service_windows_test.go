@@ -426,7 +426,63 @@ func TestServiceUninstallWindows(t *testing.T) {
 	if byName["berth-gateway"].Action != "not installed" {
 		t.Errorf("a missing task is reported, not an error, got %+v", byName["berth-gateway"])
 	}
-	if len(*calls) != 3 {
-		t.Errorf("one delete per unit, got %v", *calls)
+	var got []string
+	for _, c := range *calls {
+		got = append(got, c.String())
+	}
+	want := []string{
+		`schtasks.exe /End /TN \Berth\berthd`, `schtasks.exe /Delete /TN \Berth\berthd /F`,
+		`schtasks.exe /End /TN \Berth\berth-gateway`, `schtasks.exe /Delete /TN \Berth\berth-gateway /F`,
+		`schtasks.exe /End /TN \Berth\berth-harbor`, `schtasks.exe /Delete /TN \Berth\berth-harbor /F`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("each task is ended before it is deleted, got %v", got)
+	}
+}
+
+// A task that is not running makes /End fail; the uninstall still deletes it.
+func TestServiceUninstallWindowsIgnoresEndFailure(t *testing.T) {
+	ops, _ := fakeOps(t, t.TempDir(), func(a argv) (string, error) {
+		if a.args[0] == "/End" {
+			return "ERROR: There is no running instance of the task.", errors.New("exit status 1")
+		}
+		return "", nil
+	})
+	doc, e := serviceUninstall(context.Background(), ops, allUnits(), false)
+	if e != nil {
+		t.Fatalf("a task that is not running does not fail the uninstall: %v", e)
+	}
+	for _, u := range doc.Units {
+		if u.Action != "deleted" {
+			t.Errorf("the task is deleted, got %+v", u)
+		}
+	}
+}
+
+// A task that already existed is ended before /Run: its XML ignores a new
+// instance while the old one runs.
+func TestServiceInstallWindowsRestartsExistingTask(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	units := serviceUnits(`C:\berth\berth.exe`, false, false)
+	same, err := unitTaskXML(units[0], currentUser())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops, calls := fakeOps(t, t.TempDir(), func(a argv) (string, error) {
+		if a.args[0] == "/Query" {
+			return same, nil
+		}
+		return "", nil
+	})
+	if _, e := serviceInstall(context.Background(), ops, units, false); e != nil {
+		t.Fatalf("install failed: %v", e)
+	}
+	n := len(*calls)
+	if n < 3 {
+		t.Fatalf("too few calls: %v", *calls)
+	}
+	end, run := (*calls)[n-2].String(), (*calls)[n-1].String()
+	if end != `schtasks.exe /End /TN \Berth\berthd` || run != `schtasks.exe /Run /TN \Berth\berthd` {
+		t.Errorf("the existing task is ended, then run, got %q then %q", end, run)
 	}
 }

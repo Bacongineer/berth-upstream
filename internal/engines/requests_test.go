@@ -100,3 +100,49 @@ func TestWatcherRequestsSince(t *testing.T) {
 		t.Fatalf("nil watcher: %+v", got)
 	}
 }
+
+// Insights is computed once per interval, not once per status read: a
+// second read inside it allocates nothing. A new request shows after the
+// interval, and with nothing new the result stands for a minute, because
+// only the time windows moved.
+func TestInsightsComputedOncePerInterval(t *testing.T) {
+	now := time.Now()
+	ts := func(ago time.Duration) string { return now.Add(-ago).Format(time.RFC3339) }
+	rec := func(id int, ago time.Duration) string {
+		return fmt.Sprintf(`{"id":%d,"timestamp":%q,"model":"NInfer","resp_status_code":200,"tokens":{"input_tokens":10,"output_tokens":20,"prompt_per_second":100,"tokens_per_second":50},"duration_ms":400}`, id, ts(ago))
+	}
+	body := `{"data":[` + rec(1, 4*time.Minute+50*time.Second) + `]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/running":
+			fmt.Fprint(w, `{"running":[]}`)
+		case "/api/metrics/activity":
+			fmt.Fprint(w, body)
+		}
+	}))
+	defer srv.Close()
+	w := &Watcher{Engines: []config.Engine{{Name: "swap", Type: "llama-swap", URL: srv.URL}}}
+	w.Poll(context.Background())
+
+	if in := w.Insights(now); in == nil || in.Requests5m != 1 {
+		t.Fatalf("first read: %+v", in)
+	}
+	if n := testing.AllocsPerRun(10, func() { w.Insights(now.Add(2 * time.Second)) }); n != 0 {
+		t.Fatalf("a read inside the interval allocated %v times, want 0", n)
+	}
+
+	body = `{"data":[` + rec(2, 0) + `,` + rec(1, 4*time.Minute+50*time.Second) + `]}`
+	w.Poll(context.Background())
+	if in := w.Insights(now.Add(6 * time.Second)); in.Requests5m != 2 {
+		t.Fatalf("after the interval: %d requests in 5m, want 2", in.Requests5m)
+	}
+
+	// Request 1 leaves the 5 min window at +10 s. Nothing new arrives, so
+	// the result stands until a minute after the last compute.
+	if in := w.Insights(now.Add(30 * time.Second)); in.Requests5m != 2 {
+		t.Fatalf("idle inside a minute: %d requests in 5m, want the standing 2", in.Requests5m)
+	}
+	if in := w.Insights(now.Add(70 * time.Second)); in.Requests5m != 1 {
+		t.Fatalf("idle after a minute: %d requests in 5m, want 1", in.Requests5m)
+	}
+}

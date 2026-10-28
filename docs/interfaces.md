@@ -63,5 +63,16 @@
     (`header_up Host 127.0.0.1`, `proxy_set_header Host 127.0.0.1;`), with the proxy's own
     allowlist or auth on the network side. `tailscale serve` passes the tailnet name as `Host`,
     which `/metrics` refuses.
+
+  Every GPU series carries `card` (`gpu0`), so a machine with several cards reads per card.
+  - `berth_gpu_memory_{total,used,free}_bytes{gpu,card,name,scheduled}`
+  - `berth_gpu_baseline_bytes{gpu,card}`
+  - `berth_gpu_utilization_ratio`, `berth_gpu_temperature_celsius`, `berth_gpu_power_watts`,
+    `berth_gpu_power_limit_watts` and `berth_gpu_fan_ratio`, each `{gpu,card}`. A card that does not
+    report a value has no series for it.
+  - `berth_leases{card,state}` for the states active, draining, parking, parked, releasing and stuck
+  - `berth_lease_used_bytes{card,engine,priority,state}`, summed per label set
+  - `berth_waiting{card}`, `berth_squatters{card}` and `berth_squatter_bytes{card}`
+  - `berth_build_info{version}`, always 1
 - **Footprint:** the node uses about 0.2% of one CPU core and ~21 MB of memory on the
   reference box; the harbor about 0.4% and ~23 MB, writing to disk once a minute.
