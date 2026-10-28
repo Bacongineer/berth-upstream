@@ -22,6 +22,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
+  and `berth service install` over an existing install stops each task before it starts it again. A second
+  `berth update` no longer fails when the previous `.old` binary is still running.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).

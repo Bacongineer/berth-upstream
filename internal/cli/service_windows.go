@@ -173,6 +173,7 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 	doc := &serviceDoc{DryRun: dryRun, Units: make([]serviceUnit, 0, len(unitsList)), Commands: []string{}}
 	taskUser := currentUser()
 	rows := map[string]*serviceUnit{}
+	existed := map[string]bool{}
 	createOne := func(u Unit) (*serviceUnit, *Error) {
 		task := taskName(u.Name)
 		row := serviceUnit{Unit: u.Name, Target: task}
@@ -195,6 +196,7 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 		if err != nil && !taskNotFound(out) {
 			return nil, Systemf("schtasks /Query /TN %s /XML failed:\n%s", task, strings.TrimSpace(out))
 		}
+		existed[u.Name] = err == nil
 		if err == nil && strings.TrimSpace(out) != strings.TrimSpace(xml) {
 			bak := filepath.Join(defaultStateDir(), u.Name+".xml.bak")
 			if err := os.MkdirAll(filepath.Dir(bak), 0o755); err != nil {
@@ -261,6 +263,14 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 			continue
 		}
 		task := taskName(u.Name)
+		if existed[u.Name] {
+			// The task's XML ignores a new instance while one runs, so
+			// /Run on a running task leaves the old binary serving. The
+			// error of a task that is not running is expected.
+			if _, err := ops.run(ctx, "schtasks.exe", "/End", "/TN", task); err == nil {
+				doc.Commands = append(doc.Commands, "schtasks /End /TN "+task)
+			}
+		}
 		cmd := "schtasks /Run /TN " + task
 		out, err := ops.run(ctx, "schtasks.exe", "/Run", "/TN", task)
 		if err != nil {
@@ -280,7 +290,7 @@ func serviceInstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRu
 	return doc, nil
 }
 
-// serviceUninstall deletes the tasks schtasks can find and reports the
+// serviceUninstall ends and deletes the tasks schtasks can find and reports the
 // rest as never installed. With dryRun it asks schtasks which tasks exist,
 // which is a read, and changes nothing.
 func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dryRun bool) (*serviceDoc, *Error) {
@@ -300,6 +310,13 @@ func serviceUninstall(ctx context.Context, ops serviceOps, unitsList []Unit, dry
 			}
 			doc.Units = append(doc.Units, row)
 			continue
+		}
+		// A deleted task does not stop the instance it started, and a
+		// later install would start a second one. The error of a task
+		// that is not running or not there is expected, and /Delete
+		// reports the second.
+		if _, err := ops.run(ctx, "schtasks.exe", "/End", "/TN", task); err == nil {
+			doc.Commands = append(doc.Commands, "schtasks /End /TN "+task)
 		}
 		cmd := "schtasks /Delete /TN " + task + " /F"
 		out, err := ops.run(ctx, "schtasks.exe", "/Delete", "/TN", task, "/F")
