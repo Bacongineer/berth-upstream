@@ -15,6 +15,12 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
+  `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
+  dropped them without a word (#231).
+- `berth wire llama-swap` on Windows finds the lines it wrote before. It recognised only a binary named `berth`
+  after a `/` and read every backslash as an escape, so a second `--write` with `F:\AI\berth\berth.exe` wrapped
+  each model again, and an update would have mangled a Windows path in a flag added by hand.
 - A drain of a llama-swap model waits for the request in flight before it unloads the model. The line `berth
   wire` writes looked for `/slots` at llama-swap's root, which has none, so the drain found no boundary and the
   unload cut the request off. `berth wire` now adds `--drain-slots <api>/upstream/<model>`, where llama-swap serves
@@ -95,6 +101,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth wire llama-swap --wait DUR` writes `--wait` on every model's line, so a batch request can queue
+  behind a long foreground lease instead of giving up after berthd's default 120 s (#231).
 - `berth run --as NAME` with no command runs the `start` of NAME's entry in `berth.toml`, as the gateway does, so
   a configured engine no longer needs its command typed again. An entry matched only through `--group` never lends
   its `start`, because that is the group's engine (llama-swap), not this one. azrael-229 asked for it (#232).

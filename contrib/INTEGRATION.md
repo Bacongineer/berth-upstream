@@ -44,6 +44,11 @@ berth wire llama-swap --config /etc/llama-swap/config.yaml --write
 berth wire llama-swap --config /etc/llama-swap/config.yaml --check  # exit 1 when unwired
 ```
 
+`--wait 10m` writes `--wait` on every line, for a batch job that has to queue behind a long foreground
+lease; without it a request waits berthd's default (120 s). `--write --update` rewrites the flags wire
+writes on lines that already exist and keeps any flag you added by hand, such as `--needs-mib 14000`,
+in its place. A hand-written `--wait` stays unless you pass `--wait`.
+
 It keeps a backup beside the file and stays re-runnable when the roster changes; point `--api`
 at llama-swap's base URL when it listens elsewhere than `http://127.0.0.1:9090`. Under the
 hood each model's `cmd` gains one wrapper line, and llama-swap's own unload URL is the drain so
