@@ -8,6 +8,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- The harbor's page files carry an ETag for the build and `Cache-Control: no-cache`, so a reload answers 304 and
+  sends nothing where it sent the whole page (about 300 KB) every time.
 - berthd computes the request KPIs, token ledger and leaderboard at most once every 5 s, and once a minute while
   no request arrives. It computed them again for every status read, so each harbor poll copied and walked the
   whole 24 h request log (13 ms and 29 MB at 50,000 requests).
