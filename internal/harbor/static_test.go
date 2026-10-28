@@ -24,7 +24,7 @@ func TestStaticFilesRevalidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	tag := resp.Header.Get("ETag")
 	if resp.StatusCode != http.StatusOK || tag == "" || resp.Header.Get("Cache-Control") != "no-cache" {
