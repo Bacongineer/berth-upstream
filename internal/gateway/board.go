@@ -88,7 +88,7 @@ func boardOf(host string, status *proto.Status, rows []guiRow, listed map[string
 				}
 			}
 			switch {
-			case status.Passthrough != nil:
+			case gp.Passthrough != nil || status.Passthrough != nil:
 				c.State = "passthrough"
 			case status.ProbeErr != "":
 				c.State = "probe-failed"
