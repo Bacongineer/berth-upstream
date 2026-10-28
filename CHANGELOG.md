@@ -22,6 +22,11 @@ has a matching GitHub release whose body comes from its section below.
   posted; it used only the URL's host before, which also defeated a hand-written path. Rewire with `berth wire
   llama-swap --config <file> --write --update`. `--update` also rewrites flags you added to the line by hand (#231).
   azrael-229 found it (#172).
+- On a machine with more than one card, the gateway checks the card an engine runs on. A background engine
+  waited for every card to be free, so a lease or a stowaway on gpu1 kept a background engine on gpu0 from ever
+  starting. A queued ComfyUI job checked every card the same way. The engine page and the board listed every card's
+  holders under each card, and the board now names each card (`card`). An engine's card is the one its `gpu` names,
+  or the first card when it names none.
 - `berth events` names the card on each line when berthd governs more than one, as `berth status` does with its
   CARD column. A lease across several cards printed the same line once per card, with no way to tell them apart.
   On a machine with one card the lines are unchanged. `--format json` carries the card on every event.

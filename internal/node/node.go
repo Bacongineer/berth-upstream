@@ -85,12 +85,8 @@ func (n *Node) Card(key string) (*Card, error) {
 	if key == "" {
 		return n.cards[0], nil
 	}
-	addr := ""
-	if strings.Contains(key, ":") {
-		addr = gpu.SysfsAddr(key)
-	}
 	for _, c := range n.cards {
-		if c.Name == key || (addr != "" && c.Addr == addr) {
+		if answers(c.Name, c.Addr, key) {
 			return c, nil
 		}
 	}
@@ -99,6 +95,62 @@ func (n *Node) Card(key string) (*Card, error) {
 		names[i] = c.Name
 	}
 	return nil, fmt.Errorf("no card %s on this node (cards: %s)", key, strings.Join(names, ", "))
+}
+
+// answers is whether the card named name at PCI address addr is the one key
+// names: its name, or its address in sysfs or nvidia-smi form.
+func answers(name, addr, key string) bool {
+	if name == key {
+		return true
+	}
+	return addr != "" && strings.Contains(key, ":") && gpu.SysfsAddr(key) == addr
+}
+
+// View is a node's status narrowed to the cards key picks, as Pick picks
+// them: their readings, leases, waiters and squatters. What holds every card
+// (claims, a passthrough, a probe error) stays. nil when st is nil or key
+// names a card st does not have.
+func View(st *proto.Status, key string) *proto.Status {
+	if st == nil {
+		return nil
+	}
+	cards := cardsOf(st, key)
+	if cards == nil {
+		return nil
+	}
+	on := func(card string) bool { return card == "" || slices.Contains(cards, card) }
+	v := *st
+	v.GPUs = slices.DeleteFunc(slices.Clone(st.GPUs), func(g proto.GPU) bool { return !g.Scheduled || !on(g.Card) })
+	v.Leases = slices.DeleteFunc(slices.Clone(st.Leases), func(l proto.Lease) bool { return !on(l.Card) })
+	v.Waiting = slices.DeleteFunc(slices.Clone(st.Waiting), func(l proto.Lease) bool { return !on(l.Card) })
+	v.Squatters = slices.DeleteFunc(slices.Clone(st.Squatters), func(s proto.Squatter) bool { return !on(s.Card) })
+	return &v
+}
+
+// cardsOf is the names of the cards key picks in a node's status: "" is
+// the first card. nil when a name in key is no card in st.
+func cardsOf(st *proto.Status, key string) []string {
+	var cards []proto.GPU
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			cards = append(cards, g)
+		}
+	}
+	if len(cards) == 0 {
+		return nil
+	}
+	if key == "" {
+		return []string{cards[0].Card}
+	}
+	var out []string
+	for _, k := range strings.Split(key, ",") {
+		i := slices.IndexFunc(cards, func(g proto.GPU) bool { return answers(g.Card, g.Addr, k) })
+		if i < 0 {
+			return nil
+		}
+		out = append(out, cards[i].Card)
+	}
+	return out
 }
 
 // Pick is the cards a request names: one card as Card takes it, or a comma
@@ -270,7 +322,7 @@ func (n *Node) Status() proto.Status {
 func named(st *proto.Status, c *Card) {
 	for i := range st.GPUs {
 		if st.GPUs[i].Scheduled {
-			st.GPUs[i].Card = c.Name
+			st.GPUs[i].Card, st.GPUs[i].Addr = c.Name, c.Addr
 		}
 	}
 	for _, ls := range []([]proto.Lease){st.Leases, st.Waiting} {

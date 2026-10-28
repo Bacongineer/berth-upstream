@@ -38,6 +38,7 @@ import (
 	"github.com/T-Crypt/berth/internal/apikey"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/server"
@@ -751,7 +752,7 @@ func (g *Gateway) comfyPrompt(w http.ResponseWriter, r *http.Request, switched b
 		return
 	}
 	if e := g.queueingComfy(); e != nil {
-		if why := outOfReach(g.nodeStatus()); why != "" {
+		if why := outOfReach(node.View(g.nodeStatus(), e.GPU)); why != "" {
 			g.deferPrompt(w, r, e, why)
 			return
 		}
