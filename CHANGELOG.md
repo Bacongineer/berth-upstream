@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- berthd computes the request KPIs, token ledger and leaderboard at most once every 5 s, and once a minute while
+  no request arrives. It computed them again for every status read, so each harbor poll copied and walked the
+  whole 24 h request log (13 ms and 29 MB at 50,000 requests).
 - berthd reads the process table with one reused buffer and parses only the parent, start time and name, and every
   card's broker shares one read per tick. The claims scan skips kernel threads' command lines. On a desktop with
   610 processes the table read went from 5 to 11 ms and 1.9 MB of garbage to 3 ms and 138 KB, and the claims scan
@@ -104,6 +107,10 @@ has a matching GitHub release whose body comes from its section below.
   the card to show the memory free counts from the answer.
 
 ### Added
+
+- `/metrics` is per card. GPU memory series gain a `card` label, and each card reports its baseline, utilization,
+  temperature, power, power limit and fan speed when the driver gives them. Leases, the queue and stowaways count
+  per card, `berth_lease_used_bytes` shows what each engine holds, and `berth_build_info` carries the version.
 
 - docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
   them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
