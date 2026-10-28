@@ -47,16 +47,19 @@ type Watcher struct {
 	Hosts    []string
 	Ports    []int
 
-	mu      sync.Mutex
-	state   map[string]proto.Engine
-	latched map[string]bool // engine -> was up on a previous read and is failing again (State "latched")
-	reqs    []proto.Request // the request log, oldest first
-	gen     []genSample     // counter deltas while exactly one model was loaded
-	seen    map[string]bool
-	since   time.Time
-	found   []config.Engine      // engines discovery added, after the configured ones
-	lastUp  map[string]time.Time // engine -> last read that answered
-	held    map[string]heldRates // engine -> the rates its counters last measured
+	mu       sync.Mutex
+	state    map[string]proto.Engine
+	latched  map[string]bool // engine -> was up on a previous read and is failing again (State "latched")
+	reqs     []proto.Request // the request log, oldest first
+	gen      []genSample     // counter deltas while exactly one model was loaded
+	seen     map[string]bool
+	since    time.Time
+	ins      *proto.Insights // the last Insights result, computed at insAt
+	insAt    time.Time
+	insDirty bool                 // a request or generation sample arrived since insAt
+	found    []config.Engine      // engines discovery added, after the configured ones
+	lastUp   map[string]time.Time // engine -> last read that answered
+	held     map[string]heldRates // engine -> the rates its counters last measured
 }
 
 // all is the configured engines then the discovered ones. Called with w.mu held.
@@ -205,6 +208,7 @@ func (w *Watcher) attribute(cur, prev proto.Engine) {
 		return // idle, or the engine restarted and its counters went back to 0
 	}
 	w.gen = append(w.gen, g)
+	w.insDirty = true
 	cut := time.Now().Add(-keepRequests)
 	i := 0
 	for i < len(w.gen) && w.gen[i].t.Before(cut) {
