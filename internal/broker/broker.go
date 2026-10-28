@@ -85,10 +85,10 @@ func (s state) String() string {
 // Reporter hears about squatters (GPU processes no lease accounts for)
 // and alert-level crossings; it only ever reports, never touches a process.
 type Reporter interface {
-	Squatter(appeared bool, p gpu.Proc)
+	Squatter(appeared bool, card string, p gpu.Proc)
 	// Alert hears a threshold or danger level crossing (warn/crit) from
 	// the alert evaluator; like Squatter it only ever reports.
-	Alert(level, key, message string)
+	Alert(level, key, message, card string)
 }
 
 type Config struct {
@@ -862,7 +862,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		b.counters.SquattersCaught++
 		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: detail})
 		if b.cfg.Reporter != nil {
-			b.cfg.Reporter.Squatter(true, p)
+			b.cfg.Reporter.Squatter(true, b.cfg.Card, p)
 		}
 	}
 	for id, s := range b.squatters {
@@ -950,7 +950,7 @@ func (b *Broker) reportGone(s *squatter) {
 	b.log.Info("squatter gone", "pid", s.proc.PID, "name", s.proc.Name)
 	b.emit(proto.Event{Kind: proto.EvSquatterGone, PID: s.proc.PID, Bytes: s.proc.Used, Detail: s.proc.Name})
 	if b.cfg.Reporter != nil {
-		b.cfg.Reporter.Squatter(false, s.proc)
+		b.cfg.Reporter.Squatter(false, b.cfg.Card, s.proc)
 	}
 }
 

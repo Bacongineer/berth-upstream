@@ -96,9 +96,11 @@ func FromConfig(c config.AlertsConfig) map[Key]proto.Threshold {
 // Reading is one poll of the values the table can evaluate. V holds the
 // keys actually reported; absence never raises. Note carries human
 // context (the probe error, the stuck lease engines) for the messages.
+// Card names the card a card-level key was read from, even with one card.
 type Reading struct {
 	V    map[Key]float64
 	Note map[Key]string
+	Card map[Key]string
 }
 
 // FromStatus reads one status into a Reading: the exact values the node
@@ -107,7 +109,7 @@ type Reading struct {
 // driver reports both watts and a limit; cache is present only while
 // there was request traffic, so an idle engine never alarms.
 func FromStatus(st proto.Status) Reading {
-	r := Reading{V: map[Key]float64{}, Note: map[Key]string{}}
+	r := Reading{V: map[Key]float64{}, Note: map[Key]string{}, Card: map[Key]string{}}
 	var cards []proto.GPU
 	for _, g := range st.GPUs {
 		if g.Scheduled {
@@ -123,6 +125,7 @@ func FromStatus(st proto.Status) Reading {
 			return
 		}
 		r.V[k] = v
+		r.Card[k] = g.Card
 		if len(cards) > 1 {
 			r.Note[k] = g.Card
 		}
@@ -209,7 +212,7 @@ func (l Level) Name() string {
 type Evaluator struct {
 	Table      map[Key]proto.Threshold
 	ClearPolls int
-	OnChange   func(key Key, level Level, raised bool, msg string)
+	OnChange   func(key Key, level Level, raised bool, msg, card string)
 
 	level map[Key]Level
 	clean map[Key]int
@@ -217,7 +220,7 @@ type Evaluator struct {
 
 // New builds an Evaluator over table. A nil on is a no-op;
 // clearPolls <= 0 becomes 3.
-func New(table map[Key]proto.Threshold, clearPolls int, on func(key Key, level Level, raised bool, msg string)) *Evaluator {
+func New(table map[Key]proto.Threshold, clearPolls int, on func(key Key, level Level, raised bool, msg, card string)) *Evaluator {
 	if clearPolls <= 0 {
 		clearPolls = 3
 	}
@@ -250,7 +253,7 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 		case target > lv:
 			e.level[key] = target
 			e.clean[key] = 0
-			e.fire(key, target, true, msgFor(key, thr, target, r))
+			e.fire(key, target, true, msgFor(key, thr, target, r), r.Card[key])
 		case target == lv:
 			e.clean[key] = 0
 		default: // target < lv: one more clean poll toward a drop
@@ -258,7 +261,7 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 			if e.clean[key] >= e.ClearPolls {
 				e.level[key] = target
 				e.clean[key] = 0
-				e.fire(key, target, false, msgFor(key, thr, target, r))
+				e.fire(key, target, false, msgFor(key, thr, target, r), r.Card[key])
 			}
 		}
 		if l := e.level[key]; l != LevelOK {
@@ -268,11 +271,11 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 	return out
 }
 
-func (e *Evaluator) fire(key Key, level Level, raised bool, msg string) {
+func (e *Evaluator) fire(key Key, level Level, raised bool, msg, card string) {
 	if e.OnChange == nil {
 		return
 	}
-	e.OnChange(key, level, raised, msg)
+	e.OnChange(key, level, raised, msg, card)
 }
 
 // Snapshot is the wire form: the table and the keys held at a non-ok

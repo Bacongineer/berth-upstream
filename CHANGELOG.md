@@ -22,6 +22,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth notify` names the card in its title (`gpu1: GPU passed to a VM`) on a machine with several cards, and no
+  longer folds the same event on two cards into one note. Squatter and alert webhooks carry a `card` field.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).
