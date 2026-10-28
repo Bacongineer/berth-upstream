@@ -95,6 +95,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `[squatters] allow` in `berth.toml` lists process names that are never squatters, as `berth daemon --allow`
+  does. A unit or scheduled task from `berth service install` had no way to pass `--allow`, so on a desktop a
+  browser or a terminal kept the card from ever being free and background engines never started. The flag still
+  replaces the list when given (#172).
 - One lease across several cards: `berth run --gpu gpu0,gpu1`, or `gpu = "gpu0,gpu1"` on an engine entry. berthd
   grants the lease on every named card at once, only when each one fits, and holds no card while it waits for
   another. The engine starts with `CUDA_VISIBLE_DEVICES` listing the cards' UUIDs in the order named, and its

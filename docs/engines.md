@@ -84,6 +84,10 @@ warns about `always`. `unless-stopped` keeps a drained container stopped, but a 
 running when the machine went down starts again at boot, also without a lease. With `restart: "no"`,
 only your start command brings the project up.
 
+A `batch` lease yields to a higher-priority request as soon as it asks, even seconds after its grant, so a
+background project can be stopped right after it came up. `min_turn = "100s"` on the entry keeps the card for
+that long after the grant. Only a hold (a game, `berth hold`) takes it out sooner. See [leasing](leasing.md).
+
 Both forms work on Linux and Windows, and one runtime CLI does the work on either. Windows has one
 limit you should plan around. The driver reports no per-container VRAM under WSL2, so a container's
 memory arrives as the WSL VM's single process row. While a container engine is the only one on the
