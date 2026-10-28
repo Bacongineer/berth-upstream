@@ -404,6 +404,8 @@ type GPU struct {
 	GTTTotal    uint64 `json:"gtt_total,omitempty"`
 	GTTUsed     uint64 `json:"gtt_used,omitempty"`
 	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
+	// ProbeErr is this card's last probe failure, "" while it reads.
+	ProbeErr string `json:"probe_error,omitempty"`
 
 	// Telemetry as the driver reports it; -1 = not reported.
 	Util       float64 `json:"util_pct"`

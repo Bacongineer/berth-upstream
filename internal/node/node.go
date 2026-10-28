@@ -124,7 +124,29 @@ func View(st *proto.Status, key string) *proto.Status {
 	v.Leases = slices.DeleteFunc(slices.Clone(st.Leases), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Waiting = slices.DeleteFunc(slices.Clone(st.Waiting), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Squatters = slices.DeleteFunc(slices.Clone(st.Squatters), func(s proto.Squatter) bool { return !on(s.Card) })
+	// A view of some cards carries only their probe errors. One that keeps
+	// every card keeps the status's own, which a berthd older than per-card
+	// errors fills in alone.
+	if len(v.GPUs) < scheduled(st.GPUs) {
+		var errs []string
+		for _, g := range v.GPUs {
+			if g.ProbeErr != "" {
+				errs = append(errs, g.Card+": "+g.ProbeErr)
+			}
+		}
+		v.ProbeErr = strings.Join(errs, "; ")
+	}
 	return &v
+}
+
+func scheduled(gpus []proto.GPU) int {
+	n := 0
+	for _, g := range gpus {
+		if g.Scheduled {
+			n++
+		}
+	}
+	return n
 }
 
 // cardsOf is the names of the cards key picks in a node's status: "" is
@@ -323,6 +345,7 @@ func named(st *proto.Status, c *Card) {
 	for i := range st.GPUs {
 		if st.GPUs[i].Scheduled {
 			st.GPUs[i].Card, st.GPUs[i].Addr = c.Name, c.Addr
+			st.GPUs[i].ProbeErr = st.ProbeErr
 		}
 	}
 	for _, ls := range []([]proto.Lease){st.Leases, st.Waiting} {

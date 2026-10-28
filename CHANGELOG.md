@@ -18,6 +18,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On a machine with several cards, a probe failure on one card no longer stops the gateway from starting
+  background engines and queued ComfyUI jobs on the others. Each GPU in the status carries its own
+  `probe_error`. A card berthd has never read grants nothing until its first good read, where a whole-card
+  request could be granted on a card of unknown size. At startup, berthd exits only when no card can be read.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).
