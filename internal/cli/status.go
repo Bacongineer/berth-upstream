@@ -74,12 +74,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 
 	tw := tabwriter.NewWriter(c.Out, 0, 4, 2, ' ', tabwriter.StripEscape)
 	// Each row names its card once the node has more than one.
-	cards := 0
-	for _, g := range st.GPUs {
-		if g.Scheduled {
-			cards++
-		}
-	}
+	cards := scheduledCards(st)
 	cardCol := func(head, card string) string {
 		if cards < 2 {
 			return head
@@ -371,6 +366,18 @@ func runStatus(c *Context) int {
 		return c.fail(Systemf("no status from berthd: empty reply"))
 	}
 	return c.Write(statusView{st: m.Status, sock: *sock}, nil)
+}
+
+// scheduledCards is how many cards berthd schedules. A line names its card
+// only when there is more than one.
+func scheduledCards(st *proto.Status) int {
+	n := 0
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			n++
+		}
+	}
+	return n
 }
 
 // age is a duration since the reading, rounded to the second.
