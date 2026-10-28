@@ -104,6 +104,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `/metrics` is per card. GPU memory series gain a `card` label, and each card reports its baseline, utilization,
+  temperature, power, power limit and fan speed when the driver gives them. Leases, the queue and stowaways count
+  per card, `berth_lease_used_bytes` shows what each engine holds, and `berth_build_info` carries the version.
+
 - docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
   them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
   `--pinned` help no longer says it is only for apps.
