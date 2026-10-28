@@ -22,6 +22,14 @@ const (
 	maxRequests  = 50000
 )
 
+// Insights is computed at most once per insightsEvery: every status read
+// inside it gets the last result. With no new request or generation sample
+// the result stands for insightsIdle, since only the time windows moved.
+const (
+	insightsEvery = 5 * time.Second
+	insightsIdle  = time.Minute
+)
+
 // activity reads llama-swap's per-request log and adds the ones not seen yet.
 func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 	b, err := w.get(ctx, base+"/api/metrics/activity")
@@ -55,11 +63,13 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 		w.seen = map[string]bool{}
 		w.since = time.Now()
 	}
+	added := false
 	for _, d := range r.Data {
 		id := engine + "/" + d.ID.String()
 		if w.seen[id] {
 			continue
 		}
+		added = true
 		w.seen[id] = true
 		// llama-swap's input_tokens is the uncached part of the prompt, and
 		// -1 means the engine did not report that figure: it reads as 0 here
@@ -77,7 +87,10 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 		}
 		w.reqs = append(w.reqs, q)
 	}
-	sort.SliceStable(w.reqs, func(i, j int) bool { return w.reqs[i].T.Before(w.reqs[j].T) })
+	if added {
+		w.insDirty = true
+		sort.SliceStable(w.reqs, func(i, j int) bool { return w.reqs[i].T.Before(w.reqs[j].T) })
+	}
 	cut := time.Now().Add(-keepRequests)
 	i := 0
 	for i < len(w.reqs) && (w.reqs[i].T.Before(cut) || len(w.reqs)-i > maxRequests) {
@@ -91,25 +104,30 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 // Insights computes the KPIs, ledger and leaderboard at now. The math is
 // shared with the harbor's store (internal/insights); the node adds the
 // engines' counter deltas, which the store never sees.
+// The result is shared by every caller until the next compute, so callers
+// only read it.
 func (w *Watcher) Insights(now time.Time) *proto.Insights {
 	if w == nil {
 		return nil
 	}
 	w.mu.Lock()
-	reqs := append([]proto.Request(nil), w.reqs...)
+	defer w.mu.Unlock()
+	if w.since.IsZero() {
+		return nil
+	}
+	if age := now.Sub(w.insAt); w.ins != nil && age >= 0 && (age < insightsEvery || !w.insDirty && age < insightsIdle) {
+		return w.ins
+	}
 	gen := make([]insights.Gen, len(w.gen))
 	for i, g := range w.gen {
 		gen[i] = insights.Gen{T: g.t, Engine: g.engine, Model: g.model,
 			Out: g.out, OutSec: g.outSec, Draft: g.draft, DraftAcc: g.draftAccepted}
 	}
-	since := w.since
-	w.mu.Unlock()
-	if since.IsZero() {
-		return nil
-	}
 	cols := []insights.Col{{Label: "1h", Window: time.Hour}, {Label: "24h", Window: keepRequests}}
-	cols = append(cols, insights.Col{Label: "since " + since.Format("Jan 2 15:04")})
-	return insights.Compute(reqs, gen, cols, since, now)
+	cols = append(cols, insights.Col{Label: "since " + w.since.Format("Jan 2 15:04")})
+	w.ins = insights.Compute(w.reqs, gen, cols, w.since, now)
+	w.insAt, w.insDirty = now, false
+	return w.ins
 }
 
 // Requests is the in-memory request log with T after since, oldest first.

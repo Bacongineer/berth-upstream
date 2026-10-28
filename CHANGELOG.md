@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- berthd computes the request KPIs, token ledger and leaderboard at most once every 5 s, and once a minute while
+  no request arrives. It computed them again for every status read, so each harbor poll copied and walked the
+  whole 24 h request log (13 ms and 29 MB at 50,000 requests).
 - berthd and `berth service install` govern every card by default (`--gpu all`), where they took card 0. On a
   machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
   a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
