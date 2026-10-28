@@ -376,6 +376,7 @@ func Run(o Options) int {
 	}()
 
 	err = cmd.Wait()
+	afterWait(cmd)
 	close(done)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil // exited cleanly; a grandchild still held the output copy
@@ -694,6 +695,7 @@ func runUnleased(o Options, reason string) int {
 	done := make(chan struct{})
 	go forwardSignals(cmd, done)
 	err := cmd.Wait()
+	afterWait(cmd)
 	close(done)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
