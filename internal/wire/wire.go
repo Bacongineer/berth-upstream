@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ type Options struct {
 	APIBase  string   // llama-swap base URL; the unload endpoint hangs off it
 	Exclude  []string // model names to leave alone (path.Match patterns)
 	Update   bool     // rewrite existing wrapper lines that carry other flags
+	// Wait is how long each model's lease request waits for the card; 0
+	// leaves --wait out, and an update keeps a wait written by hand.
+	Wait time.Duration
 }
 
 // Validate rejects an option set that would write a broken or misleading line.
@@ -52,6 +56,9 @@ func (o Options) Validate() error {
 	u, err := url.Parse(o.APIBase)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("api %q must be an http(s)://host:port base URL", o.APIBase)
+	}
+	if o.Wait < 0 {
+		return fmt.Errorf("wait %s is negative", o.Wait)
 	}
 	for _, pat := range o.Exclude {
 		if _, err := path.Match(pat, "x"); err != nil {
@@ -271,11 +278,19 @@ func planModel(lines []string, keyRow, end int, name string, o Options) (Model, 
 		if !o.Update {
 			return Model{Name: name, Action: "wired", Reason: "already runs under berth run"}, nil
 		}
-		desired := wrapperLine(name, o, wrapIndent, lineEnding(lines[wrapRow]))
+		kept, ok := handFlags(lines[wrapRow], o)
+		if !ok {
+			return Model{Name: name, Action: "wired", Reason: "the berth run line does not end at --; edit it by hand"}, nil
+		}
+		desired := wrapperLine(name, o, wrapIndent, lineEnding(lines[wrapRow]), kept...)
 		if lines[wrapRow] == desired {
 			return Model{Name: name, Action: "wired", Reason: "already runs under berth run with these flags"}, nil
 		}
-		return Model{Name: name, Action: "update", Line: desired}, &editPlan{at: wrapRow, replace: true, line: desired}
+		m := Model{Name: name, Action: "update", Line: desired}
+		if len(kept) > 0 {
+			m.Reason = "keeps " + strings.Join(kept, " ")
+		}
+		return m, &editPlan{at: wrapRow, replace: true, line: desired}
 	}
 
 	at := cmdRow + 1
@@ -295,9 +310,9 @@ func planModel(lines []string, keyRow, end int, name string, o Options) (Model, 
 }
 
 // wrapperLine is the full line inserted into the block: berth run, the flags,
-// and the -- that ends berth's own flag list. The model's original cmd
-// follows on the next line.
-func wrapperLine(name string, o Options, indent int, ending string) string {
+// the operator's own flags (kept), and the -- that ends berth's own flag
+// list. The model's original cmd follows on the next line.
+func wrapperLine(name string, o Options, indent int, ending string, kept ...string) string {
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indent))
 	b.WriteString(shellWord(o.Bin))
@@ -311,6 +326,14 @@ func wrapperLine(name string, o Options, indent int, ending string) string {
 		b.WriteString(" --priority ")
 		b.WriteString(shellWord(o.Priority))
 	}
+	if o.Wait > 0 {
+		b.WriteString(" --wait ")
+		b.WriteString(o.Wait.String())
+	}
+	for _, w := range kept {
+		b.WriteString(" ")
+		b.WriteString(shellWord(w))
+	}
 	api := strings.TrimRight(o.APIBase, "/")
 	b.WriteString(" --drain-post ")
 	b.WriteString(shellWord(api + "/api/models/unload/" + url.PathEscape(name)))
@@ -323,6 +346,31 @@ func wrapperLine(name string, o Options, indent int, ending string) string {
 	return b.String()
 }
 
+// handFlags is the words of a berth run line that wire did not write: every
+// word between run and the closing --, less the flags wire writes and their
+// values (each of them takes one). A --wait is wire's only when o.Wait is
+// set. ok is false when the line has no closing --.
+func handFlags(line string, o Options) (kept []string, ok bool) {
+	owned := map[string]bool{"as": true, "group": true, "priority": true, "drain-post": true, "drain-slots": true, "wait": o.Wait > 0}
+	fields := shellFields(line)
+	run := slices.Index(fields, "run")
+	end := slices.Index(fields, "--")
+	if run < 0 || end < run {
+		return nil, false
+	}
+	for i := run + 1; i < end; i++ {
+		name, _, eq := strings.Cut(strings.TrimLeft(fields[i], "-"), "=")
+		if strings.HasPrefix(fields[i], "-") && owned[name] {
+			if !eq {
+				i++
+			}
+			continue
+		}
+		kept = append(kept, fields[i])
+	}
+	return kept, true
+}
+
 // wrappedAs names the model a line wraps in `berth run --as NAME`, or "". The
 // line is read as shell words, so any berth path, any flag order and a quoted
 // name all count.
@@ -333,10 +381,10 @@ func wrappedAs(line string) string {
 			continue
 		}
 		base := fields[i-1]
-		if j := strings.LastIndexByte(base, '/'); j >= 0 {
+		if j := strings.LastIndexAny(base, `/\`); j >= 0 {
 			base = base[j+1:]
 		}
-		if base != "berth" {
+		if base != "berth" && !strings.EqualFold(base, "berth.exe") {
 			continue
 		}
 		return fields[i+2]
@@ -345,9 +393,11 @@ func wrappedAs(line string) string {
 }
 
 // shellFields splits a line into shell words: whitespace outside quotes
-// separates, single and double quotes group, and a backslash escapes the next
-// character outside single quotes. It is deliberately small: it only reads
-// wrapper lines this package and its operators write.
+// separates, single and double quotes group, and outside single quotes a
+// backslash escapes a blank, a quote, a backslash, $ or a backquote. Any other
+// backslash is kept, so a Windows path (F:\AI\berth.exe) reads whole. It is
+// deliberately small: it only reads wrapper lines this package and its
+// operators write.
 func shellFields(line string) []string {
 	var fields []string
 	var cur strings.Builder
@@ -365,7 +415,7 @@ func shellFields(line string) []string {
 		case escaped:
 			cur.WriteByte(ch)
 			escaped = false
-		case ch == '\\' && open != '\'':
+		case ch == '\\' && open != '\'' && i+1 < len(line) && strings.IndexByte(" \t'\"\\$`", line[i+1]) >= 0:
 			escaped = true
 		case open != 0:
 			if ch == open {

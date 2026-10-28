@@ -60,6 +60,8 @@ func (v wireView) Human(c *Context, ok bool) error {
 		case "add", "update":
 			if c.Verbose && m.Line != "" {
 				c.Bullet("%s %s: %s", m.Action, m.Name, strings.TrimSpace(m.Line))
+			} else if m.Reason != "" {
+				c.Bullet("%s %s (%s)", m.Action, m.Name, m.Reason)
 			} else {
 				c.Bullet("%s %s", m.Action, m.Name)
 			}
@@ -100,7 +102,8 @@ func runWireLlamaSwap(c *Context) int {
 	priority := fs.String("priority", "foreground", "lease priority: batch, interactive or foreground (\"\" leaves the flag out)")
 	var exclude patterns
 	fs.Var(&exclude, "exclude", "model name pattern to leave alone (repeatable, e.g. 'text-embedding-*')")
-	update := fs.Bool("update", false, "rewrite existing berth run lines to these flags")
+	wait := fs.Duration("wait", 0, "how long each model's lease request waits for the card (berth run --wait); 0 leaves it to berthd's default")
+	update := fs.Bool("update", false, "rewrite the flags wire writes on existing berth run lines; flags added by hand stay")
 	write := fs.Bool("write", false, "apply the changes (default prints the plan)")
 	check := fs.Bool("check", false, "no writes; exit 1 when any model needs wiring")
 	if code, done := c.Parse(fs); done {
@@ -140,7 +143,7 @@ func runWireLlamaSwap(c *Context) int {
 		mode = "check"
 	}
 
-	opts := wire.Options{Bin: bin, Group: *group, Priority: *priority, APIBase: *api, Exclude: exclude, Update: *update}
+	opts := wire.Options{Bin: bin, Group: *group, Priority: *priority, APIBase: *api, Exclude: exclude, Update: *update, Wait: *wait}
 	if err := opts.Validate(); err != nil {
 		return c.fail(Systemf("invalid options: %v", err).
 			WithHint("run \"berth wire llama-swap -h\" for the flag meanings"))
