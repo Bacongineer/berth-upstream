@@ -50,7 +50,7 @@ func TestServiceUnits(t *testing.T) {
 			want: []Unit{{
 				Name:        "berthd",
 				Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
-				Description: "berth - GPU lease broker (one card, many inference engines)",
+				Description: "berth - GPU lease broker (every card, many inference engines)",
 			}},
 		},
 		{
@@ -59,7 +59,7 @@ func TestServiceUnits(t *testing.T) {
 				{
 					Name:        "berthd",
 					Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
-					Description: "berth - GPU lease broker (one card, many inference engines)",
+					Description: "berth - GPU lease broker (every card, many inference engines)",
 				},
 				{
 					Name:        "berth-gateway",
