@@ -25,7 +25,7 @@ func runRun(c *Context) int {
 	engine := fs.String("as", "", "engine name shown in status and drain messages (required)")
 	group := fs.String("group", "", "engine family for juggles and the usage ranking, e.g. llama-swap for each of its models (default: --as)")
 	prio := fs.String("priority", "interactive", "batch, interactive, foreground or hold")
-	pinned := fs.Bool("pinned", false, "never drained: the card stays CMD's until it exits (for apps like Blender, not engines)")
+	pinned := fs.Bool("pinned", false, "never drained: the card stays CMD's until it exits (an app like Blender, or a training run; not an engine a request should swap out)")
 	switched := fs.Bool("switched", false, "a person's switch (the gateway sets it for the wake page's Launch and /v1/berth/switch): wins a juggle")
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
 	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default; negative = no deadline")

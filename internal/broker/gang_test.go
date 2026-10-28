@@ -173,3 +173,57 @@ func TestReattachAllIsOneLeaseOnEveryCard(t *testing.T) {
 		t.Error("gpu0 kept its share of a re-attach gpu1 refused")
 	}
 }
+
+// A training run pinned on three cards keeps all three. A foreground run,
+// a game's hold and another lease on two of the cards each wait for it;
+// none is a reason to drain it.
+func TestPinnedLeaseOnSeveralCardsIsNeverDrained(t *testing.T) {
+	bs := node(t, "gpu0", "gpu1", "gpu2")
+	r := <-acquireAll(bs, Request{Engine: "train", Priority: Batch, Pinned: true})
+	if r.err != nil || len(r.ls) != 3 {
+		t.Fatalf("grant = %+v", r)
+	}
+
+	fg := acquire(bs[1], Request{Engine: "chat", Priority: Foreground, Wait: time.Hour})
+	game := acquire(bs[2], Request{Engine: "game", Priority: Hold, Pinned: true, Wait: time.Hour})
+	gang := acquireAll(bs[:2], Request{Engine: "maya", Priority: Foreground, Wait: time.Hour})
+	for range 3 {
+		time.Sleep(50 * time.Millisecond)
+		tickAll(bs)
+	}
+	for _, l := range r.ls {
+		notDrained(t, l)
+	}
+	for name, ch := range map[string]chan result{"chat": fg, "game": game} {
+		select {
+		case got := <-ch:
+			t.Fatalf("%s granted beside the pinned run: %+v", name, got)
+		default:
+		}
+	}
+	select {
+	case got := <-gang:
+		t.Fatalf("maya granted beside the pinned run: %+v", got)
+	default:
+	}
+
+	for _, l := range r.ls {
+		l.Release()
+	}
+	tickAll(bs)
+	must(t, game).Release()
+	tickAll(bs)
+	// chat and maya both want gpu1 at foreground; the run's exit lets one in.
+	select {
+	case got := <-fg:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+	case got := <-gang:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("gpu1 stayed shut after the pinned run released")
+	}
+}
