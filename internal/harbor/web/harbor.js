@@ -1782,6 +1782,9 @@ function renderBerths(s) {
   for (const [idx, card] of berthCards) if (!seen.has(idx)) { card.root.remove(); berthCards.delete(idx); }
 }
 function updateBerth(card, g, s) {
+  // a lease or stowaway belongs on its own card's panel; one without a card
+  // (a berthd older than per-card status) shows on every card, as before
+  const onCard = (x) => !x.card || !g.card || x.card === g.card;
   card.root.classList.toggle("is-scheduled", !!g.scheduled);
   card.root.classList.toggle("inventory", !g.scheduled);
   // the card in a VM: its status names the state, its figures are the last
@@ -1809,14 +1812,14 @@ function updateBerth(card, g, s) {
     push("baseline", g.baseline, "seg-baseline", "baseline " + fmtGiB(g.baseline) + " GiB, driver reserved");
     const occupied = new Set();
     let seat = 0;
-    for (const l of [...(s.leases || []), ...(s.waiting || [])]) {
+    for (const l of [...(s.leases || []), ...(s.waiting || [])].filter(onCard)) {
       if (l.used > 0 && !occupied.has(l.id)) {
         occupied.add(l.id);
         seat += 1;
         push("lease:" + (l.id || "seat" + seat), l.used, "seg-lease" + (l.state === "stuck" ? " stuck" : " active"), l.engine + " " + fmtGiB(l.used) + " GiB" + (l.state === "stuck" ? " (aground)" : ""));
       }
     }
-    for (const q of s.squatters || []) push("squat:" + (q.pid || q.name), q.used, "seg-squatter", "stowaway " + q.name + " " + fmtGiB(q.used) + " GiB, no lease");
+    for (const q of (s.squatters || []).filter(onCard)) push("squat:" + (q.pid || q.name), q.used, "seg-squatter", "stowaway " + q.name + " " + fmtGiB(q.used) + " GiB, no lease");
   }
   bands.push({ key: "free", width: 0, cls: "seg-free", title: "" });
   syncKeyed(card.bar, bands, (b) => b.key, () => el("div", "seg"), (node, b) => {
@@ -1850,7 +1853,7 @@ function updateBerth(card, g, s) {
   if (g.scheduled) {
     const fp = {};
     for (const f of (s && s.footprints) || []) if (f.engine) fp[f.engine] = f.estimated_vram_bytes || 0;
-    for (const l of s.leases || []) {
+    for (const l of (s.leases || []).filter(onCard)) {
       const tier = l.state === "stuck" ? "AGROUND" : l.state === "parking" ? "PARKING" : l.state === "parked" ? "WARM" : "DOCKED";
       let ram = "";
       if (l.state === "parked") {
@@ -1861,7 +1864,7 @@ function updateBerth(card, g, s) {
       const sits = l.group === "vfio" ? "in the VM" : l.state === "parked" ? ram.trim() : l.used > 0 ? fmtGiB(l.used) + " GiB" : "draining";
       card.occ.append(el("div", cls, el("span", "who", tier + " " + l.engine + " " + (l.id || "")), el("span", null, sits)));
     }
-    for (const q of s.squatters || []) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
+    for (const q of (s.squatters || []).filter(onCard)) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
     if (card.occ.childElementCount === 0) card.occ.append(el("div", "occ", el("span", "who", "all berths free")));
   }
 }
