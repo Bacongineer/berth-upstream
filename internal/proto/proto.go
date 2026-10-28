@@ -351,6 +351,8 @@ type Claim struct {
 	Lease   string `json:"lease,omitempty"` // hold: the lease it holds or waits on
 	Used    uint64 `json:"used,omitempty"`  // track: card memory under the matches
 	GTTUsed uint64 `json:"gtt_used,omitempty"`
+	// Cards names the cards where the claim is active or holds memory.
+	Cards []string `json:"cards,omitempty"`
 }
 
 // PriorityStatus is how the node ranks engines when two at one priority

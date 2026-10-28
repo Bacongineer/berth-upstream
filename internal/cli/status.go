@@ -141,7 +141,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 	}
 	if len(active) > 0 {
-		fmt.Fprint(tw, "\nCLAIM\tACTION\tLEASE\tCARD\tPROCESSES\n")
+		fmt.Fprint(tw, "\nCLAIM\tACTION\tLEASE\t"+claimCardCol(cards, "CARD")+"HOLDS\tPROCESSES\n")
 		for _, cl := range active {
 			lease, used := cl.Lease, "-"
 			if lease == "" {
@@ -150,7 +150,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if cl.Used > 0 || cl.GTTUsed > 0 {
 				used = memoryHeld(cl.Used, cl.GTTUsed)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", cl.Name, cl.Action, lease, used, cl.Procs)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%s\t%s\n", cl.Name, cl.Action, lease, claimCardCol(cards, cardNames(cl)), used, cl.Procs)
 		}
 	}
 	if len(st.Unprotected) > 0 {
@@ -375,6 +375,23 @@ func runStatus(c *Context) int {
 		return c.fail(Systemf("no status from berthd: empty reply"))
 	}
 	return c.Write(statusView{st: m.Status, sock: *sock}, nil)
+}
+
+// claimCardCol is a claims table cell for the CARD column, nothing with
+// one card.
+func claimCardCol(cards int, cell string) string {
+	if cards < 2 {
+		return ""
+	}
+	return cell + "\t"
+}
+
+// cardNames is where a claim is active or holds memory.
+func cardNames(cl proto.Claim) string {
+	if len(cl.Cards) == 0 {
+		return "-"
+	}
+	return strings.Join(cl.Cards, ",")
 }
 
 // scheduledCards is how many cards berthd schedules. A line names its card

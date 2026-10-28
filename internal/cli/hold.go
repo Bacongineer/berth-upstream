@@ -92,7 +92,10 @@ func runHold(c *Context) int {
 }
 
 // claimsView is the claim rules and what each matches right now.
-type claimsView struct{ claims []proto.Claim }
+type claimsView struct {
+	claims []proto.Claim
+	cards  int // cards berthd schedules
+}
 
 func (v claimsView) Data() any { return v.claims }
 
@@ -102,7 +105,7 @@ func (v claimsView) Human(c *Context, ok bool) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(c.Out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "CLAIM\tACTION\tSTATE\tLEASE\tCARD\tPROCESSES")
+	fmt.Fprintln(tw, "CLAIM\tACTION\tSTATE\tLEASE\t"+claimCardCol(v.cards, "CARD")+"HOLDS\tPROCESSES")
 	for _, cl := range v.claims {
 		state := c.Style.Dim("idle")
 		if cl.Active {
@@ -113,14 +116,14 @@ func (v claimsView) Human(c *Context, ok bool) error {
 			name += c.Style.Dim(" (built-in)")
 		}
 		used := "-"
-		if cl.Used > 0 {
-			used = server.MiB(cl.Used)
+		if cl.Used > 0 || cl.GTTUsed > 0 {
+			used = memoryHeld(cl.Used, cl.GTTUsed)
 		}
 		lease := cl.Lease
 		if lease == "" {
 			lease = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", name, cl.Action, state, lease, used, cl.Procs)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%s\t%s\n", name, cl.Action, state, lease, claimCardCol(v.cards, cardNames(cl)), used, cl.Procs)
 	}
 	return tw.Flush()
 }
@@ -150,5 +153,5 @@ func runClaims(c *Context) int {
 	if cl == nil {
 		cl = []proto.Claim{}
 	}
-	return c.Write(claimsView{claims: cl}, nil)
+	return c.Write(claimsView{claims: cl, cards: scheduledCards(m.Status)}, nil)
 }

@@ -5,6 +5,7 @@ package node
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -329,5 +330,42 @@ func TestPassthroughIsPerCard(t *testing.T) {
 	st.GPUs[0].Passthrough = vm
 	if got := View(st, "gpu0,gpu1").Passthrough; got != vm {
 		t.Errorf("every card in a VM: passthrough %+v, want %+v", got, vm)
+	}
+}
+
+// A claim tracked on gpu1 keeps its memory and its card in the node's
+// status, and the engine ranking adds up the hours from every card.
+func TestClaimsAndPriorityMergeAcrossCards(t *testing.T) {
+	g0 := proto.Status{
+		Claims: []proto.Claim{{Name: "blender", Action: "track", Active: true, Used: 2 * gib, Procs: "blender"},
+			{Name: "game", Action: "hold"}},
+		Priority: &proto.PriorityStatus{Source: "usage", Engines: []proto.EngineRank{
+			{Engine: "maya", Rank: 1, Hours7d: 3}, {Engine: "voice", Rank: 2, Hours7d: 1}}},
+	}
+	g1 := proto.Status{
+		Claims: []proto.Claim{{Name: "blender", Action: "track", Active: true, Used: 3 * gib, GTTUsed: gib},
+			{Name: "game", Action: "hold"}},
+		Priority: &proto.PriorityStatus{Source: "usage", Engines: []proto.EngineRank{
+			{Engine: "voice", Rank: 1, Hours7d: 4}, {Engine: "comfy", Rank: 2, Hours7d: 2}}},
+	}
+	named(&g0, &Card{Name: "gpu0"})
+	named(&g1, &Card{Name: "gpu1"})
+	claims := mergeClaims(g0.Claims, g1.Claims)
+	b := claims[0]
+	if b.Used != 5*gib || b.GTTUsed != gib || !b.Active || strings.Join(b.Cards, ",") != "gpu0,gpu1" {
+		t.Errorf("blender = %+v, want 5 GiB + 1 GiB GTT on gpu0,gpu1", b)
+	}
+	if g := claims[1]; g.Active || len(g.Cards) != 0 {
+		t.Errorf("idle game claim = %+v, want no cards", g)
+	}
+	if len(g0.Claims[0].Cards) != 1 {
+		t.Errorf("merge changed gpu0's own claim: %+v", g0.Claims[0])
+	}
+	var got []string
+	for _, e := range mergePriority(g0.Priority, g1.Priority).Engines {
+		got = append(got, fmt.Sprintf("%s=%g#%d", e.Engine, e.Hours7d, e.Rank))
+	}
+	if want := "maya=3#1 voice=5#2 comfy=2#3"; strings.Join(got, " ") != want {
+		t.Errorf("engines = %v, want %s", got, want)
 	}
 }
