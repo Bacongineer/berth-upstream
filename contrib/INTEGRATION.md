@@ -25,6 +25,8 @@ berth run --as <name> --priority <batch|interactive|foreground> [--needs-mib N] 
   (for example vLLM with `--gpu-memory-utilization`).
 - `--drain-post`: a URL Berth POSTs first when it wants the card back, before any signal.
 - `--drain-comfyui`: wait for ComfyUI's queue to empty before stopping it.
+- With no command after `--`, `berth run --as NAME` runs the `start` of NAME's `[[engine]]` entry in
+  berth.toml. Every setting no flag sets comes from that entry too.
 - On drain, Berth tries the drain step, then SIGTERM to the engine's process group, then
   SIGKILL, with `--grace` (30 s) between steps.
 

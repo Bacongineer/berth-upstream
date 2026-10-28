@@ -50,9 +50,10 @@ func runRun(c *Context) int {
 	if code, done := c.Parse(fs); done {
 		return code
 	}
-	if *engine == "" || len(c.Args) == 0 {
-		return c.fail(Systemf("--as NAME and the engine's command are required").
-			WithHint("usage: berth run --as NAME [flags] -- CMD [ARGS...]"))
+	required := Systemf("--as NAME and the engine's command are required").
+		WithHint("usage: berth run --as NAME [flags] -- CMD [ARGS...], or give NAME's berth.toml entry a start")
+	if *engine == "" {
+		return c.fail(required)
 	}
 	// The engine's berth.toml entry is the default for every setting a flag
 	// does not set, so a run with no flags behaves like a gateway start. A
@@ -65,6 +66,15 @@ func runRun(c *Context) int {
 	e := config.Engine{Name: *engine}
 	if entry := engineEntry(merged, *engine, *group); entry != nil {
 		e = *entry
+	}
+	// With no command, the entry's own start runs, as the gateway starts it.
+	// A start found through --group is that group's engine, not this one.
+	argv := c.Args
+	if len(argv) == 0 && e.Name == *engine {
+		argv = e.Start
+	}
+	if len(argv) == 0 {
+		return c.fail(required)
 	}
 	applyEngineEntry(c, &e, engineFlags{
 		priority: prio, needsMiB: needs, drainPost: drainPost, drainSlots: drainSlots,
@@ -106,7 +116,7 @@ func runRun(c *Context) int {
 			return c.fail(Systemf("%v", err))
 		}
 	}
-	if err := checkFront(e.Park, *frontAddr, c.Args); err != nil {
+	if err := checkFront(e.Park, *frontAddr, argv); err != nil {
 		return c.fail(Systemf("%v", err))
 	}
 	e.Name = *engine
@@ -122,7 +132,7 @@ func runRun(c *Context) int {
 	// diagnostics on stderr, and --quiet never hides the unprotected warning.
 	return runner.Run(runner.OptionsFor(&e, runner.Over{
 		Socket: *sock, Front: *frontAddr, Group: *group, Pinned: *pinned, Switched: *switched, Wait: *wait, Grace: *grace,
-		FailClosed: *failClosed, Argv: c.Args, Stderr: c.Err, Log: c.Log(),
+		FailClosed: *failClosed, Argv: argv, Stderr: c.Err, Log: c.Log(),
 	}))
 }
 
