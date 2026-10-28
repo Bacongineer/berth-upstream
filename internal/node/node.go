@@ -124,7 +124,26 @@ func View(st *proto.Status, key string) *proto.Status {
 	v.Leases = slices.DeleteFunc(slices.Clone(st.Leases), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Waiting = slices.DeleteFunc(slices.Clone(st.Waiting), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Squatters = slices.DeleteFunc(slices.Clone(st.Squatters), func(s proto.Squatter) bool { return !on(s.Card) })
+	v.Passthrough = inVM(v.GPUs)
 	return &v
+}
+
+// inVM is the first scheduled card's VM state when every scheduled card in
+// gpus is in a VM, nil while one of them serves.
+func inVM(gpus []proto.GPU) *proto.Passthrough {
+	var first *proto.Passthrough
+	for _, g := range gpus {
+		if !g.Scheduled {
+			continue
+		}
+		if g.Passthrough == nil {
+			return nil
+		}
+		if first == nil {
+			first = g.Passthrough
+		}
+	}
+	return first
 }
 
 // cardsOf is the names of the cards key picks in a node's status: "" is
@@ -311,10 +330,8 @@ func (n *Node) Status() proto.Status {
 		if cs.ProbeErr != "" {
 			probeErrs = append(probeErrs, n.cards[i+1].Name+": "+cs.ProbeErr)
 		}
-		if st.Passthrough == nil {
-			st.Passthrough = cs.Passthrough
-		}
 	}
+	st.Passthrough = inVM(st.GPUs)
 	st.ProbeErr = strings.Join(probeErrs, "; ")
 	st.LastEvent = n.Events.Last()
 	return st
@@ -325,6 +342,7 @@ func named(st *proto.Status, c *Card) {
 	for i := range st.GPUs {
 		if st.GPUs[i].Scheduled {
 			st.GPUs[i].Card, st.GPUs[i].Addr = c.Name, c.Addr
+			st.GPUs[i].Passthrough = st.Passthrough
 		}
 	}
 	for _, ls := range []([]proto.Lease){st.Leases, st.Waiting} {

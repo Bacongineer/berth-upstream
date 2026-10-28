@@ -759,8 +759,14 @@ function refreshConn() {
 // the card's absence is visible without opening a panel. Hidden when the node
 // reports no passthrough.
 let vmSig = null;
+// anyVM is the VM state of a card in this status: the status-wide field
+// when every card is in a VM, else the first card that is.
+function anyVM(s) {
+  if (!s) return null;
+  return s.passthrough || (s.gpus || []).map((g) => g.passthrough).find(Boolean) || null;
+}
 function paintVM() {
-  const p = state.status && state.status.passthrough;
+  const p = anyVM(state.status);
   const sig = p ? p.state + "|" + p.driver : "";
   if (sig === vmSig || !vmPill) return;
   vmSig = sig;
@@ -788,7 +794,7 @@ function overallState() {
   const lv = alertLevels();
   // While the card is in a VM no engine can hold it, so an engine stopped for
   // the session is expected, not a fault.
-  const inVM = !!(state.status && state.status.passthrough);
+  const inVM = !!anyVM(state.status);
   const latched = !inVM && (state.status && state.status.engines || []).some((e) => e.state === "latched");
   if (Object.keys(lv).length > 0 || latched) return "degraded";
   if (c === "stale") return "degraded"; // no fresh status within 10 s: not provably live
@@ -799,7 +805,7 @@ function overallState() {
 // state, not a fault, so the probe level reaches neither pill nor strip.
 function alertLevels() {
   const lv = (state.alerts && state.alerts.levels) || {};
-  if (state.status && state.status.passthrough && lv.probe) {
+  if (anyVM(state.status) && lv.probe) {
     const rest = { ...lv };
     delete rest.probe;
     return rest;
@@ -1411,7 +1417,7 @@ function paintAlerts(s) {
   for (const k of Object.keys(lv)) if (!state.alertSeen[k]) state.alertSeen[k] = now;
   for (const k of Object.keys(state.alertSeen)) if (!lv[k]) { delete state.alertSeen[k]; delete state.alertDismissed[k]; }
   const keys = alertKeys(lv).filter((k) =>
-    state.alertDismissed[k] !== lv[k] && !(s.passthrough && k === "probe"));
+    state.alertDismissed[k] !== lv[k] && !(anyVM(s) && k === "probe"));
   const sig = keys.map((k) => k + ":" + lv[k]).join("|") + "#" + keys.map((k) => alertMsg(k, lv[k], s)).join("|");
   if (sig === lastAlertSig) return;
   lastAlertSig = sig;
@@ -1779,7 +1785,7 @@ function updateBerth(card, g, s) {
   card.root.classList.toggle("inventory", !g.scheduled);
   // the card in a VM: its status names the state, its figures are the last
   // probe read before the hold, which the card does not serve now
-  const pt = g.scheduled && s.passthrough ? s.passthrough : null;
+  const pt = g.scheduled ? g.passthrough || s.passthrough || null : null;
   card.root.classList.toggle("is-vfio", !!pt);
   // the vram level tints the whole card; it comes from the node's sticky
   // levels, never re-derived here

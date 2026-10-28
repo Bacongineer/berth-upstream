@@ -16,8 +16,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// stopSignals: Ctrl-C and Ctrl-Break reach berth run as os.Interrupt.
-var stopSignals = []os.Signal{os.Interrupt}
+// stopSignals: Ctrl-C and Ctrl-Break reach berth run as os.Interrupt. Closing
+// the console window, logging off and shutting down arrive as SIGTERM. Windows
+// gives the process about 5 s after that, so the engine's drain must be quick.
+var stopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 // jobs holds each engine's job object, so a drain reaches every process the
 // engine starts (a server that spawns its runner, like Strata's), as the
@@ -56,6 +58,14 @@ func afterStart(cmd *exec.Cmd) {
 	jobs.Store(cmd.Process.Pid, job)
 }
 
+// afterWait drops the engine's job once it has exited, so the handle does not
+// leak and a later process with the same pid never finds a stale job.
+func afterWait(cmd *exec.Cmd) {
+	if j, ok := jobs.LoadAndDelete(cmd.Process.Pid); ok {
+		_ = windows.CloseHandle(j.(windows.Handle))
+	}
+}
+
 // signalGroup forwards a stop to the engine's process group as Ctrl-Break,
 // the one console signal another process group can receive.
 func signalGroup(cmd *exec.Cmd, _ os.Signal) { terminate(cmd) }
@@ -69,9 +79,11 @@ func terminate(cmd *exec.Cmd) {
 func kill(cmd *exec.Cmd) {
 	if j, ok := jobs.LoadAndDelete(cmd.Process.Pid); ok {
 		job := j.(windows.Handle)
-		_ = windows.TerminateJobObject(job, 1)
+		err := windows.TerminateJobObject(job, 1)
 		_ = windows.CloseHandle(job)
-		return
+		if err == nil {
+			return
+		}
 	}
 	_ = cmd.Process.Kill()
 }

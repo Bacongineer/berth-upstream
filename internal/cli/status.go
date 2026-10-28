@@ -44,8 +44,8 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 	}
 	for _, g := range st.GPUs {
-		if g.Scheduled && st.Passthrough != nil {
-			c.Printf("gpu%d    %s: %s, memory read %s ago\n", g.Index, g.Name, cardLine(st.Passthrough), age(g.Age))
+		if p := cardVM(g, st); g.Scheduled && p != nil {
+			c.Printf("gpu%d    %s: %s, memory read %s ago\n", g.Index, g.Name, cardLine(p), age(g.Age))
 			continue
 		}
 		role := "inventory only"
@@ -238,6 +238,15 @@ func (v statusView) Human(c *Context, ok bool) error {
 
 // cardLine is what the scheduled card's gpu line shows instead of memory
 // figures while the card is in a VM or switching to or from one.
+// cardVM is g's VM state. A berthd older than per-card passthrough sets
+// only the status-wide field, which then means its one card.
+func cardVM(g proto.GPU, st *proto.Status) *proto.Passthrough {
+	if g.Passthrough != nil {
+		return g.Passthrough
+	}
+	return st.Passthrough
+}
+
 func cardLine(p *proto.Passthrough) string {
 	if p.State == proto.CardDetaching {
 		if p.Driver == "" {

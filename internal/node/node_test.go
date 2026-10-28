@@ -308,6 +308,29 @@ func TestViewIsTheCardsAKeyNames(t *testing.T) {
 	}
 }
 
+// One card in a VM is that card's state, not the machine's. A view of the
+// other card still serves; a view of the card in the VM, or of every card
+// when each is in a VM, reports the passthrough.
+func TestPassthroughIsPerCard(t *testing.T) {
+	vm := &proto.Passthrough{State: proto.CardPassthrough, Driver: "vfio-pci", Addr: "0000:09:00.0"}
+	gpu0 := proto.Status{GPUs: []proto.GPU{{Index: 0, Scheduled: true}}}
+	gpu1 := proto.Status{GPUs: []proto.GPU{{Index: 1, Scheduled: true}}, Passthrough: vm}
+	named(&gpu0, &Card{Name: "gpu0", Addr: "0000:01:00.0"})
+	named(&gpu1, &Card{Name: "gpu1", Addr: "0000:09:00.0"})
+	if gpu0.GPUs[0].Passthrough != nil || gpu1.GPUs[0].Passthrough != vm {
+		t.Fatalf("stamped %+v and %+v, want only gpu1 in the VM", gpu0.GPUs[0].Passthrough, gpu1.GPUs[0].Passthrough)
+	}
+
+	st := &proto.Status{GPUs: []proto.GPU{gpu0.GPUs[0], gpu1.GPUs[0]}, Passthrough: vm}
+	for key, want := range map[string]*proto.Passthrough{"gpu0": nil, "gpu1": vm, "gpu0,gpu1": nil} {
+		if got := View(st, key).Passthrough; got != want {
+			t.Errorf("%q: passthrough %+v, want %+v", key, got, want)
+		}
+	}
+	st.GPUs[0].Passthrough = vm
+	if got := View(st, "gpu0,gpu1").Passthrough; got != vm {
+		t.Errorf("every card in a VM: passthrough %+v, want %+v", got, vm)
+
 // A claim tracked on gpu1 keeps its memory and its card in the node's
 // status, and the engine ranking adds up the hours from every card.
 func TestClaimsAndPriorityMergeAcrossCards(t *testing.T) {

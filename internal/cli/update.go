@@ -128,7 +128,7 @@ func runUpdateReplace(c *Context, ctx context.Context, res update.Result, yes, f
 			WithHint("the old binary is still in place; nothing was restarted"))
 	}
 	c.Printf("%s %s is in place of %s\n", c.Style.OK(markOK), res.Latest, c.Version)
-	c.Bullet("installed with `berth service install`: systemctl --user restart berthd, plus berth-gateway and berth-harbor where running (on Windows, re-run the tasks it created)")
+	c.Bullet("installed with `berth service install`: systemctl --user restart berthd, plus berth-gateway and berth-harbor where running (on Windows, run `berth service install` again, which ends each task and starts it anew)")
 	c.Bullet("run in a terminal: start the command again, the new binary takes over from the next process")
 	c.Bullet("berth restarts nothing itself")
 	return ExitOK
