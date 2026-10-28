@@ -22,6 +22,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- On a machine with several cards the harbor draws the memory history against the sum of the scheduled cards,
+  names the card on each board row and stowaway, and puts the lease ticket on its own card. Hidden tabs no
+  longer run the header clock or poll for updates.
 - On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
   and `berth service install` over an existing install stops each task before it starts it again. A second
   `berth update` no longer fails when the previous `.old` binary is still running.
