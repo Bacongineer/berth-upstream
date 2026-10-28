@@ -124,6 +124,7 @@ func runDaemon(c *Context) int {
 		allowList = splitList(*allow)
 	}
 	events, ids, seq, ledger := node.Shared()
+	procTable := procs.Shared(procs.List, *poll/2)
 	var cards []*node.Card
 	var snaps []gpu.Snapshot
 	for i, sel := range sels {
@@ -158,6 +159,7 @@ func runDaemon(c *Context) int {
 			DefaultWait:    *wait,
 			Allow:          allowList,
 			RunsDir:        runs.Dir(*sock),
+			ProcTable:      procTable,
 			CountersFile:   cardFile(*countersFile, i, name),
 			UsageFile:      cardFile(*usageFile, i, name),
 			FootprintFile:  cardFile(*footprintFile, i, name),

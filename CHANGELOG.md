@@ -8,6 +8,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Changed
 
+- berthd reads the process table with one reused buffer and parses only the parent, start time and name, and every
+  card's broker shares one read per tick. The claims scan skips kernel threads' command lines. On a desktop with
+  610 processes the table read went from 5 to 11 ms and 1.9 MB of garbage to 3 ms and 138 KB, and the claims scan
+  from about 4.5 ms to 2.2 ms, each every 2 s.
 - berthd and `berth service install` govern every card by default (`--gpu all`), where they took card 0. On a
   machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
   a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
