@@ -15,6 +15,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A drain of a llama-swap model waits for the request in flight before it unloads the model. The line `berth
+  wire` writes looked for `/slots` at llama-swap's root, which has none, so the drain found no boundary and the
+  unload cut the request off. `berth wire` now adds `--drain-slots <api>/upstream/<model>`, where llama-swap serves
+  each model's slots. `berth run --drain-slots` now keeps the URL's path and is checked before the unload URL is
+  posted; it used only the URL's host before, which also defeated a hand-written path. Rewire with `berth wire
+  llama-swap --config <file> --write --update`. `--update` also rewrites flags you added to the line by hand (#231).
+  azrael-229 found it (#172).
 - `berth events` names the card on each line when berthd governs more than one, as `berth status` does with its
   CARD column. A lease across several cards printed the same line once per card, with no way to tell them apart.
   On a machine with one card the lines are unchanged. `--format json` carries the card on every event.

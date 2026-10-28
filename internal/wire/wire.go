@@ -311,8 +311,13 @@ func wrapperLine(name string, o Options, indent int, ending string) string {
 		b.WriteString(" --priority ")
 		b.WriteString(shellWord(o.Priority))
 	}
+	api := strings.TrimRight(o.APIBase, "/")
 	b.WriteString(" --drain-post ")
-	b.WriteString(shellWord(strings.TrimRight(o.APIBase, "/") + "/api/models/unload/" + url.PathEscape(name)))
+	b.WriteString(shellWord(api + "/api/models/unload/" + url.PathEscape(name)))
+	// llama-swap has no /slots at its root; each model's are under
+	// /upstream/<model>, so the unload waits for the request in flight.
+	b.WriteString(" --drain-slots ")
+	b.WriteString(shellWord(api + "/upstream/" + url.PathEscape(name)))
 	b.WriteString(" --")
 	b.WriteString(ending)
 	return b.String()
