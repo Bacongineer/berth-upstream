@@ -22,6 +22,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth status` and `berth claims` on a machine with several cards show a tracked app's memory from every card, name
+  the cards it sits on, and label the memory column HOLDS, not CARD. The engine ranking counts every card's hours.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).
