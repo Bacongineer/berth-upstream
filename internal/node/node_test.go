@@ -330,6 +330,8 @@ func TestPassthroughIsPerCard(t *testing.T) {
 	st.GPUs[0].Passthrough = vm
 	if got := View(st, "gpu0,gpu1").Passthrough; got != vm {
 		t.Errorf("every card in a VM: passthrough %+v, want %+v", got, vm)
+	}
+}
 
 // A claim tracked on gpu1 keeps its memory and its card in the node's
 // status, and the engine ranking adds up the hours from every card.
