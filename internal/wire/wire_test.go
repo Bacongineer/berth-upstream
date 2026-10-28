@@ -46,13 +46,13 @@ models:
   "Alpha-7B":
     aliases: ["alpha"]
     cmd: >
-      /usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --
+      /usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --
       ${server} -m /models/alpha.gguf
       --ctx-size 4096
     ttl: 300
   "Beta 9B":
     cmd: |
-      /usr/bin/berth run --as 'Beta 9B' --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Beta%209B --
+      /usr/bin/berth run --as 'Beta 9B' --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Beta%209B --drain-slots http://127.0.0.1:9090/upstream/Beta%209B --
       ${server} -m /models/beta.gguf
   "Gamma":
     proxy: http://127.0.0.1:8000
@@ -129,7 +129,7 @@ func TestLlamaSwapUpdateRealignsFlags(t *testing.T) {
 	// A hand-wrapped line with different flags: without Update it counts as
 	// wired and stays; with Update it is rewritten to the requested flags.
 	in := strings.Replace(fixtureWired,
-		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --",
+		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --",
 		"/opt/old/berth run --as Alpha-7B --priority interactive --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --", 1)
 	o := options()
 
@@ -208,7 +208,7 @@ func TestLlamaSwapKeepsCRLF(t *testing.T) {
 	if strings.Contains(out, "\n\n") || strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\r") {
 		t.Errorf("mixed line endings after edit:\n%q", out)
 	}
-	if !strings.Contains(out, "--drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --\r\n") {
+	if !strings.Contains(out, "--drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --\r\n") {
 		t.Error("inserted line does not carry the file's CRLF ending")
 	}
 	r2, err := LlamaSwap(writeTemp(t, out), options())

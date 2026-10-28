@@ -30,7 +30,7 @@ func runRun(c *Context) int {
 	needs := fs.Uint64("needs-mib", 0, "memory this engine needs; 0 = the whole card")
 	wait := fs.Duration("wait", 0, "how long to wait for a berth; 0 = berthd's default; negative = no deadline")
 	drainPost := fs.String("drain-post", "", "URL to POST when asked to drain, before signalling (e.g. llama-swap's unload)")
-	drainSlots := fs.String("drain-slots", "", "engine base URL whose /slots must show idle before a drain stops it (an engine with no unload URL, e.g. Strata)")
+	drainSlots := fs.String("drain-slots", "", "engine base URL whose /slots must show idle before a drain unloads or stops it (Strata, or a llama-swap model's /upstream/<model>)")
 	drainComfy := fs.String("drain-comfyui", "", "ComfyUI base URL: on drain, wait until its queue is empty before stopping it (never cuts a job off)")
 	keepComfy := fs.Bool("keep-comfyui-up", false, "with --drain-comfyui: unload its models via POST /free and leave the server up instead of stopping it")
 	drainMax := fs.Duration("drain-max", 0, "how long a drain may wait at a boundary (a busy slot, a running ComfyUI job) before it stops the engine, or refuses with --fail-closed; 0 = unbounded except fail-closed safety checks")

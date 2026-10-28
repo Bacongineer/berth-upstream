@@ -45,14 +45,16 @@ berth wire llama-swap --config /etc/llama-swap/config.yaml --check  # exit 1 whe
 It keeps a backup beside the file and stays re-runnable when the roster changes; point `--api`
 at llama-swap's base URL when it listens elsewhere than `http://127.0.0.1:9090`. Under the
 hood each model's `cmd` gains one wrapper line, and llama-swap's own unload URL is the drain so
-llama-swap's state stays consistent:
+llama-swap's state stays consistent. The unload waits until the model's `/slots`, which llama-swap
+serves under `/upstream/<model>`, show no request in flight:
 
 ```yaml
 models:
   "qwen3-30b":
     cmd: >
       berth run --as qwen3-30b --group llama-swap --priority foreground
-      --drain-post http://127.0.0.1:8080/api/models/unload/qwen3-30b --
+      --drain-post http://127.0.0.1:8080/api/models/unload/qwen3-30b
+      --drain-slots http://127.0.0.1:8080/upstream/qwen3-30b --
       llama-server --port ${PORT} -m /models/qwen3-30b.gguf --metrics
 ```
 
