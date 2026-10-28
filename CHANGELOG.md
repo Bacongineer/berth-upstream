@@ -95,6 +95,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- `berth run --as NAME` with no command runs the `start` of NAME's entry in `berth.toml`, as the gateway does, so
+  a configured engine no longer needs its command typed again. An entry matched only through `--group` never lends
+  its `start`, because that is the group's engine (llama-swap), not this one. azrael-229 asked for it (#232).
 - `[squatters] allow` in `berth.toml` lists process names that are never squatters, as `berth daemon --allow`
   does. A unit or scheduled task from `berth service install` had no way to pass `--allow`, so on a desktop a
   browser or a terminal kept the card from ever being free and background engines never started. The flag still

@@ -70,7 +70,8 @@ names the whole set on the lease, so a second CUDA container of the same project
 memory rather than a stowaway, and a container that restarts under a new ID is picked up on the
 next poll. A drain stops the project with `compose stop`, never `down`: `down` deletes containers
 and networks you own. Your start command stays your own, and `docker compose -f PATH up` suits it:
-it stays in the foreground while the project runs and exits after the stop.
+it stays in the foreground while the project runs and exits after the stop. Put it in the entry's `start`, and
+`berth run --as NAME` with no command after it runs that `start`, as the gateway does.
 
 On a machine with more than one card, `gpu = "gpu1"` on the entry (or `berth run --gpu gpu1`) puts the
 lease on that card, and `gpu = "gpu0,gpu1"` holds one lease across both. `berth run` sets `CUDA_VISIBLE_DEVICES` for the command it starts, which is the
