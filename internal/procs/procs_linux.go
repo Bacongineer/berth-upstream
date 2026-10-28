@@ -41,18 +41,17 @@ func List() []Proc {
 		return nil
 	}
 	ps := make([]Proc, 0, len(entries))
+	buf := make([]byte, 0, 512)
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue
 		}
-		name, f := statFields(pid)
-		if len(f) < 20 {
-			continue
+		var p Proc
+		var ok bool
+		if p, buf, ok = ReadStat(pid, buf); ok {
+			ps = append(ps, p)
 		}
-		ppid, _ := strconv.Atoi(f[1])
-		start, _ := strconv.ParseUint(f[19], 10, 64)
-		ps = append(ps, Proc{PID: pid, Parent: ppid, Start: start, Name: name})
 	}
 	return ps
 }

@@ -22,7 +22,7 @@ lease the card instead of grabbing it, so two of them never load at once and cra
 with an out-of-memory error. One Go binary, no cloud account, nothing else to install.
 
 ```sh
-berth daemon &                                        # one broker per card
+berth daemon &                                        # one broker for every card
 berth run --as llama -- llama-server -m model.gguf    # this engine now takes turns
 berth status                                          # who holds the card, who waits, and why
 ```
@@ -209,8 +209,7 @@ sits reserved while another is awaited. `CUDA_VISIBLE_DEVICES` lists each card's
 on any of the cards stops the engine, and its exit frees every card. A lease on several cards cannot park or lend
 yet: a drain stops it the usual way.
 
-Planned for v0.4 as preview tags: one gateway for every card, and then "any card that fits". Until then the
-gateway's cold-start check reads the first card.
+The gateway judges each engine against the cards it runs on. "Any card that fits" is not built yet.
 
 ## Quick start
 
@@ -289,7 +288,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | Windows 10/11 + NVIDIA | Experimental: leases, process attribution, job-object drains and game claims work, and the test suite runs on Windows in CI. Per-process VRAM comes from the GPU Process Memory counter (Task Manager's source), which also lists graphics apps and games nvidia-smi omits; host RAM and the page file come from GlobalMemoryStatusEx, and root space from GetDiskFreeSpaceEx. `berth service install` sets the node up as logon tasks; still no packaged installer and no locked-down control pipe. `contrib/windows/check.ps1` compares Berth's per-process VRAM with Task Manager's and writes a report for the drain report form. |
 | AMD on Linux | Experimental: discrete RDNA3/RDNA4 and Phoenix APUs through amdgpu sysfs/DRM. W7900 and 780M bounded allocation/handoff validated; RDNA4 fixture-tested, hardware validation pending. APU leases are exclusive, with independent UMA/GTT accounting and host-RAM admission checks. [Scope and checks](contrib/amd/README.md). |
 | Intel, Apple | Not supported yet |
-| Multiple GPUs | Experimental: one berthd governs every card, and `berth run --gpu` puts an engine on one. One card can be passed through to a VM while the other keeps serving ([two NVIDIA cards](docs/vfio.md#two-nvidia-cards)). One lease across two cards is planned for v0.4. |
+| Multiple GPUs | Experimental: one berthd governs every card, and `berth run --gpu` puts an engine on one. One card can be passed through to a VM while the other keeps serving ([two NVIDIA cards](docs/vfio.md#two-nvidia-cards)). One lease across several cards works with `--gpu gpu0,gpu1`. |
 
 ## Tested hardware
 
