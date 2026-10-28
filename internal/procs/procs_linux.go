@@ -60,7 +60,9 @@ func List() []Proc {
 // Container is the container id that owns pid, from an actual
 // /proc/<pid>/cgroup: docker runs its engine images in a docker-<64hex>.scope
 // (v2) or a /docker/<64hex> directory (v1), podman in a libpod-<64hex>.scope,
-// containerd/CRI in a cri-containerd-<64hex>.scope. A host process reads "".
+// containerd/CRI in a cri-containerd-<64hex>.scope, and Proxmox runs an LXC
+// container's processes under /lxc/<vmid>/, read as lxc:<vmid>. A host
+// process reads "".
 func Container(pid int) (string, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
 	if err != nil {

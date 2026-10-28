@@ -151,6 +151,47 @@ func TestContainerStowawayIsNamed(t *testing.T) {
 	}
 }
 
+// A process in a Proxmox LXC is a stowaway named by its container. No lease
+// holds an lxc: id (berth run resolves its containers through docker or
+// podman), so a container lease on the card never claims it.
+func TestLXCProcessIsANamedStowaway(t *testing.T) {
+	b, c, _ := setup(t, procs.Map{})
+	b.cfg.Containers = func(pid int) (string, bool) {
+		if pid == 9 {
+			return "lxc:101", true
+		}
+		return "", false
+	}
+	b.cfg.ContainerName = func(id string) string {
+		if id == "lxc:101" {
+			return "ollama"
+		}
+		return ""
+	}
+
+	l := must(t, acquire(b, Request{Engine: "vllm", Containers: []string{"vllm"}, Needs: 8 * GiB}))
+	l.AttachContainers([]string{vllmID})
+	c.set(gpu.Proc{PID: 9, Name: "ollama", Used: 2 * GiB})
+	b.Tick(context.Background())
+	for i := 0; i < 100; i++ {
+		if st := b.Status(); len(st.Squatters) == 1 && st.Squatters[0].ContainerName != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	st := b.Status()
+	if len(st.Squatters) != 1 {
+		t.Fatalf("squatters = %+v, want the LXC process", st.Squatters)
+	}
+	if st.Squatters[0].Container != "lxc:101" || st.Squatters[0].ContainerName != "ollama" {
+		t.Fatalf("squatter = %+v, want lxc:101 named ollama", st.Squatters[0])
+	}
+	if len(st.Leases) != 1 || slices.Contains(st.Leases[0].GPUPIDs, 9) {
+		t.Fatalf("leases = %+v, want the LXC process outside the container lease", st.Leases)
+	}
+}
+
 // A host lease keeps behaving without a container: the fake lookup answers
 // nothing and attribution runs through the tree as before.
 func TestHostProcessNeedsNoContainer(t *testing.T) {
