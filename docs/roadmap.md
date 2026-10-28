@@ -12,7 +12,7 @@
 | P5.5 | Harbor router: one URL serves models from any node in the fleet | Planned |
 | P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (**done**); Windows node (**experimental**) | Partly done |
 | P7 | Offers: a waiting request can offer for an idle card on another machine; the holder decides | Planned |
-| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Started: one berthd per card, named by PCI address (experimental) |
+| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Started: one berthd for every card, an engine on one card or a lease on several (experimental) |
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
@@ -87,7 +87,8 @@ Not started, and in no release yet: `berth fit` and scenes, so engines that fit 
 |---|---|
 | v0.4 | Broader AMD Linux hardware validation beyond the experimental RDNA3/RDNA4 probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
 | v0.4 | Proxmox in every common layout. Berth detects whether it runs on a Proxmox host, in an LXC container or in a VM and says where it belongs (`berth env`). Engines in LXC containers lease the host's card and show by container, and a system service covers hosts without a user session |
-| v0.4 | Multi-GPU in one berthd, first as v0.4.0-rc preview tags. One daemon and one gateway for every card on the machine, cards named `gpu0` and `gpu1` or a name you pick, an engine pinned to one card or holding two under one lease, and one card in a VM while the rest serve. Then "any card that fits" |
+| v0.4 | Multi-GPU in one berthd, first as v0.4.0-rc preview tags. One daemon and one gateway for every card on the machine, cards named `gpu0` and `gpu1`, an engine pinned to one card or holding several under one lease, and one card in a VM while the rest serve |
+| later | Cards you name yourself, and "any card that fits" placement |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 

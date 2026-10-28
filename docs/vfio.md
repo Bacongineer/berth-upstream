@@ -105,7 +105,7 @@ opens both cards, and `berth vfio run` names it as a holder.
 
 One gap remains. The other card's berthd runs `nvidia-smi` over both cards, and that can open the card
 being switched for a moment. If the unbind in your script hangs, stop the other berthd in `--before`
-and start it again in `--after`. One berthd for every card is planned for v0.4 and removes the second
+and start it again in `--after`. One berthd for every card (`--gpu all`) needs no second
 daemon.
 
 ## Examples to adapt

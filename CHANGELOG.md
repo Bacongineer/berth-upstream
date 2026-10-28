@@ -21,9 +21,21 @@ has a matching GitHub release whose body comes from its section below.
   machine with one card nothing changes. On a machine with several, berthd now also watches the other cards, and
   a GPU process there without a lease shows as a stowaway on its card. Name an engine's card with `--gpu`, or keep
   the old behavior with `berth daemon --gpu 0`. A unit installed earlier keeps the `--gpu` it was written with.
+- `berth daemon --help` and the service unit description now say berthd governs every card, not one.
 
 ### Fixed
 
+- On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
+  and `berth service install` over an existing install stops each task before it starts it again. A second
+  `berth update` no longer fails when the previous `.old` binary is still running.
+- On Windows, closing the console window or logging off now drains `berth run` and releases its lease, where it
+  died with no drain. A finished engine no longer leaks its job handle, a stale job entry can no longer stop a
+  later kill from reaching the process, and `berth gateway` starts each run in its own process group, so Ctrl-C
+  in the gateway's console no longer drains engines the gateway meant to leave running.
+- On a machine with several cards, one card passed through to a VM no longer reads as every card in a VM. Background
+  engines and queued ComfyUI jobs on the other cards start again, the harbor marks only that card, and `berth
+  status` prints the VM line for that card only. Each GPU in the status now carries its own `passthrough`; the
+  status-wide field is set only while every scheduled card is in a VM.
 - `berth wire llama-swap --write --update` keeps the flags you added to a model's line by hand, such as
   `--needs-mib 14000` or `--wait 700s`, and rewrites only the flags wire writes. It replaced the whole line and
   dropped them without a word (#231).
