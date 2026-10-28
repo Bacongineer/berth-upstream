@@ -20,6 +20,9 @@ has a matching GitHub release whose body comes from its section below.
   starting. A queued ComfyUI job checked every card the same way. The engine page and the board listed every card's
   holders under each card, and the board now names each card (`card`). An engine's card is the one its `gpu` names,
   or the first card when it names none.
+- `berth events` names the card on each line when berthd governs more than one, as `berth status` does with its
+  CARD column. A lease across several cards printed the same line once per card, with no way to tell them apart.
+  On a machine with one card the lines are unchanged. `--format json` carries the card on every event.
 - `berth run --gpu` takes a card's PCI address when berthd picked its cards by index, as `--gpu all` (the
   default) and `--gpu 3` do. berthd recorded an address only for a card it was told to govern by address, so
   `--gpu 0000:09:00.0` was refused with "no card 0000:09:00.0 on this node". TacoTakumi found it on rc.4 (#189).

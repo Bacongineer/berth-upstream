@@ -34,6 +34,7 @@ func runEvents(c *Context) int {
 	}
 
 	stream := c.Stream()
+	named := !c.Machine() && nodeCards(*sock) > 1
 	for {
 		m, err := conn.Recv()
 		if err != nil {
@@ -53,17 +54,43 @@ func runEvents(c *Context) int {
 			}
 			continue
 		}
-		c.Printf("%s\n", eventLine(c, *e))
+		c.Printf("%s\n", eventLine(c, *e, named))
 	}
 }
 
+// nodeCards is how many cards the berthd on sock schedules, 0 when it does
+// not answer.
+func nodeCards(sock string) int {
+	conn, raw, err := server.Dial(sock)
+	if err != nil {
+		return 0
+	}
+	defer raw.Close()
+	if conn.Send(proto.Msg{Op: proto.OpStatus}) != nil {
+		return 0
+	}
+	m, err := conn.Recv()
+	if err != nil || m.Status == nil {
+		return 0
+	}
+	return scheduledCards(m.Status)
+}
+
 // eventLine is one event in the human format: the sequence number, the time,
-// the kind, then whoever and whatever it names. Verbose labels every field, so
-// the line can be read without the column layout.
-func eventLine(c *Context, e proto.Event) string {
+// the kind, the card when named is set, then whoever and whatever it names.
+// Verbose labels every field, so the line can be read without the column
+// layout.
+func eventLine(c *Context, e proto.Event, named bool) string {
 	var b strings.Builder
+	card := ""
+	if named {
+		card = e.Card
+	}
 	if c.Verbose {
 		fmt.Fprintf(&b, "at=%s seq=%d kind=%s", e.At.Local().Format(time.RFC3339), e.Seq, e.Kind)
+		if card != "" {
+			fmt.Fprintf(&b, " card=%s", card)
+		}
 		if e.Lease != "" {
 			fmt.Fprintf(&b, " lease=%s", e.Lease)
 		}
@@ -83,6 +110,9 @@ func eventLine(c *Context, e proto.Event) string {
 	}
 	fmt.Fprintf(&b, "%6d  %s  %s", e.Seq, c.Style.Dim(e.At.Local().Format("15:04:05.000")),
 		eventKind(c, fmt.Sprintf("%-18s", e.Kind)))
+	if card != "" {
+		b.WriteString("  " + card)
+	}
 	if e.Engine != "" {
 		b.WriteString("  " + e.Engine)
 	}

@@ -195,7 +195,7 @@ type PairedDevice struct {
 type Event struct {
 	Seq    uint64    `json:"seq"`
 	At     time.Time `json:"at"`
-	Card   string    `json:"card,omitempty"` // the card it happened on, on a node with more than one
+	Card   string    `json:"card,omitempty"` // the card it happened on
 	Kind   string    `json:"kind"`
 	Lease  string    `json:"lease,omitempty"`
 	Engine string    `json:"engine,omitempty"`
