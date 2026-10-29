@@ -144,3 +144,40 @@ func TestSwitchWinsAJuggleTheOrderWouldLose(t *testing.T) {
 		t.Fatalf("juggles stopped = %d, want the switch to win outright", c.JugglesStopped)
 	}
 }
+
+// A request starts strata, and its queued lease loses the juggle to
+// llama-swap. A person's switch then reaches that lease and wins the card,
+// where it waited for llama-swap to let go.
+func TestSwitchReachesAStartThatLostAJuggle(t *testing.T) {
+	sock, b := daemonWith(t, broker.Config{Order: []string{"llama-swap", "strata"}, JuggleWindow: time.Minute})
+	holderOut := &syncBuf{}
+	go func() {
+		runner.Run(runner.Options{Socket: sock, Engine: "llama-swap", Priority: "foreground",
+			Grace: 200 * time.Millisecond, Argv: []string{"sleep", "30"}, Stderr: holderOut})
+	}()
+	until(t, "llama-swap to hold the card", func() bool { return strings.Contains(holderOut.String(), "granted") })
+
+	addr := freeAddr(t)
+	t.Setenv("BERTH_GW_ENGINE", addr+",strata-model,300ms")
+	g := &Gateway{Socket: sock, Ready: 10 * time.Second, Key: testKey, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Engines: []config.Engine{{Name: "strata", Type: "llamacpp", URL: "http://" + addr, Start: []string{os.Args[0]},
+			Serves: []string{"strata-model"}, Priority: "foreground"}}}
+	srv := httptest.NewServer(g.Handler())
+	defer srv.Close()
+
+	go func() {
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions", strings.NewReader(`{"model":"strata-model","messages":[]}`))
+		req.Header.Set("Authorization", "Bearer "+testKey)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	until(t, "the request's start to lose the juggle", func() bool { return b.Status().Counters.JugglesStopped == 1 })
+
+	resp := call(t, "POST", srv.URL+"/v1/berth/switch", `{"engine":"strata"}`)
+	resp.Body.Close()
+	until(t, "strata to hold the card", func() bool {
+		st := b.Status()
+		return len(st.Leases) == 1 && st.Leases[0].Engine == "strata" && st.Leases[0].State == "active"
+	})
+}

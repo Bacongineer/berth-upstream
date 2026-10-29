@@ -33,12 +33,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
-- The harbor keeps llama-swap's requests after llama-swap restarts. llama-swap numbers its requests from 1 again,
-  and the harbor ignored each new request whose number it had stored before, so its history, token ledger and
-  leaderboard stopped at the restart. A request's ID now carries its time.
-- Strata's requests now reach the token ledger and the leaderboard, each under the model the engine's `/health`
-  names, so two Strata engines serving two quants get two rows on whatever port they run. Only llama-swap's
-  requests were counted before. A Strata entry needs `type = "strata"`, because the `llamacpp` reader names no model.
+- A switch from the wake page or `/v1/berth/switch` now wins the card when a request already started that engine
+  and its lease lost a juggle. The switch did nothing, and the engine waited until the holder let go (300 s for a
+  llama-swap model with ttl 300).
 - A checkpoint-parked engine (`berth run --park checkpoint`) now dies when it is stopped. Its CUDA calls block while
   it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
   the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,

@@ -26,3 +26,13 @@ func resume(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 	}
 }
+
+// switched answers OpSwitch: the engine's queued lease is now a person's
+// switch.
+func switched(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
+	if err := n.Switch(req.Engine); err != nil {
+		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
+		return
+	}
+	reply(conn, log, proto.Msg{Op: proto.OpGranted, Engine: req.Engine, Reason: "switched"})
+}
