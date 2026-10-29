@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/T-Crypt/berth/internal/park"
 )
 
 // startStubborn starts an engine that swallows SIGTERM across the group:
@@ -78,5 +80,56 @@ func TestChaosScenario2IgnoresTerm(t *testing.T) {
 
 	if err := bystander.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Fatalf("the bystander did not survive the drain: %v; log:\n%s", err, &logs)
+	}
+}
+
+// A checkpointed engine's CUDA calls block until a restore, so its own
+// SIGTERM shutdown never finishes; the stubborn engine stands in for it.
+// llama-swap's unload or ttl sends the wrapper SIGTERM and SIGKILLs it a
+// few seconds later, so the forwarded stop has to end the engine at once
+// or it outlives its lease holding its weights in RAM.
+func TestStopSignalKillsCheckpointedEngine(t *testing.T) {
+	hog, died := startStubborn(t)
+	done := make(chan struct{})
+	defer close(done)
+	go forwardSignals(hog, done, func() bool { return true })
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-died:
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			t.Fatalf("exit error = %v", err)
+		}
+		ws, ok := ee.Sys().(syscall.WaitStatus)
+		if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
+			t.Fatalf("the parked engine exited on %v, want SIGKILL", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the parked engine outlived the stop signal")
+	}
+}
+
+// berth stop or an eviction of a checkpointed engine kills it at once
+// rather than sending a SIGTERM it cannot act on and waiting out the grace.
+func TestDrainKillsParkedCheckpointedEngine(t *testing.T) {
+	hog, died := startStubborn(t)
+	line := newLine(nil)
+	line.parked = true
+	o := Options{Engine: "hog", Grace: 5 * time.Second, Checkpoint: true, Park: &park.Adapter{}}
+	var logs strings.Builder
+	start := time.Now()
+	drain(o, hog, line, make(chan struct{}), "berth stop", sayTo(&logs))
+
+	select {
+	case <-died:
+		if took := time.Since(start); took > time.Second {
+			t.Fatalf("the parked engine took %v to die, want no grace; log:\n%s", took, &logs)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the parked engine outlived its drain; log:\n%s", &logs)
 	}
 }
