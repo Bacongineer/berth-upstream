@@ -876,6 +876,10 @@ func (g *Gateway) ensure(ctx context.Context, e *config.Engine, switched bool) e
 			go g.kvWarm(e, ready)
 		}
 		go g.run(e, s, ready, switched)
+	} else if switched {
+		// A start no person asked for is already queued, and may have
+		// lost a juggle: the person's switch goes to its lease.
+		g.switchQueued(e)
 	}
 
 	deadline := time.Now().Add(ready)

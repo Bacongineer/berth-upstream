@@ -25,6 +25,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A switch from the wake page or `/v1/berth/switch` now wins the card when a request already started that engine
+  and its lease lost a juggle. The switch did nothing, and the engine waited until the holder let go (300 s for a
+  llama-swap model with ttl 300).
 - A checkpoint-parked engine (`berth run --park checkpoint`) now dies when it is stopped. Its CUDA calls block while
   it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
   the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,
