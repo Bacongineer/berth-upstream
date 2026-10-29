@@ -33,6 +33,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- Strata's requests now reach the token ledger and the leaderboard, each under the model the engine's `/health`
+  names, so two Strata engines serving two quants get two rows on whatever port they run. Only llama-swap's
+  requests were counted before. A Strata entry needs `type = "strata"`, because the `llamacpp` reader names no model.
 - A checkpoint-parked engine (`berth run --park checkpoint`) now dies when it is stopped. Its CUDA calls block while
   it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
   the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,
