@@ -85,10 +85,10 @@ func (s state) String() string {
 // Reporter hears about squatters (GPU processes no lease accounts for)
 // and alert-level crossings; it only ever reports, never touches a process.
 type Reporter interface {
-	Squatter(appeared bool, p gpu.Proc)
+	Squatter(appeared bool, card string, p gpu.Proc)
 	// Alert hears a threshold or danger level crossing (warn/crit) from
 	// the alert evaluator; like Squatter it only ever reports.
-	Alert(level, key, message string)
+	Alert(level, key, message, card string)
 }
 
 type Config struct {
@@ -221,6 +221,10 @@ type Request struct {
 	// lend = "hook"), so this lease is asked to give part of the card to a
 	// sized waiter that does not fit, instead of being drained for one.
 	Lend bool
+	// WholeMachine: the engine needs the machine to itself (its entry says
+	// whole_machine = true). Nothing parks while it waits, and it is never
+	// granted beside a parked engine.
+	WholeMachine bool
 	// LendID and LentBytes: a re-attach of a holder the last daemon had
 	// confirmed a lend for. The lease comes back `lent` with that ticket
 	// and those bytes, counting its budget less the lend until the card
@@ -336,6 +340,8 @@ type lease struct {
 	// lendCap is the run's declaration that its engine has lend calls
 	// (Request.Lend); the broker never asks a lease that did not declare it.
 	lendCap bool
+	// wholeMachine is Request.WholeMachine.
+	wholeMachine bool
 
 	grantCh  chan struct{}
 	resumeCh chan struct{}
@@ -392,25 +398,26 @@ func (l *lease) turnWhy(now time.Time) string {
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
 	return &lease{
-		id:        id,
-		engine:    r.Engine,
-		group:     r.Group,
-		prio:      r.Priority,
-		needs:     r.Needs,
-		pinned:    r.Pinned,
-		switched:  r.Switched,
-		minTurn:   r.MinTurn,
-		parkTTL:   r.ParkTTL,
-		lendCap:   r.Lend,
-		gpu:       map[ident]gpu.Proc{},
-		desc:      map[ident]struct{}{},
-		arrived:   now,
-		grantCh:   make(chan struct{}),
-		resumeCh:  make(chan struct{}, 1),
-		drainCh:   make(chan string, 1),
-		waitCh:    make(chan string, 8),
-		lendSig:   make(chan struct{}, 1),
-		returnSig: make(chan struct{}, 1),
+		id:           id,
+		engine:       r.Engine,
+		group:        r.Group,
+		prio:         r.Priority,
+		needs:        r.Needs,
+		pinned:       r.Pinned,
+		switched:     r.Switched,
+		minTurn:      r.MinTurn,
+		parkTTL:      r.ParkTTL,
+		lendCap:      r.Lend,
+		wholeMachine: r.WholeMachine,
+		gpu:          map[ident]gpu.Proc{},
+		desc:         map[ident]struct{}{},
+		arrived:      now,
+		grantCh:      make(chan struct{}),
+		resumeCh:     make(chan struct{}, 1),
+		drainCh:      make(chan string, 1),
+		waitCh:       make(chan string, 8),
+		lendSig:      make(chan struct{}, 1),
+		returnSig:    make(chan struct{}, 1),
 	}
 }
 
@@ -862,7 +869,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		b.counters.SquattersCaught++
 		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: detail})
 		if b.cfg.Reporter != nil {
-			b.cfg.Reporter.Squatter(true, p)
+			b.cfg.Reporter.Squatter(true, b.cfg.Card, p)
 		}
 	}
 	for id, s := range b.squatters {
@@ -950,7 +957,7 @@ func (b *Broker) reportGone(s *squatter) {
 	b.log.Info("squatter gone", "pid", s.proc.PID, "name", s.proc.Name)
 	b.emit(proto.Event{Kind: proto.EvSquatterGone, PID: s.proc.PID, Bytes: s.proc.Used, Detail: s.proc.Name})
 	if b.cfg.Reporter != nil {
-		b.cfg.Reporter.Squatter(false, s.proc)
+		b.cfg.Reporter.Squatter(false, b.cfg.Card, s.proc)
 	}
 }
 
@@ -1429,12 +1436,13 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		// A parked engine's residual is small enough to build a load
 		// beside: when the parked leases together keep no more than
 		// ParkResidualMax on the card, the whole card is granted beside
-		// them, and the grant event names what it sits next to.
+		// them, and the grant event names what it sits next to. A
+		// whole-machine waiter evicts them all instead.
 		var residual uint64
 		for _, p := range warm {
 			residual += p.used()
 		}
-		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax {
+		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax && !w.wholeMachine {
 			w.beside = besideLine(warm, residual)
 			return true, "", nil
 		}
@@ -1444,7 +1452,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 			var victims []*lease
 			var evicted uint64
 			for _, p := range sortParked(warm) {
-				if residual-evicted <= b.cfg.ParkResidualMax {
+				if residual-evicted <= b.cfg.ParkResidualMax && !w.wholeMachine {
 					break
 				}
 				victims = append(victims, p)

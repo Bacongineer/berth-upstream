@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -735,10 +736,47 @@ func (w *Watcher) strata(ctx context.Context, base, keyEnv string, out *proto.En
 			PromptMS     float64 `json:"prompt_ms"`
 			DecodeMS     float64 `json:"decode_ms"`
 		} `json:"totals"`
+		Requests []struct {
+			Time           float64 `json:"time"`
+			DurationS      float64 `json:"duration_s"`
+			Finish         string  `json:"finish"`
+			PromptTokens   float64 `json:"prompt_tokens"`
+			Reused         float64 `json:"reused"`
+			OutputTokens   float64 `json:"output_tokens"`
+			PromptMS       float64 `json:"prompt_ms"`
+			DecodeTokS     float64 `json:"decode_tok_s"`
+			DraftsOffered  float64 `json:"drafts_offered"`
+			DraftsAccepted float64 `json:"drafts_accepted"`
+		} `json:"requests"`
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil
 	}
+	// Strata keeps its last requests in /metrics. Each becomes a row of the
+	// request log under the model /health names, so the ledger and the
+	// leaderboard tell two Strata quants apart on any port.
+	rows := make([]proto.Request, 0, len(m.Requests))
+	for _, q := range m.Requests {
+		status := http.StatusOK
+		switch q.Finish {
+		case "cancel":
+			status = 499
+		case "error":
+			status = http.StatusInternalServerError
+		}
+		r := proto.Request{
+			ID: out.Name + "/" + strconv.FormatFloat(q.Time, 'f', 6, 64), Engine: out.Name, Model: h.Model,
+			T: time.UnixMicro(int64(math.Round(q.Time * 1e6))), Status: status,
+			Prompt: q.PromptTokens, Cache: q.Reused, Output: q.OutputTokens,
+			Draft: q.DraftsOffered, DraftAcc: q.DraftsAccepted,
+			DecodeTPS: q.DecodeTokS, DurationMS: q.DurationS * 1000, PrefillMS: q.PromptMS,
+		}
+		if fresh := q.PromptTokens - q.Reused; fresh > 0 && q.PromptMS > 0 {
+			r.PrefillTPS = fresh / (q.PromptMS / 1000)
+		}
+		rows = append(rows, r)
+	}
+	w.record(rows)
 	out.MetricsReported = true
 	switch {
 	case m.Live.Running != nil:

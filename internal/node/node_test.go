@@ -42,8 +42,8 @@ func (c *card) Read(context.Context) (gpu.Snapshot, error) {
 
 type quiet struct{}
 
-func (quiet) Squatter(bool, gpu.Proc)      {}
-func (quiet) Alert(string, string, string) {}
+func (quiet) Squatter(bool, string, gpu.Proc)      {}
+func (quiet) Alert(string, string, string, string) {}
 
 // twoCards is a node over gpu0 (0000:01:00.0) and gpu1 (0000:02:00.0), 24 GiB
 // each, with the shared event log, lease counter and parking ledger.
@@ -305,6 +305,26 @@ func TestViewIsTheCardsAKeyNames(t *testing.T) {
 	}
 	if len(st.Leases) != 2 || len(st.Squatters) != 1 {
 		t.Errorf("View changed the status it read: %+v", st)
+	}
+}
+
+// A card that cannot be read is that card's problem. A view of another
+// card reads clean, so the gateway still starts engines there; a view of
+// the failing card, or of the whole machine, names it.
+func TestProbeErrorIsPerCard(t *testing.T) {
+	gpu0 := proto.Status{GPUs: []proto.GPU{{Index: 0, Scheduled: true}}}
+	gpu1 := proto.Status{GPUs: []proto.GPU{{Index: 1, Scheduled: true}}, ProbeErr: "unable to determine the device handle"}
+	named(&gpu0, &Card{Name: "gpu0"})
+	named(&gpu1, &Card{Name: "gpu1"})
+	st := &proto.Status{GPUs: []proto.GPU{gpu0.GPUs[0], gpu1.GPUs[0]}, ProbeErr: "gpu1: unable to determine the device handle"}
+	for key, want := range map[string]string{
+		"gpu0":      "",
+		"gpu1":      "gpu1: unable to determine the device handle",
+		"gpu0,gpu1": "gpu1: unable to determine the device handle",
+	} {
+		if got := View(st, key).ProbeErr; got != want {
+			t.Errorf("%q: probe error %q, want %q", key, got, want)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/insights"
@@ -57,27 +58,17 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 	if err := json.Unmarshal(b, &r); err != nil {
 		return fmt.Errorf("/api/metrics/activity: %w", err)
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.seen == nil {
-		w.seen = map[string]bool{}
-		w.since = time.Now()
-	}
-	added := false
+	var rows []proto.Request
 	for _, d := range r.Data {
-		id := engine + "/" + d.ID.String()
-		if w.seen[id] {
-			continue
-		}
-		added = true
-		w.seen[id] = true
 		// llama-swap's input_tokens is the uncached part of the prompt, and
 		// -1 means the engine did not report that figure: it reads as 0 here
 		// and is left out of every average.
 		k := func(v float64) float64 { return max(v, 0) }
 		t := d.Tokens
+		// The number restarts at 1 with llama-swap, so the request's own
+		// time makes the ID one the harbor has never stored.
 		q := proto.Request{
-			ID: id, Engine: engine, Model: d.Model, T: d.Timestamp, Status: d.Status,
+			ID: engine + "/" + d.ID.String() + "@" + strconv.FormatInt(d.Timestamp.Unix(), 10), Engine: engine, Model: d.Model, T: d.Timestamp, Status: d.Status,
 			Prompt: k(t.Input) + k(t.Cache), Cache: k(t.Cache), Output: k(t.Output),
 			Draft: k(t.Draft), DraftAcc: k(t.DraftAcc),
 			PrefillTPS: k(t.Prefill), DecodeTPS: k(t.Decode), DurationMS: k(d.DurationMS),
@@ -85,6 +76,28 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 		if fresh := k(t.Input); fresh > 0 && q.PrefillTPS > 0 {
 			q.PrefillMS = 1000 * fresh / q.PrefillTPS
 		}
+		rows = append(rows, q)
+	}
+	w.record(rows)
+	return nil
+}
+
+// record adds an engine's request rows the log has not seen, keeps the log
+// in time order, and drops what is past 24 h or the cap.
+func (w *Watcher) record(rows []proto.Request) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.seen == nil {
+		w.seen = map[string]bool{}
+		w.since = time.Now()
+	}
+	added := false
+	for _, q := range rows {
+		if w.seen[q.ID] {
+			continue
+		}
+		added = true
+		w.seen[q.ID] = true
 		w.reqs = append(w.reqs, q)
 	}
 	if added {
@@ -98,7 +111,6 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 		i++
 	}
 	w.reqs = w.reqs[i:]
-	return nil
 }
 
 // Insights computes the KPIs, ledger and leaderboard at now. The math is

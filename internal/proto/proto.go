@@ -117,6 +117,9 @@ type Msg struct {
 	// lend = "hook"): OpAcquire and OpReattach declare it, and the broker
 	// never asks a lease that did not.
 	Lend bool `json:"lend,omitempty"`
+	// WholeMachine marks a run whose engine needs the machine to itself
+	// (its entry says whole_machine = true). OpAcquire and OpReattach.
+	WholeMachine bool `json:"whole_machine,omitempty"`
 	// Switched marks a person's switch (the wake page's Launch,
 	// /v1/berth/switch): it wins a juggle. OpAcquire and OpResume.
 	Switched bool `json:"switched,omitempty"`
@@ -410,6 +413,8 @@ type GPU struct {
 	GTTTotal    uint64 `json:"gtt_total,omitempty"`
 	GTTUsed     uint64 `json:"gtt_used,omitempty"`
 	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
+	// ProbeErr is this card's last probe failure, "" while it reads.
+	ProbeErr string `json:"probe_error,omitempty"`
 	// Passthrough is this card's VM state while it does not serve; nil
 	// when the card is normal.
 	Passthrough *Passthrough `json:"passthrough,omitempty"`

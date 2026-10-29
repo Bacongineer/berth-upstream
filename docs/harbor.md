@@ -107,7 +107,9 @@ for a phone.
   -f`, the harbor log); a level stays until the value stays clear for `clear_polls`
   samples (default 3). GPU probe failure and aground leases are built-in danger alerts,
   always on. Default posture: no `[alerts]` table means no KPI alerts, and the
-  notification channels are separately opt-in (`--notify`, `--webhook`). The harbor
+  notification channels are separately opt-in (`--notify`, `--webhook`). The webhook JSON
+  carries `event`, `host` and a `card` field naming the card where one is known (a
+  squatter's card, the card a temp, power or vram alert read). The harbor
   colors the same state the node notifies on: KPI tiles and GPU cells, a strip of the
   currently-breaching keys, and an overall LIVE / DEGRADED / OFFLINE state beside the
   connection pill.
@@ -115,7 +117,8 @@ for a phone.
   worth a look on your desktop, without the harbor open. The default level, `error`, shows
   refused requests, memory that never came back, stowaways, an engine that exited under its
   lease, a refused park and a parked engine loaded behind Berth's back. `level = "info"`
-  adds every switch, drain, park, resume and VM handoff. A burst of one event shows once.
+  adds every switch, drain, park, resume and VM handoff. A burst of one event shows once. On a machine with several cards the title leads with
+  the card (`gpu1: GPU passed to a VM`) and each card's events are gated apart.
   Set it in `berth.toml` (`[notify] enabled = false` turns it off) or with `--level`.
   `berth service install --notify` runs it as a user unit. It is Linux only for now and
   uses `notify-send`, so any desktop or notification daemon shows it.

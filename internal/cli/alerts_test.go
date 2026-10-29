@@ -45,9 +45,9 @@ type alertRecorder struct {
 	seen []string
 }
 
-func (r *alertRecorder) Squatter(appeared bool, p gpu.Proc) {}
+func (r *alertRecorder) Squatter(appeared bool, card string, p gpu.Proc) {}
 
-func (r *alertRecorder) Alert(level, key, message string) {
+func (r *alertRecorder) Alert(level, key, message, card string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seen = append(r.seen, level+":"+key+":"+message)
@@ -74,10 +74,10 @@ func TestAlertCrossingFiresEventAndNotificationTogether(t *testing.T) {
 	b.Tick(context.Background()) // one manual tick to populate the snapshot
 
 	table := alerts.FromConfig(config.AlertsConfig{Temp: proto.Threshold{Warn: 80, Crit: 90}})
-	ev := alerts.New(table, 3, func(key alerts.Key, lv alerts.Level, raised bool, msg string) {
+	ev := alerts.New(table, 3, func(key alerts.Key, lv alerts.Level, raised bool, msg, card string) {
 		if raised {
 			b.Note(proto.Event{Kind: proto.EvAlertRaised, Detail: lv.Name() + ": " + msg})
-			rep.Alert(lv.Name(), string(key), msg)
+			rep.Alert(lv.Name(), string(key), msg, card)
 		} else {
 			b.Note(proto.Event{Kind: proto.EvAlertCleared, Detail: msg})
 		}
