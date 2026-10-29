@@ -258,7 +258,6 @@ func Run(o Options) int {
 	}
 
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
 
 	if o.CLI == nil {
 		o.CLI = execCLI
@@ -269,6 +268,7 @@ func Run(o Options) int {
 	// line is the lease's live conn and park state; the drain, the resume
 	// and the container resolver ride it across reattach loops.
 	line := newLine(conn)
+	go forwardSignals(cmd, done, func() bool { return o.Checkpoint && line.isParked() })
 
 	// A container engine resolves its containers to their full IDs and names
 	// them on the lease, so the broker attributes the engine's GPU processes
@@ -696,7 +696,7 @@ func runUnleased(o Options, reason string) int {
 	afterStart(cmd)
 	defer record(o, cmd, reason)()
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
+	go forwardSignals(cmd, done, func() bool { return false })
 	err := cmd.Wait()
 	afterWait(cmd)
 	close(done)
@@ -758,8 +758,10 @@ func command(o Options, out io.Writer) *exec.Cmd {
 func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
-// to the engine's whole process group.
-func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
+// to the engine's whole process group. A checkpointed engine is killed
+// instead: its CUDA calls block until a restore, so its own shutdown never
+// finishes, and the supervisor kills this wrapper before a grace would end.
+func forwardSignals(cmd *exec.Cmd, done <-chan struct{}, locked func() bool) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, stopSignals...)
 	defer signal.Stop(ch)
@@ -768,6 +770,10 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 		case <-done:
 			return
 		case s := <-ch:
+			if locked() {
+				kill(cmd)
+				continue
+			}
 			signalGroup(cmd, s)
 		}
 	}
@@ -851,6 +857,11 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.
 	if o.Park != nil || o.Hook {
+		if line.isParked() && o.Checkpoint {
+			say("killing checkpointed %s: it cannot shut down while its CUDA calls are locked", o.Engine)
+			kill(cmd)
+			return
+		}
 		if line.isParked() {
 			say("stopping parked %s instead of parking it again: %s", o.Engine, reason)
 		} else if line.park(o, say) {
