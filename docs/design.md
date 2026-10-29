@@ -1,7 +1,7 @@
 # Design: one lease model for parks, lends, many cards and many machines
 
 Berth started as one broker for one card: an engine leases the whole card or a fixed size, and a drain
-stops it. Four features now ask more of that model:
+stops it. Four features ask more of that model. The first three shipped in v0.4, and the last is planned:
 
 - **Checkpoint parks.** NVIDIA's `cuda-checkpoint` moves an unmodified engine's VRAM into RAM and back.
   On an RTX 4090, NInfer's 23.1 GB comes back in 3.3 s, where a reload takes 14 s.
@@ -46,8 +46,8 @@ minus the reserve, the baseline, stowaways, claims, and the shares on it.
 ### Lease and share
 
 A lease belongs to one engine run: its priority, its process (PID plus start time), its capabilities,
-and one **share** per card it uses. Today every lease has exactly one share. A five-card engine has
-five.
+and one **share** per card it uses. A lease on one card has one share. A lease on five cards has five, which
+berthd grants together and only when each fits.
 
 A share is the lease on one card: a size (the whole card, or N bytes) and a state. The state is one
 machine, so a share can never be parked and lending at once:
@@ -63,8 +63,8 @@ waiting ─▶ active ─┬─▶ draining ─▶ released ─▶ freed
 - A share that loads more than it may while asleep (a client reached the engine around Berth) goes back
   to `active` and is reported (`lease.unparked`), so the next drain parks it again.
 
-The broker, the scheduler and the board read shares. The per-card daemons of v0.3 already hold one
-share each, so the model starts with no change to behavior.
+The broker, the scheduler and the board read shares. Before v0.4 a berthd governed one card, so every
+lease held exactly one share and the model changed no behavior.
 
 ### Capabilities
 
@@ -140,10 +140,10 @@ to undo.
 
 | Stage | Ships | Proven by |
 |---|---|---|
-| A1, v0.3.x | `park = "checkpoint"` with `berth run --front`, for llama-swap engines | a chat to a checkpointed NInfer through llama-swap restores it and answers; no request hangs |
-| A2, v0.3.x | lends on one card through the protocol, with a stub engine | a sized borrower runs beside a lending holder; the return waits for the driver |
-| B, v0.4-rc | one berthd for every card; leases with one share per card | a two-card engine leases both; the cards of a mixed box schedule apart |
-| C, v0.4 | parks and lends per share on multi-card leases | Maya on five cards lends from one card while the other four serve (#189) |
+| A1, shipped in v0.4 | `park = "checkpoint"` with `berth run --front`, for llama-swap engines | a chat to a checkpointed NInfer through llama-swap restores it and answers; no request hangs |
+| A2, shipped in v0.4 (experimental) | lends on one card through the protocol, with a stub engine | a sized borrower runs beside a lending holder; the return waits for the driver |
+| B, shipped in v0.4 | one berthd for every card; leases with one share per card | a two-card engine leases both; the cards of a mixed box schedule apart |
+| C, planned | parks and lends per share on multi-card leases | Maya on five cards lends from one card while the other four serve (#189) |
 | D, v0.5 | gateways joined over the tailnet | a request to one node runs on another and the leases stay per node |
 
 A stage that finds the model wrong changes this page first.

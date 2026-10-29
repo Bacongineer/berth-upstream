@@ -20,6 +20,10 @@ APU parking and other APU generations are not supported yet.
 Windows with NVIDIA is experimental too, and `contrib/windows/check.ps1` checks it on your
 machine; see the [support matrix](https://github.com/T-Crypt/berth#support-matrix).
 
+**More than one GPU?** Experimental. One berthd governs every card by default, each card keeps its own leases
+and queue, an engine runs on a card with `berth run --gpu gpu1`, and one lease can hold several cards. See
+[Multiple GPUs](https://github.com/T-Crypt/berth#multiple-gpus-experimental).
+
 **Can Berth handle ComfyUI on the host and vLLM in Docker?** Yes. Start each one under its own
 lease: `berth run --as comfyui -- python ...` for ComfyUI, and
 `berth run --as vllm --container vllm -- docker run --rm --name vllm --gpus all ... vllm/vllm-openai`

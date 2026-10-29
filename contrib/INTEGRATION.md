@@ -17,7 +17,7 @@ the engine to the new daemon within a few seconds.
 
 ```sh
 berth run --as <name> --priority <batch|interactive|foreground> [--needs-mib N] \
-  [--drain-post URL] [--drain-comfyui URL] [--wait 10m] -- <the engine's own command>
+  [--drain-post URL] [--drain-comfyui URL] [--wait 10m] [--gpu gpu1] -- <the engine's own command>
 ```
 
 - `--priority`: an equal or higher request drains the holder; a lower one waits.
@@ -25,6 +25,9 @@ berth run --as <name> --priority <batch|interactive|foreground> [--needs-mib N] 
   (for example vLLM with `--gpu-memory-utilization`).
 - `--drain-post`: a URL Berth POSTs first when it wants the card back, before any signal.
 - `--drain-comfyui`: wait for ComfyUI's queue to empty before stopping it.
+- `--gpu`: the card to lease on a machine with several, such as `gpu1`. `gpu0,gpu1` holds one lease on both.
+  The engine starts with `CUDA_VISIBLE_DEVICES` set to the card's UUID unless its environment sets it. With
+  no `--gpu`, the lease goes to the first card and the environment is left alone.
 - With no command after `--`, `berth run --as NAME` runs the `start` of NAME's `[[engine]]` entry in
   berth.toml. Every setting no flag sets comes from that entry too.
 - On drain, Berth tries the drain step, then SIGTERM to the engine's process group, then
@@ -47,7 +50,7 @@ berth wire llama-swap --config /etc/llama-swap/config.yaml --check  # exit 1 whe
 `--wait 10m` writes `--wait` on every line, for a batch job that has to queue behind a long foreground
 lease; without it a request waits berthd's default (120 s). `--write --update` rewrites the flags wire
 writes on lines that already exist and keeps any flag you added by hand, such as `--needs-mib 14000`,
-in its place. A hand-written `--wait` stays unless you pass `--wait`.
+in the order you wrote it. A hand-written `--wait` stays unless you pass `--wait`.
 
 It keeps a backup beside the file and stays re-runnable when the roster changes; point `--api`
 at llama-swap's base URL when it listens elsewhere than `http://127.0.0.1:9090`. Under the
@@ -80,6 +83,11 @@ berth run --as llama-server --priority interactive -- llama-server -m model.gguf
 Start `llama-server` with `--metrics` for token counters and queue; `/slots` (on unless started
 with `--no-slots`) gives the live KV pool. Reading: `type = "llamacpp"` (`ninfer` for
 [NInfer](https://github.com/T-Crypt/ninfer-4090), `koboldcpp` for KoboldCpp).
+
+These engines have no offload call, but they can park in RAM through NVIDIA's `cuda-checkpoint`. Add
+`--park checkpoint --front 127.0.0.1:${PORT}` to the `berth run` line of a llama-swap model, and start
+the engine on `{{BERTH_PORT}}`. [Park in RAM](https://github.com/T-Crypt/berth/blob/main/docs/gateway.md#park-in-ram-warm-switch)
+has the full line.
 
 ## Ollama
 
@@ -205,11 +213,26 @@ Size `needs_mib` from your heaviest run. A batch engine's footprint follows its 
 operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest, and
 the larger figure is the one that keeps the next engine from being over-committed.
 
+## Strata
+
+[Strata](https://github.com/T-Crypt/strata) fills the card and pins about 40 GiB of RAM, so it is a
+whole-machine engine. Give its entry `type = "strata"`, because the `llamacpp` reader names no model and
+Strata's requests would never reach the token ledger or the leaderboard. With `type = "strata"` each request
+lands under the model `/health` names.
+
+```toml
+[[engine]]
+name          = "strata"
+type          = "strata"
+url           = "http://127.0.0.1:8080"
+whole_machine = true      # berthd stops what it drains and evicts parked engines before the grant
+```
+
 ## Everything else
 
-TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken, [Strata](https://github.com/T-Crypt/strata)
-and any OpenAI-compatible server lease the same way: wrap the command that starts them. Their
-readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`, `freetoken`, `strata` and `openai`.
+TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken and any OpenAI-compatible server lease the same
+way. Wrap the command that starts them. Their readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`,
+`freetoken` and `openai`.
 
 An engine with no reader of its own uses `type = "custom"`, with any of:
 

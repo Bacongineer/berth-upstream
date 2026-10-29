@@ -13,6 +13,7 @@
   berth wire llama-swap --config cfg.yaml          # plan: which models lack a wrapper
   berth wire llama-swap --config cfg.yaml --write  # apply; a backup stays beside the file
   berth wire llama-swap --config cfg.yaml --check  # exit 1 when a model is unwired
+  berth wire llama-swap --config cfg.yaml --write --update --wait 10m  # rewrite wire's flags, keep yours
   berth config check --strict          # a warning fails the check, exit 1
   berth config show --format toml      # the evaluated config, ready to save
   berth engine check -v                # what each engine reports, right now
@@ -26,7 +27,9 @@
   Exit codes are 0 (done), 1 (validation or logic: an invalid config, a warning under `--strict`,
   an engine that did not answer, a lease the broker refused) and 2 (berth could not do its job:
   unknown flag, missing file, berthd unreachable). `berth run` passes the engine's own status
-  through and exits 75 when no berth was granted. Every read-only command changes nothing.
+  through and exits 75 when no berth was granted. Every read-only command changes nothing. When berthd
+  governs more than one card, `berth status` adds a CARD column and `berth events` names the card on each
+  line. `--format json` carries the card on every event.
 - **Harbor web UI** (`berth harbor`): a departures board of every lease (the HOT / WARM
   tiers included: WARM marks a parked engine, with its parked RAM and age), a boat ticket
   per lease, the collisions counter, berths with measured memory, stowaways, the event

@@ -87,9 +87,11 @@ for a phone.
   frees: the measured starts in the waiter's chain, one per seat ahead plus its own. An
   unmeasured start says unmeasured and adds no number, and the holder's drain is never in
   the figure, because a request runs as long as it runs.
-- **A card passed through to a VM (experimental).** When the governed card is bound to `vfio-pci`,
+- **A card passed through to a VM (experimental).** When a governed card is bound to `vfio-pci`,
   `berth status` shows "passed through to a VM (vfio-pci)" in place of its memory figures, and the JSON
-  has a `passthrough` object with the state and the bound driver. The state reads `detaching` while a
+  has a `passthrough` object with the state and the bound driver. On a machine with several cards each GPU
+  in the status carries its own `passthrough`, and the status-wide object is set only while every scheduled
+  card is in a VM, so one card in a VM does not read as all of them. The state reads `detaching` while a
   switch is under way. `card.passthrough` and `card.returned` mark each change once in the event log.
   While a VFIO hold is granted ([`berth vfio run`](vfio.md)), berthd does not open the card, because
   its own probe would block the driver switch; it reads the driver from sysfs instead. Nothing new is
@@ -146,6 +148,12 @@ question an operator actually asks.
   ENGINE`, `berth reclaim LEASE`).
 - **The berths, the machine, stowaways and no ticket** answer "what else is on the
   card and the host, and who holds memory without a ticket?"
+- **Several cards.** When berthd governs more than one card, each card has its own berth panel that lists
+  only the leases and stowaways on that card. Each lease line names the model its engine reports
+  loaded, and a lease on several cards adds its card list (`on gpu0..gpu4`). A board row and a stowaway name their card (`gpu1`), a lease
+  ticket reads its own card's figures, and the tide draws the memory history against the sum of the
+  scheduled cards. Past three cards the berth label gives the count. One card in a VM marks only that card.
+  A hidden tab stops the header clock and the polling for updates.
 
 **The ENGINES tab.**
 - **The engine cards** answer "is this engine up and serving?" with the state the
@@ -176,7 +184,8 @@ and what every state word and figure means.
   context tokens against the window). An engine without those endpoints degrades to
   "no window / no slot data", never an error. An engine that was up and stops
   answering is shown as **unresponsive** (latched), distinct from one that never ran.
-- **Requests:** a 24-hour request log from llama-swap; requests per minute, p50 and p95
+- **Requests:** a 24-hour request log from llama-swap and Strata (a Strata entry needs
+  `type = "strata"`, and each request lands under the model its `/health` names); requests per minute, p50 and p95
   latency, prefill time, time per output token, cache and re-ingest share, a token ledger
   (1 h, 24 h, since start), a per-model leaderboard, and the most recent requests.
 - **History:** the node keeps the last hour at 5-second resolution in memory. The harbor
@@ -185,6 +194,8 @@ and what every state word and figure means.
   hourly rows for 400 days, and the request log for 30 days, de-duplicated by request id.
   Databases written before the KV column is added are migrated in place on the first
   open; nothing is ever rewritten.
+- **Page loads:** the harbor's page files carry an ETag for the build and `Cache-Control: no-cache`, so a
+  reload answers 304 and sends nothing where it sent the whole page (about 300 KB) every time.
 - **Model timeline:** when each model was loaded and unloaded on each engine, kept across
   restarts. A gap in the readings over 3 minutes is never drawn as loaded.
 - The UI labels engine-reported figures as the engine's own, apart from what the driver

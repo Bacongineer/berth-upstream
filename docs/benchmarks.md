@@ -39,7 +39,7 @@ the load from 142 to 160 s to 54 to 85 s. Of today's 71 to 85 s, reading the wei
 the GPU's expert cache took about 18 s; the rest is Strata's own start-up after it reports
 "almost ready", which no disk or cache speeds up.
 
-**Machines with RAM to spare.** Neither engine here can park, so these are cold reloads, not the
+**Machines with RAM to spare.** Neither engine was parked in this run, so these are cold reloads, not the
 warm tier. On a machine with enough RAM to keep a model's file in the page cache (`berth models`
 shows it as COOL, `berth prefetch` warms it), the disk part of a reload comes from RAM instead;
 an engine that parks ([park in RAM](gateway.md#park-in-ram-warm-switch)) skips the reload. Neither number
@@ -63,4 +63,6 @@ end of an 8-token reply, with Berth's drain and lease included.
 ComfyUI's park takes under a second (`parked comfyui in RAM in 0s`), so NInfer's load is the rest
 of that switch. NInfer spends about 10 s of its load on its own start-up: NVIDIA's
 `cuda-checkpoint` moved the same 23.1 GB from VRAM to RAM in 5.1 s and back in 3.3 s, and
-CyberTiel's 21.2 GB in 5.1 s and 3.2 s. Berth does not use `cuda-checkpoint` yet.
+CyberTiel's 21.2 GB in 5.1 s and 3.2 s. Since v0.4 Berth parks an engine through `cuda-checkpoint`
+(`berth run --park checkpoint --front`, see [Park in RAM](gateway.md#park-in-ram-warm-switch)), and a
+23.1 GB NInfer comes back in 3.3 s.
