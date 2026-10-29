@@ -4,7 +4,9 @@ Berth moves an engine's weights to system RAM on a drain, so the next use
 resumes in seconds instead of reloading the model from disk. ComfyUI, vLLM
 and SGLang park through the adapters built into Berth. Any other engine
 can be parkable too: serve three endpoints on the engine's own HTTP API,
-and Berth finds them.
+and Berth finds them. An engine that cannot serve them, such as llama.cpp or
+NInfer, parks through NVIDIA's `cuda-checkpoint` instead and needs no protocol
+([Park in RAM](https://github.com/T-Crypt/berth/blob/main/docs/gateway.md#park-in-ram-warm-switch)).
 
 This document is the contract for engine authors. Implement it, point an
 engine entry at your server, set `park = "hook"` and no URLs:

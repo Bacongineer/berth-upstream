@@ -35,7 +35,7 @@ before they call it. `berth gateway` starts it for them. Give an engine a `start
 ```toml
 [[engine]]
 name     = "strata"
-type     = "llamacpp"
+type     = "strata"
 url      = "http://127.0.0.1:8080"
 start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata",
             "--config", "strata-262k.json", "--port", "8080"]
@@ -88,7 +88,7 @@ refuses chains and a fallback that is not an engine in the file.
 ```toml
 [[engine]]
 name     = "strata"
-type     = "llamacpp"
+type     = "strata"
 url      = "http://127.0.0.1:8080"
 start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata", "--port", "8080"]
 serves   = ["qwen3.8-flash-next-iq2_xs"]
@@ -168,7 +168,7 @@ restart itself.
 
 **Stopping the gateway keeps its engines too.** Each engine runs outside the gateway's cgroup (above),
 so stopping the gateway service does not stop the engines: they stay on the card under their own leases
-and keep answering. `berth stop ENGINE` is how one is stopped on purpose: the daemon asks the engine's
+and keep answering. `berth stop ENGINE` is how one is stopped on purpose, parked or parking engines included: the daemon asks the engine's
 leases to give the card back through the normal stop ladder, as when another engine asks for it, and a
 lease frees only after a card read shows the engine's memory gone. `berth stop ENGINE --wait` follows
 the daemon's event log until the leases are freed (exit 0) or stuck (exit 2, pointing at `berth reclaim`
@@ -277,7 +277,8 @@ curl -s http://127.0.0.1:9799/v1/berth/stop   -H "Authorization: Bearer $(berth 
 `GET /v1/berth/board` is the node in one read, for a board or a script: the card (who holds it, and whether it is
 free, held, draining, in a VM or failing its probe), then every engine in `berth.toml` with its state (up, offline,
 waiting, starting, failed), whether it can be switched to (`launch`) or stopped (`stoppable`), and its models with a
-`loaded` flag from the engine's own reader. `cards` is a list so a node with more cards needs no new shape.
+`loaded` flag from the engine's own reader. `cards` lists every card the node governs, each with its name
+on the node (`card`, such as `gpu1`) and the holders on that card alone.
 
 ## Run an engine whenever the card is free
 
@@ -406,7 +407,7 @@ until no slot reports `is_processing`, then stops it.
 ```toml
 [[engine]]
 name        = "strata"
-type        = "llamacpp"
+type        = "strata"
 url         = "http://127.0.0.1:8080"
 drain_slots = "http://127.0.0.1:8080"
 ```
@@ -582,7 +583,10 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   takes 14 s; for a llama-server that loads from the page cache in 5 s the
   gain is small. llama-swap still stops an idle model after its `ttl`, so set
   the ttl longer than the time you spend in the other engine. A missing
-  `cuda-checkpoint` leaves the drain as it was, with a warning.
+  `cuda-checkpoint` leaves the drain as it was, with a warning. A checkpointed
+  engine cannot act on SIGTERM, because its CUDA calls block. A stop signal,
+  `berth stop` or an eviction therefore kills it at once, so a parked engine
+  never stays alive holding its weights in RAM after llama-swap unloads it.
 
 ## Engines that need the whole machine
 

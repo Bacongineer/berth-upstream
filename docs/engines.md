@@ -16,7 +16,7 @@
 | Unsloth Studio | `unsloth` | :8888 | health; models with an API key |
 | FreeToken | `freetoken` | :1919 | tokens, queue |
 | [NInfer](https://github.com/T-Crypt/ninfer-4090) | `ninfer` | as llama.cpp | as llama.cpp, plus draft acceptance |
-| [Strata](https://github.com/T-Crypt/strata) | `strata` | :8080 | model, window, tokens, queue |
+| [Strata](https://github.com/T-Crypt/strata) | `strata` | :8080 | model from `/health`, window, tokens, queue, and its requests for the token ledger and leaderboard |
 | Any OpenAI-compatible server | `openai` | :8080, :8000 | models |
 | Anything else | `custom` | never | your health, models, metrics and slots paths; `kind = "tts"`, `"stt"`, `"image"` or `"other"` tracks a voice or image server as one |
 
@@ -28,6 +28,10 @@ are mutually exclusive. `berth run --api-key-file` uses the same source for drai
 detached gateway launches pass the source reference, never its contents. Other platforms
 use `api_key_env` and explicitly reject file credentials. An engine's figures are its
 own claims and are shown apart from what the driver measures.
+
+A Strata entry needs `type = "strata"`. The `llamacpp` reader names no model, so its requests never reach the
+token ledger or the leaderboard. With `type = "strata"` each request lands under the model `/health` names, and two
+Strata engines serving two quants get two rows on whatever port they run.
 
 llama.cpp adds a request's tokens to its counters only when the request ends. While a
 request runs, an engine card shows the decode and prefill rates its last finished request

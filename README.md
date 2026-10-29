@@ -54,7 +54,8 @@ including the ones neither tool started. With Berth beside it, llama-swap's next
 for ComfyUI or the engine before it to give the memory back, and when a crashed process still
 holds part of the card, Berth names its PID and how much it holds, so you aren't hunting
 through `nvidia-smi` while a load fails. `berth wire llama-swap` adds the lease to every model
-in your config in one pass. An upstream integration with llama-swap is planned, so the wrapper
+in your config in one pass, and `--update` rewrites its own flags on a later run while it keeps
+the ones you added by hand. An upstream integration with llama-swap is planned, so the wrapper
 line goes away.
 
 ## What Berth does
@@ -78,14 +79,23 @@ line goes away.
   re-attach. The gateway's engines survive it too: it starts each one as its own `berth run`
   process (in its own systemd scope on Linux) and adopts them again on its next start.
 
-**Faster switches, and a way out** *(v0.3)*
+**Faster switches, and a way out**
 - **Park in RAM.** An engine that can offload itself (ComfyUI, vLLM, SGLang, or any engine that
   serves the [park protocol](contrib/PARK-PROTOCOL.md)) moves its weights to system memory on a
   drain and resumes from there instead of reloading from disk. Berth parks only when the RAM it
   measures covers the engine plus a floor, and stops parked engines first when memory runs short.
+- **Park any engine with `cuda-checkpoint`.** An engine with no offload call of its own, such as
+  llama.cpp or NInfer, parks through NVIDIA's `cuda-checkpoint` behind `berth run --park checkpoint
+  --front`. A 23.1 GB NInfer comes back in 3.3 s where a reload takes 14 s. See
+  [Park in RAM](docs/gateway.md#park-in-ram-warm-switch).
+- **Engines that need the whole machine.** `whole_machine = true` on an engine entry, such as Strata's,
+  makes berthd stop the engine it drains and evict any parked engine before the grant, so nothing
+  holds a slice of the card or the RAM beside it.
+- **Lend part of a card** *(experimental)*. An engine that can shrink a cache gives memory to a sized
+  waiter and keeps serving, instead of being drained. See [Lending part of a card](docs/gateway.md#lending-part-of-a-card).
 - **A way out of every lease state.** `berth stop ENGINE` drains an engine on purpose,
   `berth resume ENGINE` puts a parked one back, and `berth reclaim` stops what a stuck release
-  left behind, once you confirm.
+  left behind, once you confirm. `berth stop` also ends a parked engine, checkpointed ones included.
 - **A place in the queue.** Every wait reason starts with the waiter's place ("2nd in line
   (behind interactive comfyui)"), and `berth status` adds a start estimate from measured switches.
 
@@ -187,9 +197,10 @@ AMD Windows are not supported. See [scope and validation](contrib/amd/README.md)
 
 One berthd governs every card it finds. Each card is named `gpu` plus its index and keeps its own leases and
 queue, so a foreground request on gpu0 never drains a holder on gpu1. `berth status` lists every card and names
-each lease's card. To govern only some cards, give `--gpu` a comma list of indices and NVIDIA PCI addresses
-(`--gpu 0,0000:41:00.0`). Name an NVIDIA card by its PCI address when it can be passed through to a VM, so berthd
-keeps the right card when `nvidia-smi` renumbers them. A berthd named by address starts while its card is in a VM
+each lease's card, and a GPU process without a lease shows as a stowaway on its card. To govern only some cards,
+give `--gpu` a comma list of indices and NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`), or `--gpu 0` for the first card
+alone, as before v0.4. A service unit installed earlier keeps the `--gpu` it was written with. Name an NVIDIA card
+by its PCI address when it can be passed through to a VM, so berthd keeps the right card when `nvidia-smi` renumbers them. A berthd named by address starts while its card is in a VM
 and takes it over when it comes back. An AMD card is named by its DRM `cardN` number (`--gpu 1` for card1).
 `--gpu` does not take an AMD card's PCI address yet.
 
@@ -270,6 +281,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | [Install](docs/install.md) | The agent prompt, manual install, `berth.toml`, uninstall |
 | [Engines](docs/engines.md) | Every engine Berth reads, API keys, ComfyUI as a suite |
 | [Leasing, games and holds](docs/leasing.md) | Priorities, drains, stuck releases, the juggle guard, minimum turns, claims and `berth hold` |
+| [Design](docs/design.md) | The lease model parks, lends, many cards and many machines follow, the rules none may break, and the order they ship in |
 | [VFIO passthrough](docs/vfio.md) (experimental, Linux) | `berth vfio status`, `berth vfio run`, the IOMMU requirements, an example switch script, a box with two NVIDIA cards |
 | [Models](docs/models.md) | `berth pull`, integrity checks, shelves, `berth storage`, the page cache and `berth prefetch` |
 | [Gateway](docs/gateway.md) | One OpenAI-compatible port, cold starts, fallbacks, KV snapshots, switch costs, wake pages, park in RAM |
@@ -277,6 +289,7 @@ The same pages are a site with search at <https://t-crypt.github.io/berth/>.
 | [The harbor and telemetry](docs/harbor.md) | Stowaways, the collisions board, alerts, every harbor panel, what Berth measures |
 | [Interfaces](docs/interfaces.md) | The CLI's output contract and exit codes, the harbor's options, Prometheus |
 | [Benchmarks](docs/benchmarks.md) | Tested hardware and measured swap times |
+| [Testing a pre-release](docs/prerelease.md) | Installing a `vX.Y.Z-rc.N` tag from the `next` branch, and going back to the release |
 | [Roadmap](docs/roadmap.md) | Phases, what each release shipped, what comes next |
 | [FAQ](docs/faq.md) | Common questions, Docker engines included |
 

@@ -17,6 +17,7 @@ has the overview, the quick start and screenshots. These pages are the reference
 | [The harbor and telemetry](harbor.md) | Stowaways, the collisions board, alerts, every harbor panel, what Berth measures |
 | [Interfaces](interfaces.md) | The CLI's output contract and exit codes, the harbor's options, Prometheus |
 | [Benchmarks](benchmarks.md) | Tested hardware and measured swap times |
+| [Testing a pre-release](prerelease.md) | Installing a `vX.Y.Z-rc.N` tag from the `next` branch, and going back to the release |
 | [Roadmap](roadmap.md) | Phases, what each release shipped, what comes next |
 | [FAQ](faq.md) | Common questions, Docker engines included |
 
