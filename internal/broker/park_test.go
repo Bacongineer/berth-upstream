@@ -927,3 +927,56 @@ func TestParksOnTwoCardsShareTheMachinesRAM(t *testing.T) {
 		t.Fatalf("park on gpu1 while gpu0's is in flight = %v, %q; want false, %q", ok, why, want)
 	}
 }
+
+// A whole-machine engine (Strata: the card, 40 GiB of pinned RAM, the CPU
+// and the disk) is never granted beside a parked engine. The parked lease
+// is evicted first, so its residual leaves the card and its RAM copy leaves
+// the machine before the whole-machine engine sizes itself.
+func TestWholeMachineWaiterEvictsParked(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	parked := warmLease(t, b, c, "comfyui", 8*GiB, 100, 101)
+	c.set(gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 534 << 20})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata", Priority: Foreground, WholeMachine: true})
+	pending(t, strata)
+	if why := drained(t, parked); why != "strata (foreground) needs the card" {
+		t.Fatalf("eviction drain reason %q", why)
+	}
+	parked.Release()
+	c.set()
+	b.Tick(context.Background())
+	must(t, strata).Release()
+}
+
+// The engine a whole-machine waiter drains is stopped, not parked: its RAM
+// copy would sit in the RAM the waiter is about to pin.
+func TestWholeMachineWaiterRefusesThePark(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 48*GiB, 0)
+	ninfer := must(t, acquire(b, Request{Engine: "ninfer", Needs: 22 * GiB}))
+	ninfer.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata", Priority: Foreground, WholeMachine: true})
+	pending(t, strata)
+	drained(t, ninfer)
+	ok, why := ninfer.Park()
+	if ok || why != "park refused: strata needs the whole machine" {
+		t.Fatalf("park = %v %q, want the whole-machine refusal", ok, why)
+	}
+
+	// Without the whole-machine waiter the same drain parks.
+	b2, c2, _ := parkSetup(t, tree, 48*GiB, 0)
+	l := must(t, acquire(b2, Request{Engine: "ninfer", Needs: 22 * GiB}))
+	l.Attach(100)
+	c2.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 22 * GiB})
+	b2.Tick(context.Background())
+	pending(t, acquire(b2, Request{Engine: "llama", Priority: Foreground}))
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park without a whole-machine waiter refused: %s", why)
+	}
+}

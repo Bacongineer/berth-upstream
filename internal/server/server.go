@@ -233,20 +233,21 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 	}()
 
 	r := broker.Request{
-		Engine:     req.Engine,
-		Group:      req.Group,
-		Priority:   prio,
-		Needs:      req.Needs,
-		Wait:       time.Duration(req.Wait * float64(time.Second)),
-		Pinned:     req.Pinned,
-		Switched:   req.Switched,
-		Parked:     req.Parked,
-		Lend:       req.Lend,
-		LendID:     req.LendID,
-		LentBytes:  req.Lent,
-		MinTurn:    time.Duration(req.MinTurn * float64(time.Second)),
-		ParkTTL:    time.Duration(req.ParkTTL * float64(time.Second)),
-		Containers: req.ContainerIDs(),
+		Engine:       req.Engine,
+		Group:        req.Group,
+		Priority:     prio,
+		Needs:        req.Needs,
+		Wait:         time.Duration(req.Wait * float64(time.Second)),
+		Pinned:       req.Pinned,
+		Switched:     req.Switched,
+		Parked:       req.Parked,
+		Lend:         req.Lend,
+		WholeMachine: req.WholeMachine,
+		LendID:       req.LendID,
+		LentBytes:    req.Lent,
+		MinTurn:      time.Duration(req.MinTurn * float64(time.Second)),
+		ParkTTL:      time.Duration(req.ParkTTL * float64(time.Second)),
+		Containers:   req.ContainerIDs(),
 	}
 	if len(cards) > 1 {
 		holdAll(ctx, u, req, r, cards, incoming, cancel, log)

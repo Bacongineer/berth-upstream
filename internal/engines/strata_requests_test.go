@@ -42,7 +42,7 @@ func strataServer(t *testing.T, model string, at time.Time, finish string) *http
 // under the model their /health names, whatever port they run on, and a
 // second poll of the same request list counts nothing twice.
 func TestStrataRequestsReachTheLeaderboard(t *testing.T) {
-	at := time.Date(2026, 10, 28, 21, 35, 21, 155911000, time.Local)
+	at := time.Date(2026, 10, 28, 21, 35, 21, 155911000, time.FixedZone("MDT", -6*60*60))
 	iq4 := strataServer(t, "qwen3.8-flash-next-ud-iq4_xs", at, "stop")
 	sc117 := strataServer(t, "qwen3.8-flash-next-sc117-iq3_s", at.Add(time.Second), "cancel")
 	w := &Watcher{Engines: []config.Engine{

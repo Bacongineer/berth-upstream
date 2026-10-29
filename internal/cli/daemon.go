@@ -193,10 +193,10 @@ func runDaemon(c *Context) int {
 	// keys plus what the operator enabled. One level crossing is one
 	// event and one notification through the same channels as squatters.
 	ev := alerts.New(alerts.FromConfig(cfg.Alerts), *cfg.Alerts.ClearPolls,
-		func(key alerts.Key, lv alerts.Level, raised bool, msg string) {
+		func(key alerts.Key, lv alerts.Level, raised bool, msg, card string) {
 			if raised {
 				first.Note(proto.Event{Kind: proto.EvAlertRaised, Detail: lv.Name() + ": " + msg})
-				rep.Alert(lv.Name(), string(key), msg)
+				rep.Alert(lv.Name(), string(key), msg, card)
 			} else {
 				first.Note(proto.Event{Kind: proto.EvAlertCleared, Detail: msg})
 			}
@@ -204,11 +204,21 @@ func runDaemon(c *Context) int {
 
 	// Seed every broker before accepting clients, not in a racing goroutine:
 	// guarded admission must never see an uninitialised lease-only snapshot.
+	// One card that cannot be read stays fenced (it grants nothing until its
+	// first good read) while berthd serves the others; with none readable
+	// there is nothing to serve.
+	var failed []string
 	for _, cd := range cards {
 		cd.B.Tick(ctx)
 		if st := cd.B.Status(); st.ProbeErr != "" {
-			return c.fail(Systemf("gpu initial observation on %s: %s", cd.Name, st.ProbeErr))
+			failed = append(failed, cd.Name+": "+st.ProbeErr)
 		}
+	}
+	if len(failed) == len(cards) {
+		return c.fail(Systemf("gpu initial observation on %s", strings.Join(failed, "; ")))
+	}
+	for _, f := range failed {
+		log.Error("gpu initial observation failed; the card grants nothing until a read succeeds", "card", f)
 	}
 
 	ln, err := server.Listen(*sock)
