@@ -127,6 +127,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- `berth notify` now dials berthd again when the socket is not up yet, at boot or while berthd restarts. It showed
+  nothing more until it was killed, and it ignored SIGTERM, so `systemctl --user restart berth-notify` waited 90 s
+  and then killed it.
 - A `berth run` engine that exits 0 now shows as offline on the engines tab and in `berth status`. It showed as
   unresponsive with a red error until it ran again, the same as an engine that crashed. A non-zero exit still shows
   as unresponsive (#265).

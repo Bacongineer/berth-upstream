@@ -33,7 +33,10 @@ func Follow(ctx context.Context, src Source, cards func() int, s Sender, level L
 	for ctx.Err() == nil {
 		events, err := src(ctx)
 		if err != nil {
+			// No stream: ranging over the nil channel would block forever,
+			// deaf to berthd and to SIGTERM. Wait and dial again.
 			log.Debug("berthd unreachable", "err", err)
+			events = closedEvents()
 		}
 		named := err == nil && cards != nil && cards() > 1
 		for e := range events {
@@ -54,4 +57,10 @@ func Follow(ctx context.Context, src Source, cards func() int, s Sender, level L
 		case <-time.After(retry):
 		}
 	}
+}
+
+func closedEvents() <-chan proto.Event {
+	ch := make(chan proto.Event)
+	close(ch)
+	return ch
 }

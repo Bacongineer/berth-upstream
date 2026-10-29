@@ -5,6 +5,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -107,6 +108,45 @@ func TestFollowNamesCardsOnAMultiCardMachine(t *testing.T) {
 	Follow(ctx, src, func() int { return 2 }, r, Info, t0, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	got := r.titles()
 	if len(got) != 2 || got[0] != "gpu0: GPU passed to a VM" || got[1] != "gpu1: GPU passed to a VM" {
+		t.Fatalf("shown %q", got)
+	}
+}
+
+// Follow retries when berthd is unreachable (a boot or a restart where the
+// socket is not up yet) instead of waiting forever on no stream.
+func TestFollowRetriesWhenBerthdIsUnreachable(t *testing.T) {
+	t0 := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	src := func(context.Context) (<-chan proto.Event, error) {
+		calls++
+		switch calls {
+		case 1:
+			return nil, errors.New("dial unix berth.sock: connect: no such file or directory")
+		case 2:
+			ch := make(chan proto.Event, 1)
+			ch <- proto.Event{At: t0.Add(time.Second), Kind: proto.EvSquatter, Detail: "mpv"}
+			close(ch)
+			return ch, nil
+		}
+		cancel()
+		ch := make(chan proto.Event)
+		close(ch)
+		return ch, nil
+	}
+	r := &recorder{}
+	done := make(chan struct{})
+	go func() {
+		Follow(ctx, src, nil, r, Error, t0, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Follow hung after berthd was unreachable")
+	}
+	if got := r.titles(); len(got) != 1 || got[0] != "GPU memory held without a lease" {
 		t.Fatalf("shown %q", got)
 	}
 }
