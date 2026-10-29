@@ -755,7 +755,9 @@ func command(o Options, out io.Writer) *exec.Cmd {
 func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
-// to the engine's whole process group.
+// to the engine's whole process group. A checkpointed engine is killed
+// instead: its CUDA calls block until a restore, so its own shutdown never
+// finishes, and the supervisor kills this wrapper before a grace would end.
 func forwardSignals(cmd *exec.Cmd, done <-chan struct{}, locked func() bool) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, stopSignals...)
@@ -765,6 +767,10 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}, locked func() bool) {
 		case <-done:
 			return
 		case s := <-ch:
+			if locked() {
+				kill(cmd)
+				continue
+			}
 			signalGroup(cmd, s)
 		}
 	}
@@ -848,6 +854,11 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.
 	if o.Park != nil || o.Hook {
+		if line.isParked() && o.Checkpoint {
+			say("killing checkpointed %s: it cannot shut down while its CUDA calls are locked", o.Engine)
+			kill(cmd)
+			return
+		}
 		if line.isParked() {
 			say("stopping parked %s instead of parking it again: %s", o.Engine, reason)
 		} else if line.park(o, say) {
