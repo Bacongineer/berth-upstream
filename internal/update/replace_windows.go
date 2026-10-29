@@ -8,6 +8,7 @@ package update
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 // ReplaceBinary moves the running target aside to target.old and renames
@@ -16,7 +17,11 @@ import (
 func ReplaceBinary(newPath, target string) error {
 	old := target + ".old"
 	if err := os.Remove(old); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("clear %s: %w", old, err)
+		// The previous .old is still the running image after a first
+		// update, and Windows refuses to delete it but lets it be renamed.
+		if rerr := os.Rename(old, fmt.Sprintf("%s.%d", old, time.Now().UnixNano())); rerr != nil {
+			return fmt.Errorf("clear %s: %w", old, err)
+		}
 	}
 	if err := os.Rename(target, old); err != nil {
 		return fmt.Errorf("move %s aside: %w", target, err)

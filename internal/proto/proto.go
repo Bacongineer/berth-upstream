@@ -311,9 +311,10 @@ type Status struct {
 	// scope's anon plus shmem, or its VRAM footprint where Berth reads no
 	// scope. A reading, never a reservation.
 	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
-	// Passthrough is the governed card's VM state while it does not serve
-	// the node: bound to vfio-pci, or switching to or from that. Omitted
-	// when the card is normal.
+	// Passthrough is the VM state of the first scheduled card, set only
+	// while every scheduled card in this status is bound to vfio-pci or
+	// switching to or from it, so none serves. With one card of several in
+	// a VM, only that card's GPU entry carries it.
 	Passthrough *Passthrough `json:"passthrough,omitempty"`
 }
 
@@ -350,6 +351,8 @@ type Claim struct {
 	Lease   string `json:"lease,omitempty"` // hold: the lease it holds or waits on
 	Used    uint64 `json:"used,omitempty"`  // track: card memory under the matches
 	GTTUsed uint64 `json:"gtt_used,omitempty"`
+	// Cards names the cards where the claim is active or holds memory.
+	Cards []string `json:"cards,omitempty"`
 }
 
 // PriorityStatus is how the node ranks engines when two at one priority
@@ -406,6 +409,9 @@ type GPU struct {
 	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
 	// ProbeErr is this card's last probe failure, "" while it reads.
 	ProbeErr string `json:"probe_error,omitempty"`
+	// Passthrough is this card's VM state while it does not serve; nil
+	// when the card is normal.
+	Passthrough *Passthrough `json:"passthrough,omitempty"`
 
 	// Telemetry as the driver reports it; -1 = not reported.
 	Util       float64 `json:"util_pct"`
