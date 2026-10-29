@@ -57,7 +57,7 @@ func TestRequestLogKPIsLedgerLeaderboard(t *testing.T) {
 	if len(in.Leaderboard) != 2 || in.Leaderboard[0].Model != "NInfer" || in.Leaderboard[0].Requests != 2 || in.Leaderboard[0].MTPPct != 80 {
 		t.Fatalf("leaderboard %+v", in.Leaderboard)
 	}
-	if len(in.Recent) != 3 || in.Recent[0].ID != "swap/3" {
+	if len(in.Recent) != 3 || in.Recent[0].ID != fmt.Sprintf("swap/3@%d", now.Add(-time.Minute).Unix()) {
 		t.Fatalf("recent %+v", in.Recent)
 	}
 }
@@ -86,11 +86,12 @@ func TestWatcherRequestsSince(t *testing.T) {
 	w.Poll(context.Background())
 
 	all := w.Requests(time.Time{})
-	if len(all) != 3 || all[0].ID != "swap/1" || all[2].ID != "swap/3" {
+	id := func(n int, ago time.Duration) string { return fmt.Sprintf("swap/%d@%d", n, now.Add(-ago).Unix()) }
+	if len(all) != 3 || all[0].ID != id(1, 3*time.Hour) || all[2].ID != id(3, time.Minute) {
 		t.Fatalf("all: %+v", all)
 	}
 	mid := w.Requests(all[0].T)
-	if len(mid) != 2 || mid[0].ID != "swap/2" || mid[1].ID != "swap/3" {
+	if len(mid) != 2 || mid[0].ID != id(2, 2*time.Minute) || mid[1].ID != id(3, time.Minute) {
 		t.Fatalf("after the oldest: %+v", mid)
 	}
 	if got := w.Requests(all[2].T); len(got) != 0 {

@@ -25,6 +25,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- The harbor keeps llama-swap's requests after llama-swap restarts. llama-swap numbers its requests from 1 again,
+  and the harbor ignored each new request whose number it had stored before, so its history, token ledger and
+  leaderboard stopped at the restart. A request's ID now carries its time.
 - Strata's requests now reach the token ledger and the leaderboard, each under the model the engine's `/health`
   names, so two Strata engines serving two quants get two rows on whatever port they run. Only llama-swap's
   requests were counted before. A Strata entry needs `type = "strata"`, because the `llamacpp` reader names no model.
