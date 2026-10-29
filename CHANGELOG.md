@@ -25,6 +25,10 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A checkpoint-parked engine (`berth run --park checkpoint`) now dies when it is stopped. Its CUDA calls block while
+  it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
+  the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,
+  `berth stop` or an eviction now kills a parked checkpointed engine at once.
 - On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
   and `berth service install` over an existing install stops each task before it starts it again. A second
   `berth update` no longer fails when the previous `.old` binary is still running.
