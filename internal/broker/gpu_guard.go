@@ -15,6 +15,11 @@ import (
 // observationWait leaves NVIDIA's lease-table fallback unchanged. A guarded
 // probe cannot grant from a failed/stale reading, including its first failure.
 func (b *Broker) observationWait(now time.Time) string {
+	if b.probeErr != nil && b.snap.At.IsZero() {
+		// Never read: the card's size is unknown, so the lease table has
+		// nothing to grant from.
+		return "waiting for a first GPU observation"
+	}
 	if errors.Is(b.probeErr, gpu.ErrUnsafeRead) || (b.snap.Guarded && b.probeErr != nil) {
 		return "waiting for a successful GPU observation"
 	}

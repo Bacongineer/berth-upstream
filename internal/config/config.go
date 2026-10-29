@@ -145,8 +145,13 @@ type Engine struct {
 	// a card back while it keeps serving, and take it back later. LendURL
 	// is the base of the Berth lend protocol (contrib/LEND-PROTOCOL.md); a
 	// kind with a built-in lend adapter (strata) needs none.
-	Lend    string `toml:"lend,omitempty" json:"lend,omitempty" yaml:"lend,omitempty"`
-	LendURL string `toml:"lend_url,omitempty" json:"lend_url,omitempty" yaml:"lend_url,omitempty"`
+	Lend string `toml:"lend,omitempty" json:"lend,omitempty" yaml:"lend,omitempty"`
+	// WholeMachine is for an engine that needs the card, the RAM, the CPU
+	// and the disk to itself (Strata pins 40 GiB of RAM beside a full card).
+	// Whatever its lease drains is stopped, not parked, and a parked engine
+	// is evicted before it starts, so no residual or RAM copy is left.
+	WholeMachine bool   `toml:"whole_machine,omitempty" json:"whole_machine,omitempty" yaml:"whole_machine,omitempty"`
+	LendURL      string `toml:"lend_url,omitempty" json:"lend_url,omitempty" yaml:"lend_url,omitempty"`
 	// ExitComfyUIIdle releases after a completed session; IdleAfter also bounds an unused session.
 	ExitComfyUIIdle      bool     `toml:"exit_comfyui_idle,omitempty" json:"exit_comfyui_idle,omitempty" yaml:"exit_comfyui_idle,omitempty"`
 	ExitComfyUIIdleAfter Duration `toml:"exit_comfyui_idle_after,omitzero" json:"exit_comfyui_idle_after,omitempty" yaml:"exit_comfyui_idle_after,omitempty"`
