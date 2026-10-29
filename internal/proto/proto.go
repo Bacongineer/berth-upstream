@@ -114,6 +114,9 @@ type Msg struct {
 	// lend = "hook"): OpAcquire and OpReattach declare it, and the broker
 	// never asks a lease that did not.
 	Lend bool `json:"lend,omitempty"`
+	// WholeMachine marks a run whose engine needs the machine to itself
+	// (its entry says whole_machine = true). OpAcquire and OpReattach.
+	WholeMachine bool `json:"whole_machine,omitempty"`
 	// Switched marks a person's switch (the wake page's Launch,
 	// /v1/berth/switch): it wins a juggle. OpAcquire and OpResume.
 	Switched bool `json:"switched,omitempty"`

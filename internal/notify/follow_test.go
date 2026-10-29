@@ -75,11 +75,38 @@ func TestFollowSkipsSeenEventsAcrossARestart(t *testing.T) {
 		return ch, nil
 	}
 	r := &recorder{}
-	Follow(ctx, src, r, Error, t0, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	Follow(ctx, src, nil, r, Error, t0, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	got := r.titles()
 	want := []string{"Berth refused a request: comfyui", "GPU memory held without a lease"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("shown %q, want %q", got, want)
+	}
+}
+
+// Follow asks how many cards berthd schedules and names the card in each
+// note when there are several.
+func TestFollowNamesCardsOnAMultiCardMachine(t *testing.T) {
+	t0 := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := false
+	src := func(context.Context) (<-chan proto.Event, error) {
+		ch := make(chan proto.Event, 2)
+		if !done {
+			ch <- proto.Event{At: t0.Add(time.Second), Kind: proto.EvCardPassthrough, Card: "gpu0"}
+			ch <- proto.Event{At: t0.Add(2 * time.Second), Kind: proto.EvCardPassthrough, Card: "gpu1"}
+			done = true
+		} else {
+			cancel()
+		}
+		close(ch)
+		return ch, nil
+	}
+	r := &recorder{}
+	Follow(ctx, src, func() int { return 2 }, r, Info, t0, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	got := r.titles()
+	if len(got) != 2 || got[0] != "gpu0: GPU passed to a VM" || got[1] != "gpu1: GPU passed to a VM" {
+		t.Fatalf("shown %q", got)
 	}
 }

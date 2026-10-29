@@ -6,6 +6,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- `whole_machine = true` on an engine entry is for engines that need the card, the RAM, the CPU and the disk to
+  themselves, such as Strata. While one waits, berthd stops the engine it drains instead of parking it, and evicts
+  any parked engine before the grant. A Strata started beside a parked ComfyUI lost the 0.5 GiB its CUDA context
+  kept on the card, and one started beside a checkpoint-parked NInfer found 20 GiB of RAM free for its 40 GiB of
+  experts.
+
 ### Changed
 
 - The harbor's page files carry an ETag for the build and `Cache-Control: no-cache`, so a reload answers 304 and
@@ -25,6 +33,13 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A checkpoint-parked engine (`berth run --park checkpoint`) now dies when it is stopped. Its CUDA calls block while
+  it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
+  the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,
+  `berth stop` or an eviction now kills a parked checkpointed engine at once.
+- On a machine with several cards the harbor draws the memory history against the sum of the scheduled cards,
+  names the card on each board row and stowaway, and puts the lease ticket on its own card. Hidden tabs no
+  longer run the header clock or poll for updates.
 - On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
   and `berth service install` over an existing install stops each task before it starts it again. A second
   `berth update` no longer fails when the previous `.old` binary is still running.
@@ -38,6 +53,8 @@ has a matching GitHub release whose body comes from its section below.
   status-wide field is set only while every scheduled card is in a VM.
 - `berth status` and `berth claims` on a machine with several cards show a tracked app's memory from every card, name
   the cards it sits on, and label the memory column HOLDS, not CARD. The engine ranking counts every card's hours.
+- `berth notify` names the card in its title (`gpu1: GPU passed to a VM`) on a machine with several cards, and no
+  longer folds the same event on two cards into one note. Squatter and alert webhooks carry a `card` field.
 - On a machine with several cards, a probe failure on one card no longer stops the gateway from starting
   background engines and queued ComfyUI jobs on the others. Each GPU in the status carries its own
   `probe_error`. A card berthd has never read grants nothing until its first good read, where a whole-card

@@ -42,8 +42,8 @@ func (c *card) Read(context.Context) (gpu.Snapshot, error) {
 
 type quiet struct{}
 
-func (quiet) Squatter(bool, gpu.Proc)      {}
-func (quiet) Alert(string, string, string) {}
+func (quiet) Squatter(bool, string, gpu.Proc)      {}
+func (quiet) Alert(string, string, string, string) {}
 
 // twoCards is a node over gpu0 (0000:01:00.0) and gpu1 (0000:02:00.0), 24 GiB
 // each, with the shared event log, lease counter and parking ledger.

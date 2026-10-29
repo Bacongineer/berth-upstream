@@ -4,7 +4,7 @@
 import {
   $, el, fmtGiB, fmtMiB, fmtAge, fmtClock, fmtDate, fmtClockShort, pad,
   isNA, na, fmtPct, fmtMS, fmtTok, fmtBytes, fmtDayShort,
-  kindWord, kindGroup, kindCss, berthLabel, kindSi, siEl,
+  kindWord, kindGroup, kindCss, berthLabel, cardTag, tideCapacity, kindSi, siEl,
 } from "./util.js";
 import { Board } from "./board.js";
 import { PriorityView } from "./priority.js";
@@ -513,13 +513,23 @@ function wireChrome() {
   wireShortcuts();
   wireRailMenu();
   // the header's clock ticks in relative time on its own second
-  setInterval(() => {
-    const now = Date.now();
-    if (now - lastTick < 1000) return;
-    lastTick = now;
-    paintLastUpdate();
-    paintConnAge();
-  }, 500);
+  // and sleeps while the tab is hidden
+  let clock = 0;
+  const startClock = () => {
+    clock = setInterval(() => {
+      const now = Date.now();
+      if (now - lastTick < 1000) return;
+      lastTick = now;
+      paintLastUpdate();
+      paintConnAge();
+    }, 500);
+  };
+  const syncClock = () => {
+    clearInterval(clock);
+    if (!document.hidden) startClock();
+  };
+  document.addEventListener("visibilitychange", syncClock);
+  syncClock();
   document.body.classList.toggle("reduced-motion", prefersReduced());
   watchMotion(() => { /* the class above is the switch; CSS does the rest */ });
   requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add("ready")));
@@ -1531,8 +1541,9 @@ function tideSeries(s) {
   const win = vmWindows(Date.now());
   const holes = samples.map((sm) => inVmWindow(new Date(sm.t).getTime(), win));
   const nHoles = holes.filter(Boolean).length;
-  const total = sched.total / GIB;
-  const base = (sched.baseline || 0) / GIB;
+  const cap = tideCapacity(s);
+  const total = cap.total / GIB;
+  const base = cap.baseline / GIB;
   const byName = new Map();
   for (let i = 0; i < n; i++) {
     const h = samples[i].holders || {};
@@ -1572,8 +1583,8 @@ function updateTide(s) {
   // 1h keeps its measured window; the stored ranges name their span and the
   // store's own step, and say when the store holds less than the range asked
   const meta = state.range === "1h"
-    ? "gpu" + firstSched(s) + " memory, last " + Math.round((data.t[data.t.length - 1] - data.t[0]) / 60000) + " min, " + (state.history && state.history.every_seconds ? Math.round(state.history.every_seconds) : "?") + " s"
-    : "gpu" + firstSched(s) + " memory, " + RANGE_WORD[state.range] + rangeStepNote() + rangeSinceNote(state.history.samples);
+    ? tideCapacity(s).title + " memory, last " + Math.round((data.t[data.t.length - 1] - data.t[0]) / 60000) + " min, " + (state.history && state.history.every_seconds ? Math.round(state.history.every_seconds) : "?") + " s"
+    : tideCapacity(s).title + " memory, " + RANGE_WORD[state.range] + rangeStepNote() + rangeSinceNote(state.history.samples);
   tideMeta.textContent = meta;
   setAttr(tideChart.el, "aria-label", "scheduled card memory by holder, " + RANGE_WORD[state.range] + ". Focus shows a data point.");
   const lastHolder = data.series[1] ? (data.series[1].data[data.t.length - 1] || 0).toFixed(1) : "0";
@@ -1582,10 +1593,6 @@ function updateTide(s) {
   tideChart._sig = sig;
   tideChart.set({ t: data.t, total: data.total, series: data.series, events: data.events, holes: data.holes });
   paintTideLegend(data.series);
-}
-function firstSched(s) {
-  const g = ((s && s.gpus) || []).find((x) => x.scheduled);
-  return g ? g.index : "?";
 }
 function paintTideLegend(series) {
   tideLegend.replaceChildren();
@@ -1781,6 +1788,9 @@ function renderBerths(s) {
   for (const [idx, card] of berthCards) if (!seen.has(idx)) { card.root.remove(); berthCards.delete(idx); }
 }
 function updateBerth(card, g, s) {
+  // a lease or stowaway belongs on its own card's panel; one without a card
+  // (a berthd older than per-card status) shows on every card, as before
+  const onCard = (x) => !x.card || !g.card || x.card === g.card;
   card.root.classList.toggle("is-scheduled", !!g.scheduled);
   card.root.classList.toggle("inventory", !g.scheduled);
   // the card in a VM: its status names the state, its figures are the last
@@ -1808,14 +1818,14 @@ function updateBerth(card, g, s) {
     push("baseline", g.baseline, "seg-baseline", "baseline " + fmtGiB(g.baseline) + " GiB, driver reserved");
     const occupied = new Set();
     let seat = 0;
-    for (const l of [...(s.leases || []), ...(s.waiting || [])]) {
+    for (const l of [...(s.leases || []), ...(s.waiting || [])].filter(onCard)) {
       if (l.used > 0 && !occupied.has(l.id)) {
         occupied.add(l.id);
         seat += 1;
         push("lease:" + (l.id || "seat" + seat), l.used, "seg-lease" + (l.state === "stuck" ? " stuck" : " active"), l.engine + " " + fmtGiB(l.used) + " GiB" + (l.state === "stuck" ? " (aground)" : ""));
       }
     }
-    for (const q of s.squatters || []) push("squat:" + (q.pid || q.name), q.used, "seg-squatter", "stowaway " + q.name + " " + fmtGiB(q.used) + " GiB, no lease");
+    for (const q of (s.squatters || []).filter(onCard)) push("squat:" + (q.pid || q.name), q.used, "seg-squatter", "stowaway " + q.name + " " + fmtGiB(q.used) + " GiB, no lease");
   }
   bands.push({ key: "free", width: 0, cls: "seg-free", title: "" });
   syncKeyed(card.bar, bands, (b) => b.key, () => el("div", "seg"), (node, b) => {
@@ -1849,7 +1859,7 @@ function updateBerth(card, g, s) {
   if (g.scheduled) {
     const fp = {};
     for (const f of (s && s.footprints) || []) if (f.engine) fp[f.engine] = f.estimated_vram_bytes || 0;
-    for (const l of s.leases || []) {
+    for (const l of (s.leases || []).filter(onCard)) {
       const tier = l.state === "stuck" ? "AGROUND" : l.state === "parking" ? "PARKING" : l.state === "parked" ? "WARM" : "DOCKED";
       let ram = "";
       if (l.state === "parked") {
@@ -1860,7 +1870,7 @@ function updateBerth(card, g, s) {
       const sits = l.group === "vfio" ? "in the VM" : l.state === "parked" ? ram.trim() : l.used > 0 ? fmtGiB(l.used) + " GiB" : "draining";
       card.occ.append(el("div", cls, el("span", "who", tier + " " + l.engine + " " + (l.id || "")), el("span", null, sits)));
     }
-    for (const q of s.squatters || []) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
+    for (const q of (s.squatters || []).filter(onCard)) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
     if (card.occ.childElementCount === 0) card.occ.append(el("div", "occ", el("span", "who", "all berths free")));
   }
 }
@@ -2052,7 +2062,7 @@ function renderStowaways(s) {
   if (sq.length === 0) list.append(el("div", "empty-note", "no stowaways on the card"));
   for (const q of sq) {
     const row = el("div", "sq");
-    row.append(el("div", "top", el("span", "name", q.name || "unknown"), el("span", null, "pid " + q.pid)), el("div", "meta", fmtGiB(q.used) + " GiB held, seen " + fmtAge(q.age_seconds) + " ago"));
+    row.append(el("div", "top", el("span", "name", q.name || "unknown"), el("span", null, (cardTag(s, q.card) ? cardTag(s, q.card) + ", " : "") + "pid " + q.pid)), el("div", "meta", fmtGiB(q.used) + " GiB held, seen " + fmtAge(q.age_seconds) + " ago"));
     if (q.unprotected_run) row.append(el("div", "noticket", "no ticket: " + q.unprotected_run));
     list.append(row);
   }
@@ -2416,8 +2426,8 @@ function boardEntries(s) {
   const fp = {};
   for (const f of (s && s.footprints) || []) if (f.engine) fp[f.engine] = f.estimated_vram_bytes || 0;
   const out = [];
-  for (const l of s.leases || []) out.push({ key: l.id || l.engine + "#" + out.length, lease: l, isWaiting: false, fp: fp[l.engine] || 0 });
-  for (const l of s.waiting || []) out.push({ key: l.id || "wait-" + l.engine, lease: l, isWaiting: true, fp: fp[l.engine] || 0 });
+  for (const l of s.leases || []) out.push({ key: l.id || l.engine + "#" + out.length, lease: l, isWaiting: false, fp: fp[l.engine] || 0, berth: cardTag(s, l.card) });
+  for (const l of s.waiting || []) out.push({ key: l.id || "wait-" + l.engine, lease: l, isWaiting: true, fp: fp[l.engine] || 0, berth: cardTag(s, l.card) });
   return out;
 }
 // History-driven panels refresh together: tide, throughput, KPI sparklines,
