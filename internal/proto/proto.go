@@ -58,7 +58,10 @@ const (
 	OpParked     = "parked"
 	OpParkFailed = "park_failed"
 	OpResume     = "resume"
-	OpAwake      = "awake"
+	// OpSwitch: a person switched to an engine whose lease is queued, so
+	// that lease wins a juggle as a switched acquire does.
+	OpSwitch = "switch"
+	OpAwake  = "awake"
 
 	// OpLend: the daemon asks a serving holder's runner to give part of its
 	// memory on one card to a waiter that does not fit while the holder keeps

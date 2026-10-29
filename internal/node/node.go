@@ -222,6 +222,20 @@ func (n *Node) Resume(engine string, switched bool) error {
 	return first
 }
 
+// Switch marks the engine's queued lease on whichever card holds it as a
+// person's switch.
+func (n *Node) Switch(engine string) error {
+	var first error
+	for _, c := range n.cards {
+		err := c.B.Switch(engine)
+		if err == nil || !broker.IsNotFound(err) {
+			return err
+		}
+		first = cmpErr(first, err)
+	}
+	return first
+}
+
 // Reclaim lists what a stuck lease recorded: the one named id on whichever
 // card holds it, or, for "", every stuck lease on every card.
 func (n *Node) Reclaim(id string) ([]proto.Holder, error) {
