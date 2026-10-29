@@ -146,3 +146,32 @@ func TestInsightsComputedOncePerInterval(t *testing.T) {
 		t.Fatalf("idle after a minute: %d requests in 5m, want 1", in.Requests5m)
 	}
 }
+
+// llama-swap numbers its activity from 1 again after a restart. A request
+// after the restart is a new row, not the old one with the same number:
+// the harbor stores rows by ID and ignores one it has, so a reused ID
+// dropped every request after a restart from its history.
+func TestRequestIDsSurviveALlamaSwapRestart(t *testing.T) {
+	after := time.Now().Truncate(time.Second).Add(-time.Minute)
+	before := after.Add(-3 * time.Hour)
+	body := fmt.Sprintf(`{"data":[{"id":232,"timestamp":%q,"model":"Qwen3.6-35B-A3B-IQ4-Agent","resp_status_code":200,"tokens":{"output_tokens":10}}]}`, before.Format(time.RFC3339))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/running":
+			fmt.Fprint(w, `{"running":[]}`)
+		case "/api/metrics/activity":
+			fmt.Fprint(w, body)
+		}
+	}))
+	defer srv.Close()
+	w := &Watcher{Engines: []config.Engine{{Name: "llama-swap", Type: "llama-swap", URL: srv.URL}}}
+	w.Poll(context.Background())
+	body = fmt.Sprintf(`{"data":[{"id":232,"timestamp":%q,"model":"NInfer-Qwen3.8-27B","resp_status_code":200,"tokens":{"output_tokens":1}}]}`, after.Format(time.RFC3339))
+	w.Poll(context.Background())
+
+	got := w.Requests(time.Time{})
+	if len(got) != 2 || got[0].ID != fmt.Sprintf("llama-swap/232@%d", before.Unix()) ||
+		got[1].ID != fmt.Sprintf("llama-swap/232@%d", after.Unix()) || got[1].Model != "NInfer-Qwen3.8-27B" {
+		t.Fatalf("requests = %+v, want both 232s as two rows", got)
+	}
+}
