@@ -152,6 +152,9 @@ func (w *Watcher) Poll(ctx context.Context) {
 	w.mu.Unlock()
 }
 
+// Finished records that the engine named name exited cleanly.
+func (w *Watcher) Finished(name string) {}
+
 // Snapshot is the last reading of every engine, in config order.
 func (w *Watcher) Snapshot() []proto.Engine {
 	if w == nil {

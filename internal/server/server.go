@@ -115,6 +115,9 @@ type Extras struct {
 	Alerts func() *proto.Alerts
 	// Pair is the harbor's device pairing; nil turns the OpPair* ops off.
 	Pair *pair.Store
+	// Finished hears that a run's engine exited 0, by the lease's engine
+	// name.
+	Finished func(engine string)
 }
 
 // Serve answers clients on ln.
