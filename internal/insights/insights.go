@@ -139,10 +139,19 @@ func Compute(reqs []proto.Request, gen []Gen, cols []Col, since, now time.Time) 
 			decBy[k] = append(decBy[k], q.DecodeTPS)
 		}
 	}
+	logged := map[key]bool{}
+	for k := range rows {
+		logged[k] = true
+	}
 	for _, g := range gen {
 		k := key{g.Engine, g.Model}
-		if rows[k] == nil {
-			continue
+		// An engine with no request log (llama.cpp) gets its row from the
+		// counters alone: output and decode, with the request count unknown.
+		if !logged[k] {
+			if rows[k] == nil {
+				rows[k] = &proto.BoardRow{Engine: g.Engine, Model: g.Model}
+			}
+			rows[k].Output += g.Out
 		}
 		decBy[k] = append(decBy[k], g.Out/g.OutSec)
 		draftBy[k] += g.Draft

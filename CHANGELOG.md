@@ -33,6 +33,8 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A llama.cpp engine now shows its model, from `model_alias` in `/props`, and gets a leaderboard row from its token
+  counters. llama.cpp keeps no request log, so the row's request count shows as `-`.
 - Strata's requests now reach the token ledger and the leaderboard, each under the model the engine's `/health`
   names, so two Strata engines serving two quants get two rows on whatever port they run. Only llama-swap's
   requests were counted before. A Strata entry needs `type = "strata"`, because the `llamacpp` reader names no model.
