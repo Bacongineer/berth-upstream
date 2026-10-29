@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/insights"
@@ -64,8 +65,10 @@ func (w *Watcher) activity(ctx context.Context, engine, base string) error {
 		// and is left out of every average.
 		k := func(v float64) float64 { return max(v, 0) }
 		t := d.Tokens
+		// The number restarts at 1 with llama-swap, so the request's own
+		// time makes the ID one the harbor has never stored.
 		q := proto.Request{
-			ID: engine + "/" + d.ID.String(), Engine: engine, Model: d.Model, T: d.Timestamp, Status: d.Status,
+			ID: engine + "/" + d.ID.String() + "@" + strconv.FormatInt(d.Timestamp.Unix(), 10), Engine: engine, Model: d.Model, T: d.Timestamp, Status: d.Status,
 			Prompt: k(t.Input) + k(t.Cache), Cache: k(t.Cache), Output: k(t.Output),
 			Draft: k(t.Draft), DraftAcc: k(t.DraftAcc),
 			PrefillTPS: k(t.Prefill), DecodeTPS: k(t.Decode), DurationMS: k(d.DurationMS),

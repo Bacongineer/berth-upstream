@@ -317,3 +317,34 @@ func TestSwitchOutlivesAnEarlierJuggleLoss(t *testing.T) {
 	chat.Release()
 	must(t, w).Release()
 }
+
+// A person who switches to an engine whose start already lost a juggle
+// wins it: the queued lease becomes the last switch and drains the holder,
+// where it waited until the holder let go (llama-swap's ttl, 300 s here).
+func TestSwitchWinsAQueuedJuggleLoser(t *testing.T) {
+	b, _ := jugglers(t, Config{Order: []string{"llama-swap", "strata"}})
+	strata := must(t, acquire(b, Request{Engine: "strata", Priority: Foreground}))
+	ninfer := acquire(b, Request{Engine: "NInfer-Qwen3.8-27B", Group: "llama-swap", Priority: Foreground})
+	pending(t, ninfer)
+	drained(t, strata)
+	strata.Release()
+	b.Tick(context.Background())
+	n := must(t, ninfer)
+
+	again := acquire(b, Request{Engine: "strata", Priority: Foreground})
+	pending(t, again)
+	notDrained(t, n)
+	if err := b.Switch("strata"); err != nil {
+		t.Fatalf("switch: %v", err)
+	}
+	if why := drained(t, n); why != "strata (foreground) needs the card" {
+		t.Fatalf("drain reason %q", why)
+	}
+	n.Release()
+	b.Tick(context.Background())
+	must(t, again).Release()
+
+	if err := b.Switch("comfyui"); !IsNotFound(err) || err.Error() != "comfyui has no queued lease" {
+		t.Fatalf("switch with nothing queued = %v", err)
+	}
+}

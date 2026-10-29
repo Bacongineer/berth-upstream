@@ -33,6 +33,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A switch from the wake page or `/v1/berth/switch` now wins the card when a request already started that engine
+  and its lease lost a juggle. The switch did nothing, and the engine waited until the holder let go (300 s for a
+  llama-swap model with ttl 300).
 - A llama.cpp engine now shows its model, from `model_alias` in `/props`, and gets a leaderboard row from its token
   counters. llama.cpp keeps no request log, so the row's request count shows as `-`.
 - Strata's requests now reach the token ledger and the leaderboard, each under the model the engine's `/health`

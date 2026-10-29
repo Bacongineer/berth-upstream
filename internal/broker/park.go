@@ -387,3 +387,20 @@ func subtract(as, bs []*lease) []*lease {
 	}
 	return out
 }
+
+// Switch makes the engine's queued lease a person's switch, as
+// Request.Switched does at acquire: it wins a juggle it already lost.
+func (b *Broker) Switch(engine string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, l := range b.queue {
+		if l.engine != engine && l.key() != engine {
+			continue
+		}
+		l.switched = true
+		l.lostTo, l.lostWhy = "", ""
+		b.schedule(b.now())
+		return nil
+	}
+	return notFound(engine + " has no queued lease")
+}
