@@ -84,16 +84,14 @@ export function cardRange(cards) {
   return n.every((v, i) => i === 0 || v === n[i - 1] + 1) ? sorted[0] + ".." + sorted[n.length - 1] : sorted.join(",");
 }
 // leaseCardLine is what a lease serves: the models its engine reports loaded
-// or ready, or the engine name when it reports none. A llama-swap model's
-// lease already is the model. cards lists the lease's cards when it sits on
-// more than one (a lease on several cards is one share per card, one id).
+// or ready, or the lease's engine name when no engine of that name reports
+// one (a llama-swap model's lease is named for the model already). cards
+// lists the lease's cards when it sits on more than one (a lease on several
+// cards is one share per card, one id).
 export function leaseCardLine(status, lease) {
-  let model = lease.engine;
-  if (!lease.group) {
-    const eng = ((status && status.engines) || []).find((e) => e.name === lease.engine);
-    const up = ((eng && eng.models) || []).filter((m) => m.state === "loaded" || m.state === "ready").map((m) => m.name);
-    if (up.length > 0) model = up.join(", ");
-  }
+  const eng = ((status && status.engines) || []).find((e) => e.name === lease.engine);
+  const up = ((eng && eng.models) || []).filter((m) => m.state === "loaded" || m.state === "ready").map((m) => m.name);
+  const model = up.length > 0 ? up.join(", ") : lease.engine;
   const cards = lease.id
     ? ((status && status.leases) || []).filter((l) => l.id === lease.id && l.card).map((l) => l.card)
     : [];
