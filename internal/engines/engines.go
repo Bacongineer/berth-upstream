@@ -210,6 +210,9 @@ func (w *Watcher) attribute(cur, prev proto.Engine) {
 	}
 	w.gen = append(w.gen, g)
 	w.insDirty = true
+	if w.since.IsZero() {
+		w.since = time.Now()
+	}
 	cut := time.Now().Add(-keepRequests)
 	i := 0
 	for i < len(w.gen) && w.gen[i].t.Before(cut) {
@@ -306,10 +309,14 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 			out.MetricsReported = true
 			if b, perr := w.get(ctx, base+"/props"); perr == nil {
 				var p struct {
-					NCtx int `json:"n_ctx"`
+					NCtx  int    `json:"n_ctx"`
+					Alias string `json:"model_alias"`
 				}
 				if json.Unmarshal(b, &p) == nil {
 					out.Window = p.NCtx
+					if p.Alias != "" {
+						out.Models = append(out.Models, proto.Model{Name: p.Alias, State: "loaded", Window: p.NCtx})
+					}
 				}
 			}
 			if ss, serr := w.slots(ctx, base+"/slots", "", ""); serr == nil {
