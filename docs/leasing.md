@@ -54,7 +54,8 @@
   is three clean handoffs. A person's switch (Launch on the gateway's wake page, or
   `/v1/berth/switch`) is never a juggle: it takes the card whatever the ranking says, and inside
   the window a request no person made (a chat client's background call) does not take it back.
-  To keep it longer, give the engine a `min_turn`.
+  A switch to an engine whose start a request already queued, and lost a juggle, reaches that
+  start's lease and takes the card too. To keep it longer, give the engine a `min_turn`.
 
   ```toml
   [priority]

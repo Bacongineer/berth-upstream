@@ -2,7 +2,7 @@
 
 | Engine | Reader (`type`) | Found on its own | What Berth reads |
 |---|---|---|---|
-| llama.cpp `llama-server` | `llamacpp` | :8080 | tokens, rates, queue, context window, KV slots |
+| llama.cpp `llama-server` | `llamacpp` | :8080 | tokens, rates, queue, context window, KV slots, the model from `model_alias` in `/props`. llama.cpp keeps no request log, so its leaderboard row comes from its counters and shows `-` for requests |
 | llama-swap | `llama-swap` | :8080 | every running model's upstream, request log, per-model window |
 | Ollama | `ollama` | :11434 | loaded models and their VRAM |
 | vLLM | `vllm` | :8000 | models, window; tokens and queue from `/metrics` |

@@ -149,7 +149,8 @@ question an operator actually asks.
 - **The berths, the machine, stowaways and no ticket** answer "what else is on the
   card and the host, and who holds memory without a ticket?"
 - **Several cards.** When berthd governs more than one card, each card has its own berth panel that lists
-  only the leases and stowaways on that card. A board row and a stowaway name their card (`gpu1`), a lease
+  only the leases and stowaways on that card. Each lease line names the model its engine reports
+  loaded, and a lease on several cards adds its card list (`on gpu0..gpu4`). A board row and a stowaway name their card (`gpu1`), a lease
   ticket reads its own card's figures, and the tide draws the memory history against the sum of the
   scheduled cards. Past three cards the berth label gives the count. One card in a VM marks only that card.
   A hidden tab stops the header clock and the polling for updates.
