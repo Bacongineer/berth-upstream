@@ -127,6 +127,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Fixed
 
+- A `berth run` engine that exits 0 now shows as offline on the engines tab and in `berth status`. It showed as
+  unresponsive with a red error until it ran again, the same as an engine that crashed. A non-zero exit still shows
+  as unresponsive (#265).
 - A switch from the wake page or `/v1/berth/switch` now wins the card when a request already started that engine
   and its lease lost a juggle. The switch did nothing, and the engine waited until the holder let go (300 s for a
   llama-swap model with ttl 300).

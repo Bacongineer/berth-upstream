@@ -50,9 +50,10 @@ type Watcher struct {
 
 	mu       sync.Mutex
 	state    map[string]proto.Engine
-	latched  map[string]bool // engine -> was up on a previous read and is failing again (State "latched")
-	reqs     []proto.Request // the request log, oldest first
-	gen      []genSample     // counter deltas while exactly one model was loaded
+	latched  map[string]bool      // engine -> was up on a previous read and is failing again (State "latched")
+	exited   map[string]time.Time // engine -> when its run last exited 0
+	reqs     []proto.Request      // the request log, oldest first
+	gen      []genSample          // counter deltas while exactly one model was loaded
 	seen     map[string]bool
 	since    time.Time
 	ins      *proto.Insights // the last Insights result, computed at insAt
@@ -135,7 +136,7 @@ func (w *Watcher) Poll(ctx context.Context) {
 			delete(w.latched, e.Name)
 		case w.latched[e.Name]:
 			cur.State = "latched" // was up; still not answering
-		case prev.Up:
+		case prev.Up && prev.At.After(w.exited[e.Name]):
 			cur.State = "latched"
 			w.latched[e.Name] = true
 		default:
@@ -152,8 +153,26 @@ func (w *Watcher) Poll(ctx context.Context) {
 	w.mu.Unlock()
 }
 
-// Finished records that the engine named name exited cleanly.
-func (w *Watcher) Finished(name string) {}
+// Finished records that the engine named name exited cleanly, so it
+// stopped answering on purpose: its latch clears, and a reading taken
+// before the exit cannot latch it again.
+func (w *Watcher) Finished(name string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, e := range w.all() {
+		if !strings.EqualFold(e.Name, name) {
+			continue
+		}
+		if w.exited == nil {
+			w.exited = map[string]time.Time{}
+		}
+		w.exited[e.Name] = time.Now()
+		delete(w.latched, e.Name)
+	}
+}
 
 // Snapshot is the last reading of every engine, in config order.
 func (w *Watcher) Snapshot() []proto.Engine {

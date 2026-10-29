@@ -181,7 +181,7 @@ func handle(ctx context.Context, c net.Conn, n *node.Node, x Extras, log *slog.L
 		}
 		reply(conn, log, proto.Msg{Op: proto.OpRequests, Requests: rs})
 	case proto.OpAcquire, proto.OpReattach:
-		hold(ctx, conn, first, n, log)
+		hold(ctx, conn, first, n, x.Finished, log)
 	case proto.OpReclaim:
 		reclaim(conn, log, first, n)
 	case proto.OpStop:
@@ -199,7 +199,7 @@ func handle(ctx context.Context, c net.Conn, n *node.Node, x Extras, log *slog.L
 	}
 }
 
-func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, log *slog.Logger) {
+func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, finished func(string), log *slog.Logger) {
 	u := &consumer{conn: conn, log: log}
 	prio, err := broker.ParsePriority(req.Priority)
 	if err != nil || req.Engine == "" {
@@ -228,6 +228,12 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, lo
 			m, err := conn.Recv()
 			if err != nil {
 				return
+			}
+			if m.Op == proto.OpFinished {
+				if finished != nil {
+					finished(req.Engine)
+				}
+				continue
 			}
 			select {
 			case incoming <- m:

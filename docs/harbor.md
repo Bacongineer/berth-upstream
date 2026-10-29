@@ -183,7 +183,9 @@ and what every state word and figure means.
   `/health`, llama-swap per model proxy), and the live KV slot pool (`/slots`: per-slot
   context tokens against the window). An engine without those endpoints degrades to
   "no window / no slot data", never an error. An engine that was up and stops
-  answering is shown as **unresponsive** (latched), distinct from one that never ran.
+  answering is shown as **unresponsive** (latched), distinct from one that never ran. A
+  `berth run` engine that exits 0 shows as offline, since a batch job that finishes stops
+  answering on purpose. One that exits with any other code stays unresponsive.
 - **Requests:** a 24-hour request log from llama-swap and Strata (a Strata entry needs
   `type = "strata"`, and each request lands under the model its `/health` names); requests per minute, p50 and p95
   latency, prefill time, time per output token, cache and re-ingest share, a token ledger
