@@ -255,7 +255,6 @@ func Run(o Options) int {
 	}
 
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
 
 	if o.CLI == nil {
 		o.CLI = execCLI
@@ -266,6 +265,7 @@ func Run(o Options) int {
 	// line is the lease's live conn and park state; the drain, the resume
 	// and the container resolver ride it across reattach loops.
 	line := newLine(conn)
+	go forwardSignals(cmd, done, func() bool { return o.Checkpoint && line.isParked() })
 
 	// A container engine resolves its containers to their full IDs and names
 	// them on the lease, so the broker attributes the engine's GPU processes
@@ -693,7 +693,7 @@ func runUnleased(o Options, reason string) int {
 	afterStart(cmd)
 	defer record(o, cmd, reason)()
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
+	go forwardSignals(cmd, done, func() bool { return false })
 	err := cmd.Wait()
 	afterWait(cmd)
 	close(done)
@@ -756,7 +756,7 @@ func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
 // to the engine's whole process group.
-func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
+func forwardSignals(cmd *exec.Cmd, done <-chan struct{}, locked func() bool) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, stopSignals...)
 	defer signal.Stop(ch)
