@@ -26,6 +26,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -84,7 +85,7 @@ func parkDaemonAt(t *testing.T, sock string, card gpu.Probe, avail uint64) (*bro
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go b.Run(ctx)
-	go func() { _ = server.Serve(ctx, ln, b, server.Extras{}, log); close(done) }()
+	go func() { _ = server.Serve(ctx, ln, node.One(b), server.Extras{}, log); close(done) }()
 	var once sync.Once
 	stop := func() { once.Do(func() { cancel(); <-done }) }
 	t.Cleanup(stop)

@@ -35,7 +35,7 @@ before they call it. `berth gateway` starts it for them. Give an engine a `start
 ```toml
 [[engine]]
 name     = "strata"
-type     = "llamacpp"
+type     = "strata"
 url      = "http://127.0.0.1:8080"
 start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata",
             "--config", "strata-262k.json", "--port", "8080"]
@@ -88,7 +88,7 @@ refuses chains and a fallback that is not an engine in the file.
 ```toml
 [[engine]]
 name     = "strata"
-type     = "llamacpp"
+type     = "strata"
 url      = "http://127.0.0.1:8080"
 start    = ["/path/to/strata/.venv/bin/python", "serve/server.py", "--engine", "strata", "--port", "8080"]
 serves   = ["qwen3.8-flash-next-iq2_xs"]
@@ -167,8 +167,8 @@ that left are dropped. Restarting during a cold start (up to 85 s for Strata) co
 restart itself.
 
 **Stopping the gateway keeps its engines too.** Each engine runs outside the gateway's cgroup (above),
-so stopping the gateway service does not stop the engines: they stay on the card under their own leases
-and keep answering. `berth stop ENGINE` is how one is stopped on purpose: the daemon asks the engine's
+so stopping the gateway service does not stop the engines. They stay on the card under their own leases
+and keep answering. `berth stop ENGINE` is how one is stopped on purpose, a parked or parking engine too. The daemon asks the engine's
 leases to give the card back through the normal stop ladder, as when another engine asks for it, and a
 lease frees only after a card read shows the engine's memory gone. `berth stop ENGINE --wait` follows
 the daemon's event log until the leases are freed (exit 0) or stuck (exit 2, pointing at `berth reclaim`
@@ -277,7 +277,8 @@ curl -s http://127.0.0.1:9799/v1/berth/stop   -H "Authorization: Bearer $(berth 
 `GET /v1/berth/board` is the node in one read, for a board or a script: the card (who holds it, and whether it is
 free, held, draining, in a VM or failing its probe), then every engine in `berth.toml` with its state (up, offline,
 waiting, starting, failed), whether it can be switched to (`launch`) or stopped (`stoppable`), and its models with a
-`loaded` flag from the engine's own reader. `cards` is a list so a node with more cards needs no new shape.
+`loaded` flag from the engine's own reader. `cards` lists every card the node governs, each with its name
+on the node (`card`, such as `gpu1`) and the holders on that card alone.
 
 ## Run an engine whenever the card is free
 
@@ -291,7 +292,7 @@ type       = "custom"
 url        = "http://127.0.0.1:8000"
 health     = "/health"
 start      = ["docker", "start", "-a", "immich-pet-tagger"]
-container  = "immich-pet-tagger"   # the drain runs docker stop (Linux)
+container  = "immich-pet-tagger"   # the drain runs docker stop
 needs_mib  = 2560
 background = true
 idle_after = "60s"                 # how long the card must stay free first (default 60 s)
@@ -303,8 +304,39 @@ idle_after = "60s"                 # how long the card must stay free first (def
 - Once the card has been free for `idle_after`, the gateway starts the first background engine in `berth.toml`.
 - Any other request drains it, as it drains any `batch` lease. It stays out until the card has been free for
   `idle_after` again, so a game, a `berth hold` or an engine that stays loaded keeps it out for as long as they last.
+- A desktop app with some card memory (a browser, a terminal) is a stowaway, so on a desktop the card is seldom
+  free. List those apps in `berth.toml` and they no longer keep a background engine out. Their memory still counts as
+  used when berthd decides what fits. `berth daemon --allow` takes the same list and replaces it when given.
+
+  ```toml
+  [squatters]
+  allow = ["chrome", "WindowsTerminal", "notepad++"]   # parts of process names
+  ```
 - A card back from a VM is a free card, so a background engine also picks up after a VFIO session.
+- On a machine with more than one card, the card is the one the entry's `gpu` names (the first card when it names
+  none). A lease, a waiter or a stowaway on another card does not keep it out. A running claimed app does, because a
+  claim holds every card.
 - A background engine needs `start`, runs at `batch` only, and needs no `serves`.
+
+An engine whose work needs a sidecar runs the same way as a Compose project. Set `compose` instead
+of `container` and the lease covers every container of the project, so a second CUDA service is its
+engine's memory rather than a stowaway:
+
+```toml
+[[engine]]
+name       = "pet-tagger"
+type       = "custom"
+url        = "http://127.0.0.1:8000"
+health     = "/health"
+start      = ["docker", "compose", "-f", "/srv/tagger/compose.yaml", "up"]
+compose    = "/srv/tagger/compose.yaml"   # absolute; set compose or container, not both
+needs_mib  = 2560
+background = true
+```
+
+A drain stops the project with `compose stop` and never `down`. On Windows the same two commands run,
+and a container engine that is alone on the card is also charged the WSL VM's measured GPU usage when
+that beats its `needs_mib`. Reading: [engines in a container or a Compose project](engines.md).
 
 ## Queue ComfyUI jobs while the card is away
 
@@ -375,7 +407,7 @@ until no slot reports `is_processing`, then stops it.
 ```toml
 [[engine]]
 name        = "strata"
-type        = "llamacpp"
+type        = "strata"
 url         = "http://127.0.0.1:8080"
 drain_slots = "http://127.0.0.1:8080"
 ```
@@ -551,7 +583,33 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   takes 14 s; for a llama-server that loads from the page cache in 5 s the
   gain is small. llama-swap still stops an idle model after its `ttl`, so set
   the ttl longer than the time you spend in the other engine. A missing
-  `cuda-checkpoint` leaves the drain as it was, with a warning.
+  `cuda-checkpoint` leaves the drain as it was, with a warning. A checkpointed
+  engine cannot act on SIGTERM, because its CUDA calls block. A stop signal,
+  `berth stop` or an eviction therefore kills it at once, so a parked engine
+  never stays alive holding its weights in RAM after llama-swap unloads it.
+
+## Engines that need the whole machine
+
+Some engines use more than the card. Strata fills the card and pins 40 GiB of RAM for its experts, and it
+reads the rest from the disk. A parked engine beside it takes from both. A parked ComfyUI keeps a CUDA
+context of about 530 MiB on the card, so Strata's expert cache comes out that much smaller. A parked NInfer
+keeps 22 GiB or more in RAM, which leaves Strata's 40 GiB to swap.
+
+Mark such an engine `whole_machine`:
+
+```toml
+[[engine]]
+name          = "strata"
+type          = "strata"
+url           = "http://127.0.0.1:8080"
+whole_machine = true
+```
+
+- **What it changes.** While the engine waits for its card, berthd refuses every park on that card. The
+  engine it drains is stopped instead, and a parked engine is evicted before the grant, whatever its
+  residual. When the engine starts, nothing else holds the card or a RAM copy.
+- **What it leaves alone.** Engines that switch among themselves (llama-swap, Ollama, ComfyUI) still park
+  beside each other. Only a switch to the whole-machine engine stops them.
 
 ## Lending part of a card
 

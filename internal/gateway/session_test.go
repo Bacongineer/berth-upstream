@@ -24,3 +24,15 @@ func TestRunArgvCarriesSessionPolicy(t *testing.T) {
 		t.Fatalf("lost idle deadline: %q", args)
 	}
 }
+
+// A gateway start of an entry with gpu = runs on that card.
+func TestRunArgvCarriesTheCard(t *testing.T) {
+	args := runArgv(runner.OptionsFor(&config.Engine{Name: "maya", GPU: "gpu1"}, runner.Over{}))
+	i := slices.Index(args, "--gpu")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "gpu1" {
+		t.Fatalf("lost the card: %q", args)
+	}
+	if bare := runArgv(runner.OptionsFor(&config.Engine{Name: "plain"}, runner.Over{})); slices.Contains(bare, "--gpu") {
+		t.Fatalf("an entry with no card gained one: %q", bare)
+	}
+}

@@ -96,37 +96,49 @@ func FromConfig(c config.AlertsConfig) map[Key]proto.Threshold {
 // Reading is one poll of the values the table can evaluate. V holds the
 // keys actually reported; absence never raises. Note carries human
 // context (the probe error, the stuck lease engines) for the messages.
+// Card names the card a card-level key was read from, even with one card.
 type Reading struct {
 	V    map[Key]float64
 	Note map[Key]string
+	Card map[Key]string
 }
 
 // FromStatus reads one status into a Reading: the exact values the node
-// would evaluate and notify on. The scheduled GPU is the first one
-// marked scheduled, else the first; power is present only when the
+// would evaluate and notify on. The card levels read the worst scheduled
+// GPU, else the first GPU; power is present only when the
 // driver reports both watts and a limit; cache is present only while
 // there was request traffic, so an idle engine never alarms.
 func FromStatus(st proto.Status) Reading {
-	r := Reading{V: map[Key]float64{}, Note: map[Key]string{}}
-	var g *proto.GPU
-	for i := range st.GPUs {
-		if st.GPUs[i].Scheduled {
-			g = &st.GPUs[i]
-			break
+	r := Reading{V: map[Key]float64{}, Note: map[Key]string{}, Card: map[Key]string{}}
+	var cards []proto.GPU
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			cards = append(cards, g)
 		}
 	}
-	if g == nil && len(st.GPUs) > 0 {
-		g = &st.GPUs[0]
+	if len(cards) == 0 && len(st.GPUs) > 0 {
+		cards = st.GPUs[:1]
 	}
-	if g != nil {
+	// Each card level reads the worst card; with several, the note names it.
+	worst := func(k Key, v float64, g proto.GPU) {
+		if old, ok := r.V[k]; ok && old >= v {
+			return
+		}
+		r.V[k] = v
+		r.Card[k] = g.Card
+		if len(cards) > 1 {
+			r.Note[k] = g.Card
+		}
+	}
+	for _, g := range cards {
 		if g.Temp >= 0 {
-			r.V[KeyTemp] = g.Temp
+			worst(KeyTemp, g.Temp, g)
 		}
 		if g.Power > 0 && g.PowerLimit > 0 {
-			r.V[KeyPower] = g.Power / g.PowerLimit
+			worst(KeyPower, g.Power/g.PowerLimit, g)
 		}
 		if g.Total > 0 {
-			r.V[KeyVRAM] = float64(g.Used) / float64(g.Total)
+			worst(KeyVRAM, float64(g.Used)/float64(g.Total), g)
 		}
 	}
 	r.V[KeyQueue] = float64(len(st.Waiting))
@@ -200,7 +212,7 @@ func (l Level) Name() string {
 type Evaluator struct {
 	Table      map[Key]proto.Threshold
 	ClearPolls int
-	OnChange   func(key Key, level Level, raised bool, msg string)
+	OnChange   func(key Key, level Level, raised bool, msg, card string)
 
 	level map[Key]Level
 	clean map[Key]int
@@ -208,7 +220,7 @@ type Evaluator struct {
 
 // New builds an Evaluator over table. A nil on is a no-op;
 // clearPolls <= 0 becomes 3.
-func New(table map[Key]proto.Threshold, clearPolls int, on func(key Key, level Level, raised bool, msg string)) *Evaluator {
+func New(table map[Key]proto.Threshold, clearPolls int, on func(key Key, level Level, raised bool, msg, card string)) *Evaluator {
 	if clearPolls <= 0 {
 		clearPolls = 3
 	}
@@ -241,7 +253,7 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 		case target > lv:
 			e.level[key] = target
 			e.clean[key] = 0
-			e.fire(key, target, true, msgFor(key, thr, target, r))
+			e.fire(key, target, true, msgFor(key, thr, target, r), r.Card[key])
 		case target == lv:
 			e.clean[key] = 0
 		default: // target < lv: one more clean poll toward a drop
@@ -249,7 +261,7 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 			if e.clean[key] >= e.ClearPolls {
 				e.level[key] = target
 				e.clean[key] = 0
-				e.fire(key, target, false, msgFor(key, thr, target, r))
+				e.fire(key, target, false, msgFor(key, thr, target, r), r.Card[key])
 			}
 		}
 		if l := e.level[key]; l != LevelOK {
@@ -259,11 +271,11 @@ func (e *Evaluator) Tick(r Reading) map[Key]Level {
 	return out
 }
 
-func (e *Evaluator) fire(key Key, level Level, raised bool, msg string) {
+func (e *Evaluator) fire(key Key, level Level, raised bool, msg, card string) {
 	if e.OnChange == nil {
 		return
 	}
-	e.OnChange(key, level, raised, msg)
+	e.OnChange(key, level, raised, msg, card)
 }
 
 // Snapshot is the wire form: the table and the keys held at a non-ok
@@ -316,7 +328,11 @@ func msgFor(key Key, thr proto.Threshold, level Level, r Reading) string {
 	if named == LevelCrit {
 		boundary = thr.Crit
 	}
-	return fmt.Sprintf("%s %s (%s at %s)", key, valueText(key, r.V[key]), named.Name(), thrText(key, boundary))
+	msg := fmt.Sprintf("%s %s (%s at %s)", key, valueText(key, r.V[key]), named.Name(), thrText(key, boundary))
+	if card := r.Note[key]; card != "" {
+		msg += " on " + card
+	}
+	return msg
 }
 
 func valueText(key Key, v float64) string {

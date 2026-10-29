@@ -11,12 +11,12 @@ package server
 import (
 	"log/slog"
 
-	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-func resume(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker) {
-	err := b.Resume(req.Engine, req.Switched)
+func resume(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
+	err := n.Resume(req.Engine, req.Switched)
 	switch {
 	case err == nil:
 		reply(conn, log, proto.Msg{Op: proto.OpGranted, Engine: req.Engine, Reason: "queued at its own priority"})
@@ -25,4 +25,14 @@ func resume(conn *proto.Conn, log *slog.Logger, req proto.Msg, b *broker.Broker)
 	default:
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 	}
+}
+
+// switched answers OpSwitch: the engine's queued lease is now a person's
+// switch.
+func switched(conn *proto.Conn, log *slog.Logger, req proto.Msg, n *node.Node) {
+	if err := n.Switch(req.Engine); err != nil {
+		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
+		return
+	}
+	reply(conn, log, proto.Msg{Op: proto.OpGranted, Engine: req.Engine, Reason: "switched"})
 }

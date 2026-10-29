@@ -32,20 +32,21 @@ func loops(dir string) []int {
 func TestStreamPauseStopsTheLoop(t *testing.T) {
 	bin, dir := fakeSMI(t)
 	s := &Stream{Bin: bin, Interval: 50 * time.Millisecond}
+	c := s.Card(0, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.Run(ctx)
 	waitUntil(t, func() bool { return len(loops(dir)) == 1 })
 	first := loops(dir)[0]
 
-	s.Pause(true)
+	c.Pause(true)
 	waitUntil(t, func() bool { return syscall.Kill(first, 0) != nil })
 	time.Sleep(3 * time.Second) // past Run's 2 s restart delay
 	if n := len(loops(dir)); n != 1 {
 		t.Fatalf("%d nvidia-smi loops started while paused, want 1", n)
 	}
 
-	s.Pause(false)
+	c.Pause(false)
 	waitUntil(t, func() bool { return len(loops(dir)) == 2 })
 }
 

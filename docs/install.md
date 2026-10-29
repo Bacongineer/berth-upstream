@@ -30,7 +30,8 @@ Linux machine, following its README and contrib/INTEGRATION.md. Steps:
    shows (ComfyUI: contrib/comfyui.service with --drain-comfyui; Ollama: a systemd override of
    `ollama serve`). For llama-swap, wire the whole roster in one pass instead of one model at a
    time: `berth wire llama-swap --config <llama-swap config> --write` keeps a backup beside the
-   file, keeps each model's original command, and `--check` exits 1 when a model is unwired.
+   file, keeps each model's original command, and `--check` exits 1 when a model is unwired. After
+   a Berth upgrade, `--write --update` rewrites the flags wire writes and keeps any you added by hand.
    Ask me which engine wins the card (--priority foreground) and which waits (interactive or
    batch). Back up every file before you edit it and tell me how to undo each change.
 6. Engines on non-default ports or other machines: add [[engine]] entries or
@@ -59,6 +60,17 @@ berth version
 
 Or build it: `go install github.com/T-Crypt/berth/cmd/berth@latest` (Go 1.27+, no C toolchain).
 
+On Windows 10 or 11, download `berth-windows-amd64.exe` and `SHA256SUMS` from the same release.
+Compare the hash PowerShell prints with the line in `SHA256SUMS`, then save the file as `berth.exe`
+in a folder on your `PATH`, such as `%LOCALAPPDATA%\Programs\berth`:
+
+```powershell
+(Get-FileHash .\berth-windows-amd64.exe -Algorithm SHA256).Hash.ToLower()
+```
+
+To update later, run `berth update`, then `berth service install` again so the tasks start the new
+binary.
+
 **2. The daemon and the UI** (one per machine). `berth service
 install --harbor` does this on both platforms; by hand, on Linux, they are
 systemd user units from `contrib/`:
@@ -71,6 +83,15 @@ systemctl --user enable --now berthd berth-harbor
 berth status            # the card, leases, stowaways, the engines and their estimated VRAM
 ```
 
+On Windows, `berth service install --harbor` creates Task Scheduler logon tasks under `\Berth\`
+that run in your session without admin rights, and starts them. Each task writes its log under the
+state directory, and `berth service status` prints where. `berth service uninstall` stops the running
+berthd, harbor and gateway before it deletes their tasks, and `berth service install` over an existing
+install stops each task before it starts it again.
+
+berthd governs every card it finds. On a machine with one card that changes nothing. To govern fewer
+cards, pass `--gpu` to `berth service install` or `berth daemon` (`--gpu 0` for the first card alone).
+
 Open <http://127.0.0.1:9798/>. Engines on their default ports appear on their own.
 
 **3. Wrap your engines** so they lease the card instead of grabbing it. The pattern:
@@ -82,8 +103,10 @@ berth run --as <name> --priority <batch|interactive|foreground> -- <the engine's
 Per-engine recipes (llama-swap, llama.cpp, Ollama, ComfyUI, vLLM, SGLang, custom) are in
 [contrib/INTEGRATION.md](https://github.com/T-Crypt/berth/blob/main/contrib/INTEGRATION.md).
 
-**4. Optional configuration** in `~/.config/berth/berth.toml`; validate with
-`berth config check`:
+**4. Optional configuration** in `~/.config/berth/berth.toml` (on Windows,
+`%AppData%\berth\berth.toml`); validate with `berth config check`. On Windows, berthd's
+socket is `%LOCALAPPDATA%\berth\berth.sock`, and its state files and service logs are under
+`%USERPROFILE%\.local\state\berth`.
 
 ```toml
 [metrics]
@@ -96,6 +119,9 @@ listen = "127.0.0.1:9797"      # Prometheus text, loopback only
 # discover = true              # default: probe the well-known engine ports every minute
 # discover_ports = [9123]      # extra ports to probe
 # discover_hosts = ["192.168.1.40"]
+
+[squatters]
+# allow = ["chrome"]           # process names that are never squatters, so a browser does not keep the card from being free
 
 [[engine]]                     # anything discovery does not find, on any port
 name = "llama-swap"

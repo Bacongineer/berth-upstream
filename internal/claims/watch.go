@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -28,12 +29,15 @@ type Broker interface {
 	Note(e proto.Event)
 }
 
-// Watcher scans the process table and keeps the broker's claims current.
+// Watcher scans the process table and keeps the claims of every card on the
+// node current. A hold holds every card: the process table cannot say which
+// card a game will draw on. Cards[0] notes the claim events, since the
+// node's cards share one event log.
 type Watcher struct {
 	Rules []Rule // compiled
 	Every time.Duration
 	Scan  func() ([]Proc, error) // nil = Scan
-	B     Broker
+	Cards []Broker
 	Log   *slog.Logger
 
 	mu    sync.Mutex
@@ -43,8 +47,8 @@ type Watcher struct {
 type hold struct {
 	cancel   context.CancelFunc
 	lastSeen time.Time
-	lease    string // granted lease id, or "" while waiting
-	waiting  string // the broker's last wait reason
+	leases   []string // granted lease id per card, "" while that card waits
+	waiting  string   // the last wait reason any card gave
 }
 
 // Run scans until ctx ends, then lets every hold go.
@@ -112,50 +116,60 @@ func (w *Watcher) Tick(ctx context.Context, now time.Time) {
 				h.cancel()
 				delete(w.holds, r.Name)
 				w.Log.Info("claim ended", "claim", r.Name)
-				w.B.Note(proto.Event{Kind: proto.EvClaimEnded, Engine: "claim:" + r.Name,
+				w.Cards[0].Note(proto.Event{Kind: proto.EvClaimEnded, Engine: "claim:" + r.Name,
 					Detail: fmt.Sprintf("gone for %s", r.Linger)})
 				h = nil
 			}
 			if h != nil {
-				st.Active, st.Lease = true, h.lease
-				if h.lease == "" && h.waiting != "" {
+				st.Active, st.Lease = true, h.granted()
+				if st.Lease == "" && h.waiting != "" {
 					st.Procs = strings.TrimSpace(st.Procs + " (waiting: " + h.waiting + ")")
 				}
 			}
 		}
 		states = append(states, st)
 	}
-	w.B.SetClaims(tracked, states)
+	for _, b := range w.Cards {
+		b.SetClaims(tracked, states)
+	}
+}
+
+// granted is the lease IDs the hold has been granted so far, comma
+// separated. Called with w.mu held.
+func (h *hold) granted() string {
+	return strings.Join(slices.DeleteFunc(slices.Clone(h.leases), func(id string) bool { return id == "" }), ",")
 }
 
 // start asks for the card on the rule's behalf. Called with w.mu held.
 func (w *Watcher) start(ctx context.Context, r *Rule, m []Proc, now time.Time) {
 	hctx, cancel := context.WithCancel(ctx)
-	h := &hold{cancel: cancel, lastSeen: now}
+	h := &hold{cancel: cancel, lastSeen: now, leases: make([]string, len(w.Cards))}
 	w.holds[r.Name] = h
 	who := names(m)
-	w.Log.Info("claim started: holding the card", "claim", r.Name, "procs", who)
-	w.B.Note(proto.Event{Kind: proto.EvClaimStarted, Engine: "claim:" + r.Name, Detail: who})
+	w.Log.Info("claim started: holding the card", "claim", r.Name, "procs", who, "cards", len(w.Cards))
+	w.Cards[0].Note(proto.Event{Kind: proto.EvClaimStarted, Engine: "claim:" + r.Name, Detail: who})
 	req := broker.Request{Engine: "claim:" + r.Name, Group: "claim", Priority: broker.Hold,
 		Needs: r.NeedsMiB << 20, Wait: HoldWait, Pinned: true}
-	go func() {
-		l, err := w.B.Acquire(hctx, req, func(why string) {
-			w.mu.Lock()
-			h.waiting = why
-			w.mu.Unlock()
-		})
-		if err != nil {
-			if hctx.Err() == nil {
-				w.Log.Warn("claim hold refused", "claim", r.Name, "err", err)
+	for i, b := range w.Cards {
+		go func() {
+			l, err := b.Acquire(hctx, req, func(why string) {
+				w.mu.Lock()
+				h.waiting = why
+				w.mu.Unlock()
+			})
+			if err != nil {
+				if hctx.Err() == nil {
+					w.Log.Warn("claim hold refused", "claim", r.Name, "err", err)
+				}
+				return
 			}
-			return
-		}
-		w.mu.Lock()
-		h.lease = l.ID()
-		w.mu.Unlock()
-		<-hctx.Done()
-		l.Release()
-	}()
+			w.mu.Lock()
+			h.leases[i] = l.ID()
+			w.mu.Unlock()
+			<-hctx.Done()
+			l.Release()
+		}()
+	}
 }
 
 func pids(ps []Proc) []int {

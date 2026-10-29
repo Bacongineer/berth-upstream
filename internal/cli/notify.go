@@ -52,7 +52,7 @@ func runNotify(c *Context) int {
 	defer stop()
 	log := c.Log()
 	log.Info("notifications on", "level", raw, "socket", *sock)
-	notify.Follow(ctx, eventSource(*sock), sender, level, time.Now(), 2*time.Second, log)
+	notify.Follow(ctx, eventSource(*sock), func() int { return nodeCards(*sock) }, sender, level, time.Now(), 2*time.Second, log)
 	return ExitOK
 }
 

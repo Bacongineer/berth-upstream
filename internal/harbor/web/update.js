@@ -41,4 +41,4 @@ async function refreshNotice() {
 }
 
 refreshNotice();
-setInterval(refreshNotice, CHECK_MS);
+setInterval(() => { if (!document.hidden) refreshNotice(); }, CHECK_MS);

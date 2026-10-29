@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -160,6 +161,84 @@ func TestSizedWaiterIsGrantedByALend(t *testing.T) {
 	}
 }
 
+// A whole-card holder counts what the card can hand out, not its total: the
+// baseline (a display, a driver's own memory) was never the holder's. Counted
+// at the total, the baseline sat inside the holder and was taken off the card
+// again, so a confirmed lend left the waiter short by it and the holder was
+// drained, and the take-back never fit. Seen on #189 with a 121 MiB baseline.
+func TestLendOnACardWithABaseline(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "maya", 100, 101, 22*GiB)
+	c.used = 22*GiB + 512*gpu.MiB // 512 MiB that no process holds
+	b.Tick(context.Background())
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+
+	if got, want := takeLend(t, holder), (LendAsk{MiB: 4096, FreeMiB: 1536}); got != want {
+		t.Fatalf("lend ask = %+v, want %+v", got, want)
+	}
+
+	holder.Lent("t1", 4*GiB)
+	c.used = 18*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB})
+	b.Tick(context.Background())
+	borrower := granted(t, b, "voice", w)
+	noDrain(t, holder)
+	if got := statusOf(t, b, "maya"); got.State != "active" {
+		t.Fatalf("holder state = %s, want active: a lending engine keeps serving", got.State)
+	}
+
+	borrower.Attach(200)
+	c.used = 22*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB}, gpu.Proc{PID: 201, Name: "voice", Used: 4 * GiB})
+	b.Tick(context.Background())
+	borrower.Release()
+	c.used = 18*GiB + 512*gpu.MiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 18 * GiB})
+	b.Tick(context.Background())
+	if got, want := takeReturn(t, holder), (ReturnAsk{ID: "t1"}); got != want {
+		t.Fatalf("return ask = %+v, want %+v", got, want)
+	}
+}
+
+// An engine can give a little less than it was asked (Strata frees its cache
+// in segments), while the card's own free memory makes up the gap. Once a card
+// read shows the waiter's room free, the waiter is granted and the holder
+// keeps serving. Seen live on the 4090: asked 3072 MiB, Strata gave 2939 MiB
+// with 406 MiB already free, and the holder was drained in the same tick.
+func TestALendTheCardCoversIsGrantedWhenTheEngineGaveLess(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	holder := serving(t, b, c, "maya", 100, 101, 22*GiB)
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	if got, want := takeLend(t, holder), (LendAsk{MiB: 4096, FreeMiB: 2048}); got != want {
+		t.Fatalf("lend ask = %+v, want %+v", got, want)
+	}
+
+	holder.Lent("t1", 3*GiB)
+	c.used = 19 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB})
+	b.Tick(context.Background())
+	borrower := granted(t, b, "voice", w)
+	noDrain(t, holder)
+	if got := statusOf(t, b, "maya"); got.State != "active" {
+		t.Fatalf("holder state = %s, want active: a lending engine keeps serving", got.State)
+	}
+
+	borrower.Attach(200)
+	c.used = 23 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB}, gpu.Proc{PID: 201, Name: "voice", Used: 4 * GiB})
+	b.Tick(context.Background())
+	borrower.Release()
+	c.used = 19 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "maya", Used: 19 * GiB})
+	b.Tick(context.Background())
+	if got, want := takeReturn(t, holder), (ReturnAsk{ID: "t1"}); got != want {
+		t.Fatalf("return ask = %+v, want %+v", got, want)
+	}
+}
+
 // A lend the engine refuses falls through to a drain of that same holder,
 // once, and the waiter is told it is draining.
 func TestRefusedLendFallsThroughToADrain(t *testing.T) {
@@ -223,6 +302,56 @@ func TestUnconfirmedLendFallsBackAfterTheGrace(t *testing.T) {
 		t.Fatalf("holder state = %s, want draining", got.State)
 	}
 	pending(t, w)
+}
+
+// An engine can take a while to answer a lend: Strata finishes the answer it
+// is streaming before it shrinks its cache. The release grace counts from the
+// engine's answer, so a lend that answers inside the runner's call window and
+// then shows free on the card still grants the waiter. One that never answers
+// falls back once that window and the grace are both gone.
+func TestALendAnsweredLateStillGrants(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	b.cfg.ReleaseGrace = 30 * time.Second
+	clk := newMinClock(turnBase)
+	b.nowFn = clk.now
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	takeLend(t, holder)
+
+	clk.set(turnBase.Add(45 * time.Second)) // the engine is still finishing an answer
+	b.Tick(context.Background())
+	noDrain(t, holder)
+
+	holder.Lent("t1", 4*GiB)
+	c.used = 18 * GiB
+	c.set(gpu.Proc{PID: 101, Name: "strata", Used: 18 * GiB})
+	b.Tick(context.Background())
+	granted(t, b, "voice", w)
+	noDrain(t, holder)
+}
+
+func TestALendNeverAnsweredFallsBackAfterTheCallWindow(t *testing.T) {
+	b, c, _ := setup(t, lendTree(100, 101, 200, 201))
+	b.cfg.ReleaseGrace = 30 * time.Second
+	clk := newMinClock(turnBase)
+	b.nowFn = clk.now
+	holder := serving(t, b, c, "strata", 100, 101, 22*GiB)
+
+	w := acquire(b, Request{Engine: "voice", Priority: Foreground, Needs: 4 * GiB})
+	pending(t, w)
+	takeLend(t, holder)
+
+	clk.set(turnBase.Add(lend.CallTimeout + 31*time.Second))
+	b.Tick(context.Background())
+	if why := drained(t, holder); !strings.Contains(why, "voice") {
+		t.Fatalf("drain reason %q does not name the requester", why)
+	}
+	got := event(t, b, proto.EvLendFailed)
+	if want := "it did not answer within 1m30s"; !strings.Contains(got.Detail, want) {
+		t.Fatalf("lend_failed event = %q, want %q", got.Detail, want)
+	}
 }
 
 // The take-back waits for the borrower's memory to be gone (rule 2), a

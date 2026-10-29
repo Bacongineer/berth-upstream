@@ -24,20 +24,27 @@ type Sender interface {
 // opens the stream again retry after it breaks, until ctx ends. A
 // restarted berthd numbers its events from one again, so the time tells
 // them apart: an event no newer than the last one seen was already seen.
-func Follow(ctx context.Context, src Source, s Sender, level Level, start time.Time, retry time.Duration, log *slog.Logger) {
+// cards says how many cards berthd schedules, asked once per stream; with
+// more than one, each note names its card. A nil cards, or an answer of
+// 0 when berthd does not say, means one.
+func Follow(ctx context.Context, src Source, cards func() int, s Sender, level Level, start time.Time, retry time.Duration, log *slog.Logger) {
 	seen := start
 	gate := Gate{Window: 5 * time.Second}
 	for ctx.Err() == nil {
 		events, err := src(ctx)
 		if err != nil {
+			// No stream: ranging over the nil channel would block forever,
+			// deaf to berthd and to SIGTERM. Wait and dial again.
 			log.Debug("berthd unreachable", "err", err)
+			events = closedEvents()
 		}
+		named := err == nil && cards != nil && cards() > 1
 		for e := range events {
 			if !e.At.After(seen) {
 				continue
 			}
 			seen = e.At
-			n, ok := For(e, level)
+			n, ok := For(e, level, named)
 			if !ok || !gate.Let(n, e.At) {
 				continue
 			}
@@ -50,4 +57,10 @@ func Follow(ctx context.Context, src Source, s Sender, level Level, start time.T
 		case <-time.After(retry):
 		}
 	}
+}
+
+func closedEvents() <-chan proto.Event {
+	ch := make(chan proto.Event)
+	close(ch)
+	return ch
 }

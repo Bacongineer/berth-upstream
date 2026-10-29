@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
@@ -33,7 +34,7 @@ func pairDaemon(t *testing.T) (string, *pair.Store) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s := &pair.Store{Path: filepath.Join(dir, "harbor-devices.json")}
-	go server.Serve(ctx, ln, b, server.Extras{Pair: s}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Pair: s}, log)
 	return sock, s
 }
 

@@ -5,8 +5,9 @@ description: Use when working on a machine that runs Berth, the VRAM leasing ser
 
 # Berth
 
-Berth coordinates one GPU between many engines (llama.cpp, llama-swap, Ollama, vLLM, SGLang,
-ComfyUI, LM Studio, and others), games and apps. An engine leases the card; when another
+Berth coordinates the GPUs of one machine between many engines (llama.cpp, llama-swap, Ollama, vLLM,
+SGLang, ComfyUI, LM Studio, and others), games and apps. One berthd governs every card, each card keeps its own
+leases, and `berth status` adds a CARD column when there is more than one. An engine leases the card; when another
 asks, the holder is drained and Berth waits until the driver shows the memory free before it
 lets the next one in. You never have to guess what is on the card: ask Berth.
 
@@ -39,14 +40,19 @@ do not assume any engine is protected.
 | Need | Command |
 |---|---|
 | Run an engine under a lease | `berth run --as NAME [--priority batch\|interactive\|foreground] [--needs-mib N] -- CMD ARGS` |
+| Run an engine on one card of several | `berth run --as NAME --gpu gpu1 -- CMD`, or `gpu = "gpu1"` in its engine entry (`berth status` names the cards; the engine gets `CUDA_VISIBLE_DEVICES` for that card unless already set) |
+| Run an engine across several cards | `berth run --as NAME --gpu gpu0,gpu1 -- CMD`: one lease, granted on every card at once. It cannot park or lend yet |
+| Run a configured engine without retyping its command | `berth run --as NAME` with no command runs the `start` of NAME's `[[engine]]` entry |
 | Run an app that must not be drained (Blender, a training job) | `berth run --as NAME --pinned -- CMD` |
 | Give an engine a minimum turn before a request can drain it | `berth run --as NAME --min-turn 5m -- CMD`, or `min_turn = "5m"` in its engine entry (a hold still wins; `berth status` shows the turn left in the TURN column) |
 | Free the card for the user (game, call) | `berth hold [--for 2h] [--reason game]` (ends on Ctrl-C) |
 | Call a model and let Berth start its engine | the gateway: `http://127.0.0.1:9799/v1`, bearer key from `berth key` |
-| Wrap every llama-swap model at once | `berth wire llama-swap --config CFG` (plan), `--write` (apply, keeps a backup) |
+| Wrap every llama-swap model at once | `berth wire llama-swap --config CFG` (plan), `--write` (apply, keeps a backup), `--write --update` (rewrite wire's flags on lines it wrote, keeping flags added by hand), `--wait 10m` (every model waits that long for the card) |
 | Run an engine that lives in Docker or Podman | `berth run --as NAME --container CNAME -- docker run --rm --name CNAME ...` |
+| Run a Docker Compose project as one engine | `berth run --as NAME --compose /srv/APP/compose.yaml -- docker compose -f /srv/APP/compose.yaml up` (the lease covers every container of the project) |
+| Name an engine that discovery does not find | an `[[engine]]` entry in `berth.toml` with `type`, `url` and, for the gateway, `start` and `serves`. A Strata entry needs `type = "strata"` (and `whole_machine = true`), or its requests never reach the ledger |
 | Warm an engine before its first request | `GET /v1/berth/wait?model=M` on the gateway (blocks until it answers) |
-| Stop an engine Berth started | `berth stop ENGINE [--wait]` (normal drain; engines outlive a gateway restart) |
+| Stop an engine Berth started | `berth stop ENGINE [--wait]` (normal drain, parked engines included; engines outlive a gateway restart) |
 | Bring a parked engine back | `berth resume ENGINE` (or just call its model through the gateway) |
 | Read a model's file ahead into RAM | `berth prefetch MODEL` (page cache only; nothing is reserved) |
 | Run the node and gateway at login | `berth service install [--gateway] [--harbor]` (`--dry-run` first) |

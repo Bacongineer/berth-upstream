@@ -19,8 +19,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/T-Crypt/berth/internal/eventlog"
 	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/host"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runs"
@@ -83,13 +85,26 @@ func (s state) String() string {
 // Reporter hears about squatters (GPU processes no lease accounts for)
 // and alert-level crossings; it only ever reports, never touches a process.
 type Reporter interface {
-	Squatter(appeared bool, p gpu.Proc)
+	Squatter(appeared bool, card string, p gpu.Proc)
 	// Alert hears a threshold or danger level crossing (warn/crit) from
 	// the alert evaluator; like Squatter it only ever reports.
-	Alert(level, key, message string)
+	Alert(level, key, message, card string)
 }
 
 type Config struct {
+	// Card is the card's name on its node (gpu0, gpu1), stamped on every
+	// event this broker emits. Events and IDs are the node's event stream and
+	// lease number counter, shared by every card's broker so a machine has
+	// one ordered stream and no two leases share an ID. Each defaults to the
+	// broker's own, as for a node with one card.
+	Card   string
+	Events *eventlog.Log
+	IDs    *atomic.Uint64
+	// Seq is the node's arrival order, shared like IDs: every card orders
+	// its queue by it, so a lease on several cards stands in the same
+	// place on each of them. Defaults to the broker's own.
+	Seq *atomic.Uint64
+
 	Poll         time.Duration // how often the card is read
 	Reserve      uint64        // bytes never handed out
 	APUHeadroom  uint64        // minimum host MemAvailable for APU admission; 0 = 2 GiB
@@ -151,6 +166,9 @@ type Config struct {
 	// the real reading, 0 when it cannot be read. Tests fake them.
 	MemAvailable func() uint64
 	MemPressure  func() float64
+	// Ledger is the machine's parking RAM, shared by every card's broker;
+	// nil = this card's parks only.
+	Ledger *park.Ledger
 	// ProcTable lists every process on the machine (procs.List on Linux):
 	// pid, parent, start time, name. Each tick the broker records every
 	// descendant of an attached lease under that lease, so a child that
@@ -158,7 +176,7 @@ type Config struct {
 	ProcTable func() []procs.Proc
 	// Containers reads a process's runtime container id (procs.Container
 	// on Linux); "" = a host process. Tests fake it. A GPU process whose
-	// container matches an attached lease's belongs to that lease.
+	// container is one an attached lease names belongs to that lease.
 	Containers func(pid int) (string, bool)
 	// Scopes reads a process's Berth scope (procs.Scope on Linux): the
 	// path of the berth-*.scope cgroup it runs in, "" for a process
@@ -171,8 +189,9 @@ type Config struct {
 	// cache. nil = procs.ScopeMem; tests fake it.
 	ScopeMem func(scope string) (procs.Mem, bool)
 	// ContainerName resolves a container id to its runtime name (docker,
-	// then podman, inspect); "" when neither answers. Used to name a
-	// stowaway's container in the report; never affects scheduling.
+	// then podman, inspect), or a Proxmox LXC id to its hostname; "" when
+	// none answers. Used to name a stowaway's container in the report;
+	// never affects scheduling.
 	ContainerName func(id string) string
 	Version       string
 	Reporter      Reporter
@@ -202,6 +221,10 @@ type Request struct {
 	// lend = "hook"), so this lease is asked to give part of the card to a
 	// sized waiter that does not fit, instead of being drained for one.
 	Lend bool
+	// WholeMachine: the engine needs the machine to itself (its entry says
+	// whole_machine = true). Nothing parks while it waits, and it is never
+	// granted beside a parked engine.
+	WholeMachine bool
 	// LendID and LentBytes: a re-attach of a holder the last daemon had
 	// confirmed a lend for. The lease comes back `lent` with that ticket
 	// and those bytes, counting its budget less the lend until the card
@@ -217,10 +240,11 @@ type Request struct {
 	// ParkTTL is how long the lease may stay parked before the broker
 	// stops its engine, in place of the node's ParkTTL. 0 = the node's.
 	ParkTTL time.Duration
-	// Container is the engine's container: Acquire takes the name the
-	// operator gave (--container), the attach resolves the full ID. A GPU
-	// process inside it belongs to the lease.
-	Container string
+	// Containers are the containers the engine runs in: Acquire takes the
+	// names the operator gave (--container), the attach resolves the full
+	// IDs, a Compose engine's whole project arriving as one set. A GPU
+	// process inside any of them belongs to the lease.
+	Containers []string
 }
 
 // ident is a process identity. PIDs are reused, so a PID only means the same
@@ -231,6 +255,9 @@ type ident struct {
 }
 
 type lease struct {
+	// gang is the lease's shares on its other cards, nil for a lease on
+	// one card. A share is never granted alone (see AcquireAll).
+	gang     *gang
 	id       string
 	engine   string
 	group    string
@@ -250,10 +277,9 @@ type lease struct {
 	// gone (no process with its start time); the reaper needs two, so a
 	// pid lookup hiccup on one tick cannot free a live lease.
 	goneTicks uint64
-	// container is the full ID of the runtime container the engine runs in
-	// ("" for a host process), containerName the name the operator gave.
-	container     string
-	containerName string
+	// containers are the full IDs of the runtime containers the engine
+	// runs in (empty for a host process).
+	containers []string
 	// scope is the berth-*.scope path the attached engine runs in
 	// ("" when it runs outside one). A cgroup is inherited on fork, so
 	// every process under that path is the lease's, however its process
@@ -297,7 +323,8 @@ type lease struct {
 	// and never a park at the same time. lentBytes is what the engine said it
 	// gave; it counts against the card no more only once a card read newer
 	// than lentRead (b.reads when the engine answered) shows the memory free.
-	// lendAsked is when the ask went out, for rule 4's grace; noLend names the
+	// lendAsked is when the ask went out and lentAt when the engine answered,
+	// for rule 4's grace (lendOverdue); noLend names the
 	// waiter a lend failed for, so that waiter drains instead of asking the
 	// same holder again; lendRetry is the last return ask, so a retry waits a
 	// second instead of calling the engine every tick.
@@ -307,11 +334,14 @@ type lease struct {
 	lentTo    *lease
 	lentRead  uint64
 	lendAsked time.Time
+	lentAt    time.Time
 	noLend    *lease
 	lendRetry time.Time
 	// lendCap is the run's declaration that its engine has lend calls
 	// (Request.Lend); the broker never asks a lease that did not declare it.
 	lendCap bool
+	// wholeMachine is Request.WholeMachine.
+	wholeMachine bool
 
 	grantCh  chan struct{}
 	resumeCh chan struct{}
@@ -368,25 +398,26 @@ func (l *lease) turnWhy(now time.Time) string {
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
 	return &lease{
-		id:        id,
-		engine:    r.Engine,
-		group:     r.Group,
-		prio:      r.Priority,
-		needs:     r.Needs,
-		pinned:    r.Pinned,
-		switched:  r.Switched,
-		minTurn:   r.MinTurn,
-		parkTTL:   r.ParkTTL,
-		lendCap:   r.Lend,
-		gpu:       map[ident]gpu.Proc{},
-		desc:      map[ident]struct{}{},
-		arrived:   now,
-		grantCh:   make(chan struct{}),
-		resumeCh:  make(chan struct{}, 1),
-		drainCh:   make(chan string, 1),
-		waitCh:    make(chan string, 8),
-		lendSig:   make(chan struct{}, 1),
-		returnSig: make(chan struct{}, 1),
+		id:           id,
+		engine:       r.Engine,
+		group:        r.Group,
+		prio:         r.Priority,
+		needs:        r.Needs,
+		pinned:       r.Pinned,
+		switched:     r.Switched,
+		minTurn:      r.MinTurn,
+		parkTTL:      r.ParkTTL,
+		lendCap:      r.Lend,
+		wholeMachine: r.WholeMachine,
+		gpu:          map[ident]gpu.Proc{},
+		desc:         map[ident]struct{}{},
+		arrived:      now,
+		grantCh:      make(chan struct{}),
+		resumeCh:     make(chan struct{}, 1),
+		drainCh:      make(chan string, 1),
+		waitCh:       make(chan string, 8),
+		lendSig:      make(chan struct{}, 1),
+		returnSig:    make(chan struct{}, 1),
 	}
 }
 
@@ -438,13 +469,8 @@ type Broker struct {
 	// comfyPoke while a waiter is blocked.
 	comfyPoked map[string]time.Time
 	runs       []runs.Record
-	nextID     int
-	ord        uint64 // the last order number stamped on a lease event
 	started    time.Time
 
-	events   []proto.Event // ring, oldest first
-	seq      uint64
-	subs     map[chan proto.Event]struct{}
 	counters proto.Counters
 	// saved is the board as last written to cfg.CountersFile; saveMu keeps
 	// two writers off the file, saveFailed logs a failing write once.
@@ -508,27 +534,14 @@ func (b *Broker) claimedBytes() uint64 {
 }
 
 // EventRing is how many events berthd keeps in memory.
-const EventRing = 1000
+const EventRing = eventlog.Ring
 
 // emit records an event and fans it out. Called with b.mu held. A watcher
 // too slow to keep up is cut off rather than allowed to stall scheduling;
 // it reconnects with Since and loses nothing still in the ring.
 func (b *Broker) emit(e proto.Event) {
-	b.seq++
-	e.Seq, e.At = b.seq, b.now()
-	if len(b.events) == EventRing {
-		copy(b.events, b.events[1:])
-		b.events = b.events[:EventRing-1]
-	}
-	b.events = append(b.events, e)
-	for ch := range b.subs {
-		select {
-		case ch <- e:
-		default:
-			close(ch)
-			delete(b.subs, ch)
-		}
-	}
+	e.At, e.Card = b.now(), b.cfg.Card
+	b.cfg.Events.Emit(e)
 }
 
 // Note records an event raised outside the tick cycle (the alert layer)
@@ -543,33 +556,12 @@ func (b *Broker) Note(e proto.Event) {
 // later one plus a func to stop watching. The channel closes if the watcher
 // falls more than 256 events behind.
 func (b *Broker) Events(since uint64, watch bool) ([]proto.Event, <-chan proto.Event, func()) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	var out []proto.Event
-	for _, e := range b.events {
-		if e.Seq > since {
-			out = append(out, e)
-		}
-	}
-	if !watch {
-		return out, nil, func() {}
-	}
-	ch := make(chan proto.Event, 256)
-	b.subs[ch] = struct{}{}
-	return out, ch, func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if _, ok := b.subs[ch]; ok {
-			delete(b.subs, ch)
-			close(ch)
-		}
-	}
+	return b.cfg.Events.Events(since, watch)
 }
 
-// order is the next number in the broker's own sequence. b.mu must be held.
+// order is the next number in the node's arrival sequence (Config.Seq).
 func (b *Broker) order() uint64 {
-	b.ord++
-	return b.ord
+	return b.cfg.Seq.Add(1)
 }
 
 // now is the broker's clock. It reads the pinned b.nowFn in tests, and the
@@ -582,6 +574,15 @@ func (b *Broker) now() time.Time {
 }
 
 func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
+	if cfg.Events == nil {
+		cfg.Events = eventlog.New()
+	}
+	if cfg.IDs == nil {
+		cfg.IDs = &atomic.Uint64{}
+	}
+	if cfg.Seq == nil {
+		cfg.Seq = &atomic.Uint64{}
+	}
 	if cfg.APUHeadroom == 0 {
 		cfg.APUHeadroom = 2 * gpu.GiB
 	}
@@ -680,7 +681,6 @@ func New(cfg Config, probe gpu.Probe, tree procs.Tree) *Broker {
 		containerNames: map[string]string{},
 		containerAsked: map[string]bool{},
 		comfyPoked:     map[string]time.Time{},
-		subs:           map[chan proto.Event]struct{}{},
 		counters:       counters,
 		saved:          counters,
 		verdicts:       map[string]verdict{},
@@ -743,6 +743,7 @@ func (b *Broker) Tick(ctx context.Context) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	defer func() { b.cfg.Ledger.Set(b.cfg.Card, b.parkTotals()) }() // runs before the unlock
 	now := b.now()
 	b.runs = rs
 	b.accountUsage(now)
@@ -799,7 +800,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 		present[id] = true
 		scope := b.scopeOf(p.PID)
-		if l := b.owner(id, b.containerOf(p.PID), scope); l != nil {
+		if l := b.owner(id, p, scope); l != nil {
 			if l.state != active && l.state != draining && b.runFor(p.PID) != nil {
 				// A released lease keeps blocking while its processes hold
 				// memory, unless a run record says they were left behind on
@@ -868,7 +869,7 @@ func (b *Broker) Tick(ctx context.Context) {
 		b.counters.SquattersCaught++
 		b.emit(proto.Event{Kind: proto.EvSquatter, PID: p.PID, Bytes: p.Used, Engine: s.run, Detail: detail})
 		if b.cfg.Reporter != nil {
-			b.cfg.Reporter.Squatter(true, p)
+			b.cfg.Reporter.Squatter(true, b.cfg.Card, p)
 		}
 	}
 	for id, s := range b.squatters {
@@ -877,8 +878,11 @@ func (b *Broker) Tick(ctx context.Context) {
 		}
 	}
 	for key, l := range b.leases {
-		for id := range l.gpu {
-			if !present[id] {
+		for id, p := range l.gpu {
+			// A releasing lease lets go of the WSL VM's row: the VM outlives
+			// the containers, so the row would hold the lease forever, and as
+			// a stowaway it still counts against the card.
+			if !present[id] || ((l.state == releasing || l.state == stuck) && isWSLVM(p.Name)) {
 				delete(l.gpu, id)
 			}
 		}
@@ -953,17 +957,19 @@ func (b *Broker) reportGone(s *squatter) {
 	b.log.Info("squatter gone", "pid", s.proc.PID, "name", s.proc.Name)
 	b.emit(proto.Event{Kind: proto.EvSquatterGone, PID: s.proc.PID, Bytes: s.proc.Used, Detail: s.proc.Name})
 	if b.cfg.Reporter != nil {
-		b.cfg.Reporter.Squatter(false, s.proc)
+		b.cfg.Reporter.Squatter(false, b.cfg.Card, s.proc)
 	}
 }
 
 // owner finds the lease a GPU process belongs to: one it was already
 // attributed to, else a recorded descendant of an attached lease, else a
-// scope the lease recorded, else a container the lease names, else the
-// lease whose wrapped engine it descends from. The engine's PID only
-// counts while its start time still matches, so a reused PID never
-// inherits a lease. An empty scope never matches an empty one.
-func (b *Broker) owner(id ident, container, scope string) *lease {
+// scope the lease recorded, else a lease that names its container, else the
+// WSL VM row of the one container lease on the card, else the lease whose
+// wrapped engine it descends from. The engine's PID only counts while its
+// start time still matches, so a reused PID never inherits a lease. An empty
+// scope never matches an empty one.
+func (b *Broker) owner(id ident, p gpu.Proc, scope string) *lease {
+	container := b.containerOf(p.PID)
 	for _, l := range b.leases {
 		if _, ok := l.gpu[id]; ok {
 			return l
@@ -979,10 +985,13 @@ func (b *Broker) owner(id ident, container, scope string) *lease {
 	}
 	if container != "" {
 		for _, l := range b.leases {
-			if l.ownsNew() && l.container == container {
+			if l.ownsNew() && l.hasContainer(container) {
 				return l
 			}
 		}
+	}
+	if l := b.wslVMLease(p.Name); l != nil {
+		return l
 	}
 	for _, l := range b.leases {
 		if l.ownsNew() && l.pid > 0 &&
@@ -1077,12 +1086,7 @@ func (b *Broker) schedule(now time.Time) {
 		b.notifyWait(b.queue, why)
 		return
 	}
-	sort.SliceStable(b.queue, func(i, j int) bool {
-		if b.queue[i].prio != b.queue[j].prio {
-			return b.queue[i].prio > b.queue[j].prio
-		}
-		return b.queue[i].arrivedN < b.queue[j].arrivedN
-	})
+	b.sortQueue()
 	for len(b.queue) > 0 {
 		w := b.queue[0]
 		// A fresh daemon does not yet know what engines that ran under the
@@ -1099,46 +1103,17 @@ func (b *Broker) schedule(now time.Time) {
 				ok, reason = false, why
 			}
 		}
+		if ok && w.gang != nil {
+			// A share of a lease on several cards fits here. It takes
+			// nothing until every card fits; its gang grants them all
+			// at once. Until then it keeps its place at the head.
+			b.setWait(w, fmt.Sprintf("fits on %s; waiting for its other cards", b.cfg.Card))
+			b.notifyWait(b.queue[1:], fmt.Sprintf("next in line: %s waits for its other cards", w.engine))
+			w.gang.poke()
+			return
+		}
 		if ok {
-			b.queue = b.queue[1:]
-			w.state = active
-			w.granted = now
-			w.grantedN = b.order()
-			w.releaseBaseline = b.snap.Baseline()
-			w.releaseGTTBaseline = b.snap.GTTBaseline()
-			w.contested = b.squatBytes()
-			w.contestedGTT = b.squatGTTBytes()
-			b.leases[w.id] = w
-			beside := w.beside
-			w.beside = ""
-			if w.resumed {
-				w.resumed = false
-				// A resume is a one-shot signal per grant, and a lease can
-				// cycle park and resume many times: never close the
-				// channel, and never double-send.
-				select {
-				case w.resumeCh <- struct{}{}:
-				default:
-				}
-			} else {
-				close(w.grantCh)
-			}
-			if beside != "" {
-				b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
-			}
-			if w.contested > 0 || w.contestedGTT > 0 {
-				b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB, "squatters_gtt_mib", w.contestedGTT/gpu.MiB)
-				b.counters.ContestedGrants++
-			}
-			if w.lastWait != "" {
-				b.counters.CollisionsAvoided++
-			}
-			detail := fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))
-			if beside != "" {
-				detail += "; " + beside
-			}
-			b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested, Detail: detail})
-			b.log.Info("granted", "lease", w.id, "engine", w.engine, "priority", w.prio, "needs_mib", w.needs/gpu.MiB, "waited", now.Sub(w.arrived).Round(time.Millisecond))
+			b.grant(w, now)
 			continue
 		}
 		for _, v := range victims {
@@ -1160,6 +1135,61 @@ func (b *Broker) schedule(now time.Time) {
 	}
 }
 
+// grant gives the card to w, a waiter at the head of the queue. b.mu must be
+// held.
+func (b *Broker) grant(w *lease, now time.Time) {
+	b.queue = slices.DeleteFunc(b.queue, func(q *lease) bool { return q == w })
+	w.state = active
+	w.granted = now
+	w.grantedN = b.order()
+	w.releaseBaseline = b.snap.Baseline()
+	w.releaseGTTBaseline = b.snap.GTTBaseline()
+	w.contested = b.squatBytes()
+	w.contestedGTT = b.squatGTTBytes()
+	b.leases[w.id] = w
+	beside := w.beside
+	w.beside = ""
+	if w.resumed {
+		w.resumed = false
+		// A resume is a one-shot signal per grant, and a lease can
+		// cycle park and resume many times: never close the
+		// channel, and never double-send.
+		select {
+		case w.resumeCh <- struct{}{}:
+		default:
+		}
+	} else {
+		close(w.grantCh)
+	}
+	if beside != "" {
+		b.log.Info("granted beside parked", "lease", w.id, "engine", w.engine, "beside", beside)
+	}
+	if w.contested > 0 || w.contestedGTT > 0 {
+		b.log.Warn("granted on a contested card", "lease", w.id, "squatters_mib", w.contested/gpu.MiB, "squatters_gtt_mib", w.contestedGTT/gpu.MiB)
+		b.counters.ContestedGrants++
+	}
+	if w.lastWait != "" {
+		b.counters.CollisionsAvoided++
+	}
+	detail := fmt.Sprintf("waited %s", now.Sub(w.arrived).Round(time.Millisecond))
+	if beside != "" {
+		detail += "; " + beside
+	}
+	b.emit(proto.Event{Kind: proto.EvGranted, Lease: w.id, Engine: w.engine, Bytes: w.contested, Detail: detail})
+	b.log.Info("granted", "lease", w.id, "engine", w.engine, "priority", w.prio, "needs_mib", w.needs/gpu.MiB, "waited", now.Sub(w.arrived).Round(time.Millisecond))
+}
+
+// sortQueue orders the waiters: higher priority first, then by arrival on
+// the node. b.mu must be held.
+func (b *Broker) sortQueue() {
+	sort.SliceStable(b.queue, func(i, j int) bool {
+		if b.queue[i].prio != b.queue[j].prio {
+			return b.queue[i].prio > b.queue[j].prio
+		}
+		return b.queue[i].arrivedN < b.queue[j].arrivedN
+	})
+}
+
 func (b *Broker) setWait(w *lease, reason string) {
 	if reason == w.lastWait {
 		return
@@ -1172,8 +1202,9 @@ func (b *Broker) setWait(w *lease, reason string) {
 	}
 }
 
-// budget is what a holder counts against the card: the whole card if it
-// asked for it, else whichever is larger of what it asked for and what it
+// budget is what a holder counts against the card: the card's ceiling if it
+// asked for the whole card (the baseline and reserve were never its to give),
+// else whichever is larger of what it asked for and what it
 // holds, less the memory a confirmed lend gave to a borrower.
 func (b *Broker) budget(l *lease) uint64 {
 	if l.state == parking || l.state == parked || l.awaitingGrant() {
@@ -1186,7 +1217,7 @@ func (b *Broker) budget(l *lease) uint64 {
 	}
 	var held uint64
 	if l.needs == 0 {
-		held = b.snap.Total
+		held = b.ceiling()
 	} else {
 		held = max(l.needs, l.used())
 	}
@@ -1198,6 +1229,13 @@ func (b *Broker) budget(l *lease) uint64 {
 		return max(l.used(), sat(held, l.lentBytes))
 	}
 	return held
+}
+
+// ceiling is what the card can ever hand out to leases: its total minus the
+// reserve floor and the memory no lease can give up (driver baseline,
+// squatters, track claims).
+func (b *Broker) ceiling() uint64 {
+	return sat(b.snap.Total, b.cfg.Reserve+b.snap.Baseline()+b.squatBytes()+b.claimedBytes())
 }
 
 func (b *Broker) holders() []*lease {
@@ -1398,12 +1436,13 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		// A parked engine's residual is small enough to build a load
 		// beside: when the parked leases together keep no more than
 		// ParkResidualMax on the card, the whole card is granted beside
-		// them, and the grant event names what it sits next to.
+		// them, and the grant event names what it sits next to. A
+		// whole-machine waiter evicts them all instead.
 		var residual uint64
 		for _, p := range warm {
 			residual += p.used()
 		}
-		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax {
+		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax && !w.wholeMachine {
 			w.beside = besideLine(warm, residual)
 			return true, "", nil
 		}
@@ -1413,7 +1452,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 			var victims []*lease
 			var evicted uint64
 			for _, p := range sortParked(warm) {
-				if residual-evicted <= b.cfg.ParkResidualMax {
+				if residual-evicted <= b.cfg.ParkResidualMax && !w.wholeMachine {
 					break
 				}
 				victims = append(victims, p)
@@ -1545,7 +1584,7 @@ func (b *Broker) reapAttached(key string, l *lease, now time.Time) {
 		return
 	}
 	l.goneTicks++
-	if l.goneTicks < 2 || l.container != "" || len(l.gpu) != 0 || len(l.desc) != 0 {
+	if l.goneTicks < 2 || len(l.containers) != 0 || len(l.gpu) != 0 || len(l.desc) != 0 {
 		return
 	}
 	b.log.Warn("attached process is gone; releasing the lease", "lease", key, "engine", l.engine, "pid", l.pid)
@@ -1569,7 +1608,7 @@ func (b *Broker) beginRelease(x *lease, now time.Time, announce bool) {
 	x.state = releasing
 	x.released = now
 	x.releasedRead = b.reads.Load()
-	nothing := x.pid == 0 && len(x.gpu) == 0 && x.container == "" && len(x.desc) == 0
+	nothing := x.pid == 0 && len(x.gpu) == 0 && len(x.containers) == 0 && len(x.desc) == 0
 	if !announce {
 		if nothing {
 			delete(b.leases, x.id)
@@ -1607,6 +1646,11 @@ func (l *Lease) Release() {
 // in the middle of: parked weights, or an open lend with its ticket and
 // bytes (Request.LendID), and the lease takes that state up.
 func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
+	return b.reattach(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, pid, start)
+}
+
+// reattach is Reattach under a lease ID the caller picked.
+func (b *Broker) reattach(id string, r Request, pid int, start uint64) (*Lease, error) {
 	if pid <= 0 || start == 0 || b.tree.StartTime(pid) != start {
 		return nil, fmt.Errorf("%w: pid %d is not the process that started as %s", ErrRefused, pid, r.Engine)
 	}
@@ -1621,13 +1665,10 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 			return nil, fmt.Errorf("%w: pid %d already holds %s", ErrRefused, pid, l.id)
 		}
 	}
-	b.nextID++
 	now := b.now()
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, now)
+	l := newLease(id, r, now)
 	l.arrivedN = b.order()
-	if r.Container != "" {
-		l.container = strings.ToLower(r.Container)
-	}
+	l.containers = containerSet(r.Containers)
 	l.state, l.reattach = active, true
 	l.pid, l.pidStart = pid, start
 	l.scope = scope
@@ -1660,30 +1701,36 @@ func (b *Broker) Reattach(r Request, pid int, start uint64) (*Lease, error) {
 // ErrRefused wraps every reason Acquire gives up.
 var ErrRefused = errors.New("refused")
 
+// notFound is an answer that this card has no such engine or lease, as
+// opposed to one it has but cannot act on. A node with several cards asks
+// each in turn and takes the first that is not notFound (IsNotFound).
+type notFound string
+
+func (e notFound) Error() string { return string(e) }
+
+// EventLog is the event stream this broker writes to, and IDs the counter its
+// lease numbers come from: the node's when it was built with them.
+func (b *Broker) EventLog() *eventlog.Log { return b.cfg.Events }
+
+// IDs is the counter this broker's lease numbers come from.
+func (b *Broker) IDs() *atomic.Uint64 { return b.cfg.IDs }
+
+// IsNotFound is whether err says the card has no such engine or lease.
+func IsNotFound(err error) bool {
+	var nf notFound
+	return errors.As(err, &nf)
+}
+
 // Acquire queues for a berth and blocks until it is granted, ctx ends, or
 // the wait runs out. onWait hears each new reason for waiting.
 func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*Lease, error) {
 	b.mu.Lock()
-	if b.snap.APU && r.Needs > 0 {
-		why := "APU requires an exclusive lease; omit needs-mib (VRAM and GTT are separate pools)"
-		b.counters.Refused++
-		b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
+	if err := b.refuse(r); err != nil {
 		b.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
+		return nil, err
 	}
-	// A request bigger than the card can never fit, and would block the
-	// queue behind it until it timed out.
-	if limit := sat(b.snap.Total, b.cfg.Reserve); r.Needs > 0 && b.snap.Total > 0 && r.Needs > limit {
-		why := fmt.Sprintf("%s needs %d MiB; the card can never give more than %d MiB", r.Engine, r.Needs/gpu.MiB, limit/gpu.MiB)
-		b.counters.Refused++
-		b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
-		b.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRefused, why)
-	}
-	b.nextID++
-	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.nextID), r, b.now())
+	l := newLease(fmt.Sprintf("%s-%d", r.Engine, b.cfg.IDs.Add(1)), r, b.now())
 	l.arrivedN = b.order()
-	l.containerName = r.Container
 	b.queue = append(b.queue, l)
 	b.log.Info("acquire", "lease", l.id, "engine", l.engine, "priority", l.prio, "needs_mib", l.needs/gpu.MiB)
 	b.emit(proto.Event{Kind: proto.EvRequested, Lease: l.id, Engine: l.engine, Bytes: l.needs, Detail: l.prio.String()})
@@ -1723,6 +1770,25 @@ func (b *Broker) Acquire(ctx context.Context, r Request, onWait func(string)) (*
 			return nil, b.abandon(l, fmt.Sprintf("gave up after %s", wait))
 		}
 	}
+}
+
+// refuse is why r can never be granted on this card, nil when it can be.
+// b.mu must be held.
+func (b *Broker) refuse(r Request) error {
+	why := ""
+	switch limit := sat(b.snap.Total, b.cfg.Reserve); {
+	case b.snap.APU && r.Needs > 0:
+		why = "APU requires an exclusive lease; omit needs-mib (VRAM and GTT are separate pools)"
+	case r.Needs > 0 && b.snap.Total > 0 && r.Needs > limit:
+		// A request bigger than the card can never fit, and would block
+		// the queue behind it until it timed out.
+		why = fmt.Sprintf("%s needs %d MiB; the card can never give more than %d MiB", r.Engine, r.Needs/gpu.MiB, limit/gpu.MiB)
+	default:
+		return nil
+	}
+	b.counters.Refused++
+	b.emit(proto.Event{Kind: proto.EvRefused, Engine: r.Engine, Bytes: r.Needs, Detail: why})
+	return fmt.Errorf("%w: %s", ErrRefused, why)
 }
 
 // abandon takes a waiter out of the queue, unless it was granted in the

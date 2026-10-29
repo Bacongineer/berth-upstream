@@ -32,9 +32,12 @@ Body: `{"gpu": "0000:09:00.0", "mib": 8192}`.
 
 | Answer | Body | Meaning |
 |---|---|---|
-| 200 | `{"id": "1", "gpu": "0000:09:00.0", "mib": 8208}` | Lent. `mib` is what the engine gave, which may be more than the ask. |
+| 200 | `{"id": "1", "gpu": "0000:09:00.0", "mib": 8208}` | Lent. `mib` is what the engine gave, which may be more or less than the ask. When it is less, Berth counts the room the card shows free to make up the rest. |
 | 409 | `{"max_mib": 10320}` | Too big. Nothing was lent; `max_mib` is the most the engine can lend on that card now. |
 | 503 | `{"error": "..."}` | No answer in time. The engine may still lend, and must list the lend in `/vram/state` if it does. |
+
+Berth waits up to 60 s for the answer, so an engine may finish the reply it is streaming before it gives memory
+back. The 30 s grace (`--release-grace`) for the card to show the memory free counts from the answer.
 
 Answer 200 only once the engine has let go of the memory. Berth still waits for a driver read that shows it
 free before it starts the borrower, so an early answer only costs the borrower a failed start.

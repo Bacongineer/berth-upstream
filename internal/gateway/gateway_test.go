@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ import (
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/server"
@@ -93,6 +95,7 @@ func testRun(argv []string) {
 	needs := fs.Uint64("needs-mib", 0, "")
 	wait := fs.Duration("wait", 0, "")
 	grace := fs.Duration("grace", 0, "")
+	card := fs.String("gpu", "", "")
 	fs.String("drain-post", "", "")
 	fs.String("drain-slots", "", "")
 	fs.String("drain-comfyui", "", "")
@@ -110,7 +113,7 @@ func testRun(argv []string) {
 		os.Exit(2)
 	}
 	os.Exit(runner.Run(runner.Options{
-		Socket: *socket, Engine: *as, Group: *group, Priority: *prio, Needs: *needs << 20,
+		Socket: *socket, Engine: *as, Group: *group, Priority: *prio, Needs: *needs << 20, Card: *card,
 		Switched: *switched, Wait: *wait, Grace: *grace, Argv: fs.Args(), Stderr: os.Stderr,
 	}))
 }
@@ -238,14 +241,31 @@ func call(t *testing.T, method, url, body string) *http.Response {
 	return resp
 }
 
+// pickedPorts are the ports freeAddr handed out in this test binary.
+var pickedPorts sync.Map
+
+// freeAddr is a loopback address for a fake engine to bind later. A port the
+// kernel picked (127.0.0.1:0) goes back to the ephemeral pool once closed,
+// and any socket opened before the engine binds can take it: an httptest
+// server, or a client's local port. So the port comes from below every OS's
+// ephemeral range (Linux starts at 32768, Windows and macOS at 49152), which
+// the kernel never hands out on its own, and never twice in one binary.
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 200 {
+		port := 20000 + rand.IntN(12000)
+		if _, taken := pickedPorts.LoadOrStore(port, true); taken {
+			continue
+		}
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			continue // something on this machine already listens there
+		}
+		ln.Close()
+		return ln.Addr().String()
 	}
-	defer ln.Close()
-	return ln.Addr().String()
+	t.Fatal("no free loopback port below the ephemeral range")
+	return ""
 }
 
 func daemon(t *testing.T) (string, *broker.Broker) {
@@ -267,7 +287,7 @@ func daemonWith(t *testing.T, cfg broker.Config) (string, *broker.Broker) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.Run(ctx)
-	go func() { _ = server.Serve(ctx, ln, b, server.Extras{}, log) }()
+	go func() { _ = server.Serve(ctx, ln, node.One(b), server.Extras{}, log) }()
 	// Cleanups run last first, so this runs before the cancel above. An
 	// engine a test's gateway started may still be up; stopping the daemon
 	// under it makes its berth run write an unprotected-run record beside

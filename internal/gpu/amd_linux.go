@@ -10,9 +10,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -25,6 +27,21 @@ type AMDGPU struct {
 	SysRoot  string
 	ProcRoot string
 	MaxAge   time.Duration
+	// ProcsEvery is the longest a process walk is reused while the card's
+	// used memory holds still; default 10 s. walk keeps the last one; nil
+	// walks on every read.
+	ProcsEvery time.Duration
+	walk       *amdWalk
+}
+
+// amdWalk is the last walk of every process's GPU files and the card's used
+// VRAM and GTT it was taken with.
+type amdWalk struct {
+	mu         sync.Mutex
+	used, gtt  uint64
+	at         time.Time
+	procs      []Proc
+	unobserved []int
 }
 
 func (a AMDGPU) roots() (string, string) {
@@ -43,7 +60,20 @@ func openAMD(o Options) (Probe, error) {
 	if age <= 0 {
 		age = 10 * time.Second
 	}
-	return &AMDGPU{Index: o.Index, SysRoot: o.SysRoot, ProcRoot: o.ProcRoot, MaxAge: age}, nil
+	return &AMDGPU{Index: o.Index, SysRoot: o.SysRoot, ProcRoot: o.ProcRoot, MaxAge: age, walk: &amdWalk{}}, nil
+}
+
+// listAMD is the amdgpu cards Berth can govern, by DRM card number.
+func listAMD(o Options) ([]Device, error) {
+	cards, err := AMDGPU{SysRoot: o.SysRoot}.cards()
+	if err != nil {
+		return nil, err
+	}
+	devs := make([]Device, len(cards))
+	for i, c := range cards {
+		devs[i] = c.Device
+	}
+	return devs, nil
 }
 
 func hasAMD(o Options) (bool, error) {
@@ -150,9 +180,19 @@ func (a AMDGPU) Read(ctx context.Context) (snap Snapshot, err error) {
 	if selected == nil {
 		return snap, fmt.Errorf("card%d is not an available RDNA3/RDNA4 discrete or Phoenix APU amdgpu card", a.Index)
 	}
-	snap.Procs, snap.Unobserved, err = a.processes(ctx, selected.BusID, selected.APU)
-	if err != nil {
-		return snap, err
+	walked := true
+	if a.walk != nil {
+		a.walk.mu.Lock()
+		defer a.walk.mu.Unlock()
+		walked = !a.walk.steady(selected, a.procsEvery())
+	}
+	if walked {
+		snap.Procs, snap.Unobserved, err = a.processes(ctx, selected.BusID, selected.APU)
+		if err != nil {
+			return snap, err
+		}
+	} else {
+		snap.Procs, snap.Unobserved = slices.Clone(a.walk.procs), slices.Clone(a.walk.unobserved)
 	}
 	for i := range cards {
 		if err := ctx.Err(); err != nil {
@@ -200,7 +240,36 @@ func (a AMDGPU) Read(ctx context.Context) (snap Snapshot, err error) {
 		}
 		shared += p.GTT
 	}
+	if walked && a.walk != nil {
+		a.walk.used, a.walk.gtt, a.walk.at = snap.Used, snap.GTTUsed, time.Now()
+		a.walk.procs, a.walk.unobserved = slices.Clone(snap.Procs), slices.Clone(snap.Unobserved)
+	}
 	return snap, nil
+}
+
+func (a AMDGPU) procsEvery() time.Duration {
+	if a.ProcsEvery <= 0 {
+		return 10 * time.Second
+	}
+	return a.ProcsEvery
+}
+
+// steady is whether the last walk still stands for card c: it is younger
+// than every and the card's used VRAM and GTT read the same now. Called
+// with w.mu held.
+func (w *amdWalk) steady(c *amdCard, every time.Duration) bool {
+	if w.at.IsZero() || time.Since(w.at) >= every {
+		return false
+	}
+	used, err := readUint(filepath.Join(c.path, "mem_info_vram_used"))
+	if err != nil || used != w.used {
+		return false
+	}
+	if !c.APU {
+		return true
+	}
+	gtt, err := readUint(filepath.Join(c.path, "mem_info_gtt_used"))
+	return err == nil && gtt == w.gtt
 }
 
 func keyValues(s, sep string) map[string]string {
@@ -386,6 +455,20 @@ func (a AMDGPU) processes(ctx context.Context, bus string, apu bool) ([]Proc, []
 		inaccessible := false
 		for _, fd := range fds {
 			if _, err := strconv.Atoi(fd.Name()); err != nil {
+				continue
+			}
+			// Only a device file can be a DRM client. The link costs one
+			// syscall and skips the sockets, pipes and files that are most
+			// of a desktop's descriptors.
+			link, err := os.Readlink(filepath.Join(p, "fd", fd.Name()))
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if errors.Is(err, os.ErrPermission) {
+				inaccessible = true
+				break
+			}
+			if err == nil && !strings.HasPrefix(link, "/dev/") {
 				continue
 			}
 			b, err := os.ReadFile(filepath.Join(p, "fdinfo", fd.Name()))

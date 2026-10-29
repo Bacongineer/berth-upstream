@@ -12,3 +12,7 @@ func hasAMD(Options) (bool, error) { return false, nil }
 func openAMD(Options) (Probe, error) {
 	return nil, fmt.Errorf("AMD GPU probing requires Linux; AMD Windows support is not implemented")
 }
+
+func listAMD(Options) ([]Device, error) {
+	return nil, fmt.Errorf("AMD GPU probing requires Linux; AMD Windows support is not implemented")
+}

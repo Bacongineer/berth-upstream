@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -894,5 +895,88 @@ func TestParkCostIsLearnedPerEngineNotPerGroup(t *testing.T) {
 	ok, why := big.Park()
 	if want := "park refused: needs 23.0 GiB, 16.0 GiB available above the floor"; ok || why != want {
 		t.Fatalf("park of a 23 GiB model after a small one in its group added 1 GiB = %v, %q; want false, %q", ok, why, want)
+	}
+}
+
+// Parks on two cards draw on one machine's RAM. A park in flight on gpu0
+// has not landed in MemAvailable yet, so it counts against a park on gpu1
+// as it would against one on its own card: the second is refused.
+func TestParksOnTwoCardsShareTheMachinesRAM(t *testing.T) {
+	ledger := &park.Ledger{}
+	cardSetup := func(name string, root, eng int, engine string) (*Broker, *card, *Lease) {
+		tree := procs.Fake{Parents: map[int]int{eng: root, root: 1}, Starts: map[int]uint64{root: 1, eng: 1}}
+		b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+		b.cfg.ParkFloor, b.cfg.Card, b.cfg.Ledger = 4*GiB, name, ledger
+		l := must(t, acquire(b, Request{Engine: engine, Needs: 10 * GiB}))
+		l.Attach(root)
+		c.set(gpu.Proc{PID: eng, Name: engine + "-engine", Used: 10 * GiB})
+		b.Tick(context.Background())
+		w := acquire(b, Request{Engine: "whole", Priority: Foreground})
+		pending(t, w)
+		drained(t, l)
+		return b, c, l
+	}
+	_, _, first := cardSetup("gpu0", 100, 101, "comfyui")
+	_, _, second := cardSetup("gpu1", 102, 103, "vllm")
+
+	if ok, why := first.Park(); !ok {
+		t.Fatalf("park on gpu0 refused: %s", why)
+	}
+	ok, why := second.Park()
+	if want := "park refused: needs 10.0 GiB, 2.0 GiB available above the floor"; ok || why != want {
+		t.Fatalf("park on gpu1 while gpu0's is in flight = %v, %q; want false, %q", ok, why, want)
+	}
+}
+
+// A whole-machine engine (Strata: the card, 40 GiB of pinned RAM, the CPU
+// and the disk) is never granted beside a parked engine. The parked lease
+// is evicted first, so its residual leaves the card and its RAM copy leaves
+// the machine before the whole-machine engine sizes itself.
+func TestWholeMachineWaiterEvictsParked(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 16*GiB, 0)
+	parked := warmLease(t, b, c, "comfyui", 8*GiB, 100, 101)
+	c.set(gpu.Proc{PID: 101, Name: "comfyui-engine", Used: 534 << 20})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata", Priority: Foreground, WholeMachine: true})
+	pending(t, strata)
+	if why := drained(t, parked); why != "strata (foreground) needs the card" {
+		t.Fatalf("eviction drain reason %q", why)
+	}
+	parked.Release()
+	c.set()
+	b.Tick(context.Background())
+	must(t, strata).Release()
+}
+
+// The engine a whole-machine waiter drains is stopped, not parked: its RAM
+// copy would sit in the RAM the waiter is about to pin.
+func TestWholeMachineWaiterRefusesThePark(t *testing.T) {
+	tree := parkTree(100, 101)
+	b, c, _ := parkSetup(t, tree, 48*GiB, 0)
+	ninfer := must(t, acquire(b, Request{Engine: "ninfer", Needs: 22 * GiB}))
+	ninfer.Attach(100)
+	c.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 22 * GiB})
+	b.Tick(context.Background())
+
+	strata := acquire(b, Request{Engine: "strata", Priority: Foreground, WholeMachine: true})
+	pending(t, strata)
+	drained(t, ninfer)
+	ok, why := ninfer.Park()
+	if ok || why != "park refused: strata needs the whole machine" {
+		t.Fatalf("park = %v %q, want the whole-machine refusal", ok, why)
+	}
+
+	// Without the whole-machine waiter the same drain parks.
+	b2, c2, _ := parkSetup(t, tree, 48*GiB, 0)
+	l := must(t, acquire(b2, Request{Engine: "ninfer", Needs: 22 * GiB}))
+	l.Attach(100)
+	c2.set(gpu.Proc{PID: 101, Name: "ninfer-engine", Used: 22 * GiB})
+	b2.Tick(context.Background())
+	pending(t, acquire(b2, Request{Engine: "llama", Priority: Foreground}))
+	drained(t, l)
+	if ok, why := l.Park(); !ok {
+		t.Fatalf("park without a whole-machine waiter refused: %s", why)
 	}
 }

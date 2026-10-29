@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -56,39 +57,44 @@ func (g *Gateway) Background(ctx context.Context, every time.Duration) {
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
-	var freeSince time.Time
+	// freeSince is when each engine's cards (its gpu key) were last seen to
+	// turn free; a card in use drops its key.
+	freeSince := map[string]time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
-		if !cardFree(g.nodeStatus()) {
-			freeSince = time.Time{}
-			continue
-		}
+		st := g.nodeStatus()
 		// Work someone asked for while the card was out of reach goes
 		// first, as soon as the card is free, before any background engine.
-		if g.submitting.CompareAndSwap(false, true) {
+		if q := g.queueingComfy(); q != nil && cardFree(node.View(st, q.GPU)) && g.submitting.CompareAndSwap(false, true) {
 			go func() {
 				defer g.submitting.Store(false)
 				g.submitDeferred(ctx)
 			}()
 		}
 		now := time.Now()
-		if freeSince.IsZero() {
-			freeSince = now
-		}
 		for _, e := range bg {
+			if !cardFree(node.View(st, e.GPU)) {
+				delete(freeSince, e.GPU)
+				continue
+			}
+			since, ok := freeSince[e.GPU]
+			if !ok {
+				since = now
+				freeSince[e.GPU] = now
+			}
 			idle := e.IdleAfter.Duration
 			if idle <= 0 {
 				idle = DefaultIdleAfter
 			}
-			if now.Sub(freeSince) < idle {
+			if now.Sub(since) < idle {
 				continue
 			}
-			g.log().Info("the card is free; starting a background engine", "engine", e.Name, "free_for", now.Sub(freeSince).Round(time.Second))
-			freeSince = time.Time{}
+			g.log().Info("the card is free; starting a background engine", "engine", e.Name, "gpu", e.GPU, "free_for", now.Sub(since).Round(time.Second))
+			delete(freeSince, e.GPU)
 			go func() {
 				sctx, cancel := context.WithTimeout(ctx, g.ready())
 				defer cancel()

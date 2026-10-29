@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -47,16 +48,20 @@ type Watcher struct {
 	Hosts    []string
 	Ports    []int
 
-	mu      sync.Mutex
-	state   map[string]proto.Engine
-	latched map[string]bool // engine -> was up on a previous read and is failing again (State "latched")
-	reqs    []proto.Request // the request log, oldest first
-	gen     []genSample     // counter deltas while exactly one model was loaded
-	seen    map[string]bool
-	since   time.Time
-	found   []config.Engine      // engines discovery added, after the configured ones
-	lastUp  map[string]time.Time // engine -> last read that answered
-	held    map[string]heldRates // engine -> the rates its counters last measured
+	mu       sync.Mutex
+	state    map[string]proto.Engine
+	latched  map[string]bool      // engine -> was up on a previous read and is failing again (State "latched")
+	exited   map[string]time.Time // engine -> when its run last exited 0
+	reqs     []proto.Request      // the request log, oldest first
+	gen      []genSample          // counter deltas while exactly one model was loaded
+	seen     map[string]bool
+	since    time.Time
+	ins      *proto.Insights // the last Insights result, computed at insAt
+	insAt    time.Time
+	insDirty bool                 // a request or generation sample arrived since insAt
+	found    []config.Engine      // engines discovery added, after the configured ones
+	lastUp   map[string]time.Time // engine -> last read that answered
+	held     map[string]heldRates // engine -> the rates its counters last measured
 }
 
 // all is the configured engines then the discovered ones. Called with w.mu held.
@@ -131,7 +136,7 @@ func (w *Watcher) Poll(ctx context.Context) {
 			delete(w.latched, e.Name)
 		case w.latched[e.Name]:
 			cur.State = "latched" // was up; still not answering
-		case prev.Up:
+		case prev.Up && prev.At.After(w.exited[e.Name]):
 			cur.State = "latched"
 			w.latched[e.Name] = true
 		default:
@@ -146,6 +151,27 @@ func (w *Watcher) Poll(ctx context.Context) {
 	w.mu.Lock()
 	w.prune(time.Now())
 	w.mu.Unlock()
+}
+
+// Finished records that the engine named name exited cleanly, so it
+// stopped answering on purpose: its latch clears, and a reading taken
+// before the exit cannot latch it again.
+func (w *Watcher) Finished(name string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, e := range w.all() {
+		if !strings.EqualFold(e.Name, name) {
+			continue
+		}
+		if w.exited == nil {
+			w.exited = map[string]time.Time{}
+		}
+		w.exited[e.Name] = time.Now()
+		delete(w.latched, e.Name)
+	}
 }
 
 // Snapshot is the last reading of every engine, in config order.
@@ -205,6 +231,10 @@ func (w *Watcher) attribute(cur, prev proto.Engine) {
 		return // idle, or the engine restarted and its counters went back to 0
 	}
 	w.gen = append(w.gen, g)
+	w.insDirty = true
+	if w.since.IsZero() {
+		w.since = time.Now()
+	}
 	cut := time.Now().Add(-keepRequests)
 	i := 0
 	for i < len(w.gen) && w.gen[i].t.Before(cut) {
@@ -301,10 +331,14 @@ func (w *Watcher) read(ctx context.Context, e config.Engine) proto.Engine {
 			out.MetricsReported = true
 			if b, perr := w.get(ctx, base+"/props"); perr == nil {
 				var p struct {
-					NCtx int `json:"n_ctx"`
+					NCtx  int    `json:"n_ctx"`
+					Alias string `json:"model_alias"`
 				}
 				if json.Unmarshal(b, &p) == nil {
 					out.Window = p.NCtx
+					if p.Alias != "" {
+						out.Models = append(out.Models, proto.Model{Name: p.Alias, State: "loaded", Window: p.NCtx})
+					}
 				}
 			}
 			if ss, serr := w.slots(ctx, base+"/slots", "", ""); serr == nil {
@@ -731,10 +765,47 @@ func (w *Watcher) strata(ctx context.Context, base, keyEnv string, out *proto.En
 			PromptMS     float64 `json:"prompt_ms"`
 			DecodeMS     float64 `json:"decode_ms"`
 		} `json:"totals"`
+		Requests []struct {
+			Time           float64 `json:"time"`
+			DurationS      float64 `json:"duration_s"`
+			Finish         string  `json:"finish"`
+			PromptTokens   float64 `json:"prompt_tokens"`
+			Reused         float64 `json:"reused"`
+			OutputTokens   float64 `json:"output_tokens"`
+			PromptMS       float64 `json:"prompt_ms"`
+			DecodeTokS     float64 `json:"decode_tok_s"`
+			DraftsOffered  float64 `json:"drafts_offered"`
+			DraftsAccepted float64 `json:"drafts_accepted"`
+		} `json:"requests"`
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil
 	}
+	// Strata keeps its last requests in /metrics. Each becomes a row of the
+	// request log under the model /health names, so the ledger and the
+	// leaderboard tell two Strata quants apart on any port.
+	rows := make([]proto.Request, 0, len(m.Requests))
+	for _, q := range m.Requests {
+		status := http.StatusOK
+		switch q.Finish {
+		case "cancel":
+			status = 499
+		case "error":
+			status = http.StatusInternalServerError
+		}
+		r := proto.Request{
+			ID: out.Name + "/" + strconv.FormatFloat(q.Time, 'f', 6, 64), Engine: out.Name, Model: h.Model,
+			T: time.UnixMicro(int64(math.Round(q.Time * 1e6))), Status: status,
+			Prompt: q.PromptTokens, Cache: q.Reused, Output: q.OutputTokens,
+			Draft: q.DraftsOffered, DraftAcc: q.DraftsAccepted,
+			DecodeTPS: q.DecodeTokS, DurationMS: q.DurationS * 1000, PrefillMS: q.PromptMS,
+		}
+		if fresh := q.PromptTokens - q.Reused; fresh > 0 && q.PromptMS > 0 {
+			r.PrefillTPS = fresh / (q.PromptMS / 1000)
+		}
+		rows = append(rows, r)
+	}
+	w.record(rows)
 	out.MetricsReported = true
 	switch {
 	case m.Live.Running != nil:

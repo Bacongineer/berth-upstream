@@ -15,17 +15,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/broker"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
-func stopHolders(b *broker.Broker, hs []proto.Holder, grace time.Duration, log *slog.Logger) {
+func stopHolders(n *node.Node, hs []proto.Holder, grace time.Duration, log *slog.Logger) {
 	var targets []int
 	for i, h := range hs {
 		if h.Lease == "" {
 			continue
 		}
-		if h.PIDStart == 0 || !b.StillAlive(h.PID, h.PIDStart) {
+		if h.PIDStart == 0 || !n.StillAlive(h.PID, h.PIDStart) {
 			hs[i].Skipped = "no longer the process it was recorded as; not signalled"
 			continue
 		}
@@ -40,7 +40,7 @@ func stopHolders(b *broker.Broker, hs []proto.Holder, grace time.Duration, log *
 	}
 	gone := func() bool {
 		for _, i := range targets {
-			if b.StillAlive(hs[i].PID, hs[i].PIDStart) {
+			if n.StillAlive(hs[i].PID, hs[i].PIDStart) {
 				return false
 			}
 		}
@@ -50,7 +50,7 @@ func stopHolders(b *broker.Broker, hs []proto.Holder, grace time.Duration, log *
 		time.Sleep(20 * time.Millisecond)
 	}
 	for _, i := range targets {
-		if b.StillAlive(hs[i].PID, hs[i].PIDStart) {
+		if n.StillAlive(hs[i].PID, hs[i].PIDStart) {
 			if err := syscall.Kill(hs[i].PID, syscall.SIGKILL); err != nil {
 				hs[i].Skipped = "sigkill failed: " + err.Error()
 			}
@@ -60,7 +60,7 @@ func stopHolders(b *broker.Broker, hs []proto.Holder, grace time.Duration, log *
 		time.Sleep(20 * time.Millisecond)
 	}
 	for _, i := range targets {
-		if b.StillAlive(hs[i].PID, hs[i].PIDStart) {
+		if n.StillAlive(hs[i].PID, hs[i].PIDStart) {
 			log.Warn("reclaim: holder survived every signal", "pid", hs[i].PID, "lease", hs[i].Lease)
 			continue
 		}

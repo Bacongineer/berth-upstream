@@ -59,10 +59,11 @@ func OptionsFor(e *config.Engine, o Over) Options {
 		probe = "/system_stats"
 	}
 	opts := Options{
-		Socket: o.Socket, Engine: e.Name, Group: o.Group, Priority: prio,
+		Socket: o.Socket, Engine: e.Name, Card: e.GPU, Group: o.Group, Priority: prio,
 		Needs: e.NeedsMiB << 20, Pinned: o.Pinned, Switched: o.Switched, Wait: o.Wait,
 		DrainPost: e.DrainPost, DrainSlots: e.DrainSlots, DrainComfyUI: e.DrainComfyUI,
-		DrainMax: e.DrainMax.Duration, MinTurn: e.MinTurn.Duration, ParkTTL: e.ParkTTL.Duration, Container: e.Container, APIKeyEnv: e.APIKeyEnv, APIKeyFile: e.APIKeyFile,
+		DrainMax: e.DrainMax.Duration, MinTurn: e.MinTurn.Duration, ParkTTL: e.ParkTTL.Duration, Container: e.Container, Compose: e.Compose,
+		APIKeyEnv: e.APIKeyEnv, APIKeyFile: e.APIKeyFile,
 		ExitComfyUIIdle: e.ExitComfyUIIdle, ExitComfyUIIdleAfter: e.ExitComfyUIIdleAfter.Duration,
 		Grace: grace, FailClosed: o.FailClosed,
 		Argv: argv, Stderr: o.Stderr, Output: o.Output, Log: o.Log,
@@ -112,6 +113,7 @@ func OptionsFor(e *config.Engine, o Over) Options {
 	// lend = "hook" gives the run its engine's lend calls. berthd asks for a
 	// lend only from a run whose entry has them: the protocol base is
 	// lend_url, and a kind with built-in calls (strata) uses its own URL.
+	opts.WholeMachine = e.WholeMachine
 	if e.Lend == "hook" {
 		if adapter, ok := lend.For(e.Type, e.URL, e.LendURL); ok {
 			opts.Lend = &adapter

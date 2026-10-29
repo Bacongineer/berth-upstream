@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixture is a small llama-swap config with the shapes the walker must handle:
@@ -46,13 +47,13 @@ models:
   "Alpha-7B":
     aliases: ["alpha"]
     cmd: >
-      /usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --
+      /usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --
       ${server} -m /models/alpha.gguf
       --ctx-size 4096
     ttl: 300
   "Beta 9B":
     cmd: |
-      /usr/bin/berth run --as 'Beta 9B' --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Beta%209B --
+      /usr/bin/berth run --as 'Beta 9B' --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Beta%209B --drain-slots http://127.0.0.1:9090/upstream/Beta%209B --
       ${server} -m /models/beta.gguf
   "Gamma":
     proxy: http://127.0.0.1:8000
@@ -129,7 +130,7 @@ func TestLlamaSwapUpdateRealignsFlags(t *testing.T) {
 	// A hand-wrapped line with different flags: without Update it counts as
 	// wired and stays; with Update it is rewritten to the requested flags.
 	in := strings.Replace(fixtureWired,
-		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --",
+		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --",
 		"/opt/old/berth run --as Alpha-7B --priority interactive --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --", 1)
 	o := options()
 
@@ -174,6 +175,78 @@ func TestLlamaSwapUpdateRealignsFlags(t *testing.T) {
 	}
 }
 
+// --update rewrites the flags wire writes and keeps every other one in its
+// place, so a hand-added --needs-mib or -wait survives; --wait replaces a
+// hand-written wait and lands on lines wire adds (#231).
+func TestLlamaSwapUpdateKeepsHandFlags(t *testing.T) {
+	in := strings.Replace(fixtureWired,
+		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --",
+		"/opt/old/berth run --as Alpha-7B --priority interactive --needs-mib 14000 -wait 700s --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --", 1)
+	line := func(o Options, model string) string {
+		t.Helper()
+		r, err := LlamaSwap(writeTemp(t, in), o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range r.Models {
+			if m.Name == model {
+				return strings.TrimSpace(m.Line)
+			}
+		}
+		return ""
+	}
+	o := options()
+	o.Update = true
+	if got, want := line(o, "Alpha-7B"), "/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --needs-mib 14000 -wait 700s --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --"; got != want {
+		t.Errorf("update:\n got %s\nwant %s", got, want)
+	}
+	o.Wait = 800 * time.Second
+	if got, want := line(o, "Alpha-7B"), "/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --wait 13m20s --needs-mib 14000 --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --"; got != want {
+		t.Errorf("update --wait:\n got %s\nwant %s", got, want)
+	}
+	o.Update = false
+	r, err := LlamaSwap(writeTemp(t, fixture), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.NewContent(), "--as 'Beta 9B' --group llama-swap --priority foreground --wait 13m20s --drain-post") {
+		t.Errorf("--wait missing on an added line:\n%s", r.NewContent())
+	}
+}
+
+// On Windows the berth path is berth.exe behind backslashes. A second wire
+// finds the line it wrote and an operator's unquoted one, and an update keeps
+// a hand-added Windows path whole.
+func TestLlamaSwapWindowsPaths(t *testing.T) {
+	o := options()
+	o.Bin = `F:\AI\berth\berth.exe`
+	r, err := LlamaSwap(writeTemp(t, fixture), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := LlamaSwap(writeTemp(t, r.NewContent()), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Changed {
+		t.Errorf("a second wire changed the file: %+v", again.Models)
+	}
+	hand := strings.Replace(fixtureWired,
+		"/usr/bin/berth run --as Alpha-7B --group llama-swap --priority foreground --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --",
+		`F:\AI\berth\berth.exe run --as Alpha-7B --api-key-file F:\keys\swap.key --drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --`, 1)
+	o.Update = true
+	r, err = LlamaSwap(writeTemp(t, hand), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.NewContent(), `--api-key-file 'F:\keys\swap.key' --drain-post`) {
+		t.Errorf("the hand-added Windows path did not survive the update:\n%s", r.NewContent())
+	}
+	if strings.Count(r.NewContent(), " run --as Alpha-7B") != 1 {
+		t.Errorf("Alpha-7B wrapped twice:\n%s", r.NewContent())
+	}
+}
+
 func TestLlamaSwapExclude(t *testing.T) {
 	o := options()
 	o.Exclude = []string{"Beta *", "Delta"}
@@ -208,7 +281,7 @@ func TestLlamaSwapKeepsCRLF(t *testing.T) {
 	if strings.Contains(out, "\n\n") || strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\r") {
 		t.Errorf("mixed line endings after edit:\n%q", out)
 	}
-	if !strings.Contains(out, "--drain-post http://127.0.0.1:9090/api/models/unload/Alpha-7B --\r\n") {
+	if !strings.Contains(out, "--drain-slots http://127.0.0.1:9090/upstream/Alpha-7B --\r\n") {
 		t.Error("inserted line does not carry the file's CRLF ending")
 	}
 	r2, err := LlamaSwap(writeTemp(t, out), options())

@@ -4,24 +4,27 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
 // ServeMetrics serves Prometheus text on a loopback address only. It is
 // read-only, and requests whose Host header is not a loopback name are
 // refused, so a web page cannot read it through DNS rebinding.
-func ServeMetrics(ctx context.Context, addr string, b *broker.Broker, engines func() []proto.Engine, log *slog.Logger) error {
+func ServeMetrics(ctx context.Context, addr string, n *node.Node, engines func() []proto.Engine, log *slog.Logger) error {
 	if err := config.Loopback(addr); err != nil {
 		return err
 	}
@@ -31,7 +34,7 @@ func ServeMetrics(ctx context.Context, addr string, b *broker.Broker, engines fu
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		st := b.Status()
+		st := n.Status()
 		st.Engines = engines()
 		st.Counters.SendTimeouts = sendTimeouts.Load()
 		st.Counters.DroppedConsumers = droppedConsumers.Load()
@@ -67,6 +70,47 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+var promEscaper = strings.NewReplacer("\\", `\\`, `"`, `\"`, "\n", `\n`)
+
+// promEsc escapes a label value for the Prometheus text format.
+func promEsc(v string) string { return promEscaper.Replace(v) }
+
+// sortedCards returns the scheduled cards, then any other card a lease,
+// waiting entry or squatter names, each once and in name order.
+func sortedCards(cards []string, st proto.Status) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(c string) {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	for _, c := range cards {
+		add(c)
+	}
+	for _, l := range st.Leases {
+		add(l.Card)
+	}
+	for _, l := range st.Waiting {
+		add(l.Card)
+	}
+	for _, s := range st.Squatters {
+		add(s.Card)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isCard(cards []string, c string) bool {
+	for _, x := range cards {
+		if x == c {
+			return true
+		}
+	}
+	return false
+}
+
 // WriteProm renders status as Prometheus text. Names are berth_*; memory
 // is bytes; engine figures carry source="engine" because they are the
 // engine's own claims, not driver measurements.
@@ -77,39 +121,129 @@ func WriteProm(w io.Writer, st proto.Status) {
 			fmt.Fprintln(w, s)
 		}
 	}
-	var total, used, free []string
+	var total, used, free, base, util, temp, pow, plim, fan []string
+	var cards []string
 	for _, g := range st.GPUs {
-		l := fmt.Sprintf(`{gpu="%d",name=%q,scheduled="%t"}`, g.Index, g.Name, g.Scheduled)
+		if g.Scheduled {
+			cards = append(cards, g.Card)
+		}
+		l := fmt.Sprintf(`{gpu="%d",card="%s",name="%s",scheduled="%t"}`, g.Index, promEsc(g.Card), promEsc(g.Name), g.Scheduled)
 		total = append(total, fmt.Sprintf("berth_gpu_memory_total_bytes%s %d", l, g.Total))
 		used = append(used, fmt.Sprintf("berth_gpu_memory_used_bytes%s %d", l, g.Used))
 		free = append(free, fmt.Sprintf("berth_gpu_memory_free_bytes%s %d", l, g.Free))
+		l = fmt.Sprintf(`{gpu="%d",card="%s"}`, g.Index, promEsc(g.Card))
+		base = append(base, fmt.Sprintf("berth_gpu_baseline_bytes%s %d", l, g.Baseline))
+		if g.Util >= 0 {
+			util = append(util, fmt.Sprintf("berth_gpu_utilization_ratio%s %g", l, g.Util/100))
+		}
+		if g.Temp >= 0 {
+			temp = append(temp, fmt.Sprintf("berth_gpu_temperature_celsius%s %g", l, g.Temp))
+		}
+		if g.Power >= 0 {
+			pow = append(pow, fmt.Sprintf("berth_gpu_power_watts%s %g", l, g.Power))
+		}
+		if g.PowerLimit >= 0 {
+			plim = append(plim, fmt.Sprintf("berth_gpu_power_limit_watts%s %g", l, g.PowerLimit))
+		}
+		if g.Fan >= 0 {
+			fan = append(fan, fmt.Sprintf("berth_gpu_fan_ratio%s %g", l, g.Fan/100))
+		}
 	}
 	p("Card memory, measured by the driver.", "gauge", "berth_gpu_memory_total_bytes", total...)
 	p("Card memory in use, measured by the driver.", "gauge", "berth_gpu_memory_used_bytes", used...)
 	p("Card memory free, measured by the driver.", "gauge", "berth_gpu_memory_free_bytes", free...)
+	p("Card memory held by processes outside any lease at the last baseline.", "gauge", "berth_gpu_baseline_bytes", base...)
+	// Telemetry the driver does not report is -1, and gets no series.
+	if len(util) > 0 {
+		p("Card utilization as a ratio from 0 to 1.", "gauge", "berth_gpu_utilization_ratio", util...)
+	}
+	if len(temp) > 0 {
+		p("Card temperature in degrees Celsius.", "gauge", "berth_gpu_temperature_celsius", temp...)
+	}
+	if len(pow) > 0 {
+		p("Card power draw in watts.", "gauge", "berth_gpu_power_watts", pow...)
+	}
+	if len(plim) > 0 {
+		p("Card power limit in watts.", "gauge", "berth_gpu_power_limit_watts", plim...)
+	}
+	if len(fan) > 0 {
+		p("Card fan speed as a ratio from 0 to 1.", "gauge", "berth_gpu_fan_ratio", fan...)
+	}
 
-	states := map[string]int{"active": 0, "draining": 0, "releasing": 0, "stuck": 0}
+	// Every scheduled card gets a zero series, so a graph shows an empty
+	// card as 0 and not as a gap. A lease on another card still counts.
+	leaseStates := []string{"active", "draining", "parking", "parked", "releasing", "stuck"}
+	type key struct{ card, state string }
+	count := map[key]int{}
+	for _, c := range cards {
+		for _, s := range leaseStates {
+			count[key{c, s}] = 0
+		}
+	}
+	type lkey struct{ card, engine, priority, state string }
+	leaseBytes := map[lkey]uint64{}
 	for _, l := range st.Leases {
-		states[l.State]++
+		count[key{l.Card, l.State}]++
+		leaseBytes[lkey{l.Card, l.Engine, l.Priority, l.State}] += l.Used
 	}
-	var ls []string
-	for _, s := range []string{"active", "draining", "releasing", "stuck"} {
-		ls = append(ls, fmt.Sprintf(`berth_leases{state=%q} %d`, s, states[s]))
+	var ls, lb []string
+	for _, c := range sortedCards(cards, st) {
+		for _, s := range leaseStates {
+			if n, ok := count[key{c, s}]; ok {
+				ls = append(ls, fmt.Sprintf(`berth_leases{card="%s",state="%s"} %d`, promEsc(c), s, n))
+			}
+		}
 	}
-	p("Leases by state.", "gauge", "berth_leases", ls...)
-	p("Requests waiting for a berth.", "gauge", "berth_waiting", fmt.Sprintf("berth_waiting %d", len(st.Waiting)))
-	var sb uint64
+	p("Leases by card and state.", "gauge", "berth_leases", ls...)
+	lks := make([]lkey, 0, len(leaseBytes))
+	for k := range leaseBytes {
+		lks = append(lks, k)
+	}
+	slices.SortFunc(lks, func(a, b lkey) int {
+		return cmp.Or(cmp.Compare(a.card, b.card), cmp.Compare(a.engine, b.engine),
+			cmp.Compare(a.priority, b.priority), cmp.Compare(a.state, b.state))
+	})
+	for _, k := range lks {
+		lb = append(lb, fmt.Sprintf(`berth_lease_used_bytes{card="%s",engine="%s",priority="%s",state="%s"} %d`,
+			promEsc(k.card), promEsc(k.engine), promEsc(k.priority), promEsc(k.state), leaseBytes[k]))
+	}
+	if len(lb) > 0 {
+		p("GPU memory the leases hold, measured by the driver, summed per label set.", "gauge", "berth_lease_used_bytes", lb...)
+	}
+
+	waiting := map[string]int{}
+	for _, w := range st.Waiting {
+		waiting[w.Card]++
+	}
+	squats := map[string]int{}
+	squatBytes := map[string]uint64{}
 	for _, s := range st.Squatters {
-		sb += s.Used
+		squats[s.Card]++
+		squatBytes[s.Card] += s.Used
 	}
-	p("Processes holding GPU memory without a lease.", "gauge", "berth_squatters", fmt.Sprintf("berth_squatters %d", len(st.Squatters)))
-	p("GPU memory held without a lease.", "gauge", "berth_squatter_bytes", fmt.Sprintf("berth_squatter_bytes %d", sb))
+	var wt, sq, sqb []string
+	for _, c := range sortedCards(cards, st) {
+		_, inW := waiting[c]
+		_, inS := squats[c]
+		if !inW && !inS && !isCard(cards, c) {
+			continue
+		}
+		l := fmt.Sprintf(`{card="%s"}`, promEsc(c))
+		wt = append(wt, fmt.Sprintf("berth_waiting%s %d", l, waiting[c]))
+		sq = append(sq, fmt.Sprintf("berth_squatters%s %d", l, squats[c]))
+		sqb = append(sqb, fmt.Sprintf("berth_squatter_bytes%s %d", l, squatBytes[c]))
+	}
+	p("Requests waiting for a berth.", "gauge", "berth_waiting", wt...)
+	p("Processes holding GPU memory without a lease.", "gauge", "berth_squatters", sq...)
+	p("GPU memory held without a lease.", "gauge", "berth_squatter_bytes", sqb...)
 	p("Engines running without a lease.", "gauge", "berth_unprotected_runs", fmt.Sprintf("berth_unprotected_runs %d", len(st.Unprotected)))
 	probe := 1
 	if st.ProbeErr != "" {
 		probe = 0
 	}
 	p("1 when the GPU probe is reading.", "gauge", "berth_probe_up", fmt.Sprintf("berth_probe_up %d", probe))
+
+	p("Berth version.", "gauge", "berth_build_info", fmt.Sprintf(`berth_build_info{version="%s"} 1`, promEsc(st.Version)))
 
 	c := st.Counters
 	p("Grants that waited on a held card instead of colliding.", "counter", "berth_collisions_avoided_total", fmt.Sprintf("berth_collisions_avoided_total %d", c.CollisionsAvoided))
@@ -125,7 +259,7 @@ func WriteProm(w io.Writer, st proto.Status) {
 
 	var up, models, dec, pre, out, in []string
 	for _, e := range st.Engines {
-		l := fmt.Sprintf(`{engine=%q,type=%q,source="engine"}`, e.Name, e.Type)
+		l := fmt.Sprintf(`{engine="%s",type="%s",source="engine"}`, promEsc(e.Name), promEsc(e.Type))
 		b := 0
 		if e.Up {
 			b = 1

@@ -22,6 +22,7 @@ import (
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/server"
@@ -91,7 +92,7 @@ func TestReclaimStopsOnlyRecordedHolders(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{}, log)
 
 	engine := startSleep(t, "60")
 	stranger := startSleep(t, "60")

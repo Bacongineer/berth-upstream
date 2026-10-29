@@ -940,3 +940,60 @@ func TestLendValidated(t *testing.T) {
 		}
 	}
 }
+
+// A Compose engine is one absolute Compose file, never also a container: the
+// project names its own containers.
+func TestEngineComposeParsedAndValidated(t *testing.T) {
+	const base = "[[engine]]\nname = \"tagger\"\ntype = \"custom\"\nurl = \"http://127.0.0.1:8000\"\nhealth = \"/healthz\"\n"
+	abs := filepath.Join(t.TempDir(), "compose.yaml")
+	c, err := Load(write(t, base+"compose = '"+abs+"'\n"))
+	if err != nil {
+		t.Fatalf("a valid compose was refused: %v", err)
+	}
+	if c.Engine[0].Compose != abs {
+		t.Fatalf("compose = %q, want %q", c.Engine[0].Compose, abs)
+	}
+
+	for _, tc := range []struct {
+		engine  string
+		wantErr string
+	}{
+		{"compose = \"compose.yaml\"", `engine[0] "tagger": compose "compose.yaml" must be an absolute path`},
+		{"compose = \"./compose.yaml\"", `engine[0] "tagger": compose "./compose.yaml" must be an absolute path`},
+		{"compose = \"/srv/tagger/compose.yaml\"\ncontainer = \"tagger\"",
+			`engine[0] "tagger": compose and container are mutually exclusive`},
+	} {
+		_, err := Load(write(t, base+tc.engine+"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error lacks %q: %v", tc.engine, tc.wantErr, err)
+		}
+	}
+}
+
+// gpu = names the card an engine runs on: a node card name or a PCI address,
+// or a comma list of them for one lease on several cards.
+func TestEngineGPUParsedAndValidated(t *testing.T) {
+	const base = "[[engine]]\nname = \"maya\"\ntype = \"llamacpp\"\nurl = \"http://127.0.0.1:8000\"\n"
+	for _, ok := range []string{"gpu1", "gpu12", "0000:41:00.0", "gpu0,gpu1", "gpu3,0000:41:00.0"} {
+		c, err := Load(write(t, base+"gpu = \""+ok+"\"\n"))
+		if err != nil || c.Engine[0].GPU != ok {
+			t.Errorf("gpu = %q: %v, loaded %q", ok, err, c.Engine[0].GPU)
+		}
+	}
+	for _, bad := range []string{"1", "gpu", "card1", "GPU1", "41:00.0", "gpu0,", "gpu0,,gpu1", "gpu0, gpu1", "gpu0,gpu0"} {
+		_, err := Load(write(t, base+"gpu = \""+bad+"\"\n"))
+		if err == nil || !strings.Contains(err.Error(), `engine[0] "maya": gpu "`+bad+`"`) {
+			t.Errorf("gpu = %q: error %v, want it refused", bad, err)
+		}
+	}
+}
+
+func TestSquattersAllow(t *testing.T) {
+	c, err := Load(write(t, "[squatters]\nallow = [\"chrome\", \"WindowsTerminal\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c.Squatters.Allow, ","); got != "chrome,WindowsTerminal" {
+		t.Errorf("allow = %q, want chrome,WindowsTerminal", got)
+	}
+}

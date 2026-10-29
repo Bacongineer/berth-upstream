@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/proto"
 )
 
@@ -25,6 +26,7 @@ type boardNode struct {
 }
 
 type boardCard struct {
+	Card  string `json:"card,omitempty"` // its name on the node (gpu0)
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	// State is free, held, draining (a holder is giving it back),
@@ -47,8 +49,8 @@ type boardModel struct {
 }
 
 func (g *Gateway) board(w http.ResponseWriter, r *http.Request) {
-	node := g.nodeStatus()
-	rows := g.guiRows(r.Context(), node)
+	status := g.nodeStatus()
+	rows := g.guiRows(r.Context(), status)
 	listed := map[string][]string{}
 	for i := range g.Engines {
 		e := &g.Engines[i]
@@ -62,21 +64,21 @@ func (g *Gateway) board(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(boardOf(host, node, rows, listed))
+	_ = json.NewEncoder(w).Encode(boardOf(host, status, rows, listed))
 }
 
 // boardOf assembles the board from berthd's status (nil = not answering),
 // the engines' rows in config order and each engine's model list.
-func boardOf(host string, node *proto.Status, rows []guiRow, listed map[string][]string) boardNode {
-	n := boardNode{Name: host, Reachable: node != nil, Cards: []boardCard{}, Engines: make([]boardEngine, 0, len(rows))}
+func boardOf(host string, status *proto.Status, rows []guiRow, listed map[string][]string) boardNode {
+	n := boardNode{Name: host, Reachable: status != nil, Cards: []boardCard{}, Engines: make([]boardEngine, 0, len(rows))}
 	loaded := map[string]map[string]bool{}
-	if node != nil {
-		for _, gp := range node.GPUs {
+	if status != nil {
+		for _, gp := range status.GPUs {
 			if !gp.Scheduled {
 				continue
 			}
-			c := boardCard{Index: gp.Index, Name: gp.Name, State: "free", Total: gp.Total, Used: gp.Used, Holders: []guiHold{}}
-			for _, l := range node.Leases {
+			c := boardCard{Card: gp.Card, Index: gp.Index, Name: gp.Name, State: "free", Total: gp.Total, Used: gp.Used, Holders: []guiHold{}}
+			for _, l := range node.View(status, gp.Card).Leases {
 				c.Holders = append(c.Holders, guiHold{Name: holderName(l), State: l.State, Pinned: l.Pinned})
 				if c.State == "free" {
 					c.State = "held"
@@ -86,14 +88,14 @@ func boardOf(host string, node *proto.Status, rows []guiRow, listed map[string][
 				}
 			}
 			switch {
-			case node.Passthrough != nil:
+			case gp.Passthrough != nil || status.Passthrough != nil:
 				c.State = "passthrough"
-			case node.ProbeErr != "":
+			case status.ProbeErr != "":
 				c.State = "probe-failed"
 			}
 			n.Cards = append(n.Cards, c)
 		}
-		for _, e := range node.Engines {
+		for _, e := range status.Engines {
 			loaded[e.Name] = map[string]bool{}
 			for _, m := range e.Models {
 				loaded[e.Name][m.Name] = m.State == "loaded" || m.State == "ready"
@@ -102,8 +104,8 @@ func boardOf(host string, node *proto.Status, rows []guiRow, listed map[string][
 	}
 	for _, row := range rows {
 		be := boardEngine{guiRow: row, Models: []boardModel{}}
-		if node != nil {
-			for _, l := range node.Leases {
+		if status != nil {
+			for _, l := range status.Leases {
 				if (l.Engine == row.Name || l.Group == row.Name) && !l.Pinned && l.State == "active" {
 					be.Stoppable = true
 				}

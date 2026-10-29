@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/T-Crypt/berth/internal/claims"
+	"github.com/T-Crypt/berth/internal/gpu"
 	"github.com/T-Crypt/berth/internal/lend"
 	"github.com/T-Crypt/berth/internal/notify"
 	"github.com/T-Crypt/berth/internal/park"
@@ -110,11 +111,24 @@ type Engine struct {
 	// chat call to another engine) finishes, and its CUDA context goes
 	// soon after. 0 = [park] ttl.
 	ParkTTL Duration `toml:"park_ttl,omitzero" json:"park_ttl,omitempty" yaml:"park_ttl,omitempty"`
-	// Container is the engine's container, as berth run --container: the
-	// name of `docker run --name` (or of an existing container for
+	// Container is the engine's one container, as berth run --container:
+	// the name of `docker run --name` (or of an existing container for
 	// `docker start -a`). The drain stops it through the runtime CLI
-	// instead of signalling the wrapper; Linux-only in this release.
+	// instead of signalling the wrapper.
 	Container string `toml:"container,omitempty" json:"container,omitempty" yaml:"container,omitempty"`
+	// Compose is an engine's Compose file, as berth run --compose: an
+	// absolute path to the compose.yaml the project runs from. The lease
+	// then covers every container of the project, and the drain stops the
+	// project with `compose stop` and never `down`. Set compose or
+	// container, not both. The start command stays the operator's, so
+	// `docker compose -f PATH up` is what starts it.
+	Compose string `toml:"compose,omitempty" json:"compose,omitempty" yaml:"compose,omitempty"`
+	// GPU is the card the engine runs on, as berth run --gpu: its name on
+	// the node (gpu1) or its PCI address, or a comma list of them for one
+	// lease on several cards. The lease goes to those cards, and the run
+	// sets CUDA_VISIBLE_DEVICES to their UUIDs unless the engine's
+	// environment sets it. "" = the node's first card.
+	GPU string `toml:"gpu,omitempty" json:"gpu,omitempty" yaml:"gpu,omitempty"`
 	// Park picks the RAM tier on a drain: off (the default) runs the
 	// plain drain, hook asks the engine to move its weights to system
 	// RAM instead, so the next use resumes in seconds. Engines with a
@@ -131,8 +145,13 @@ type Engine struct {
 	// a card back while it keeps serving, and take it back later. LendURL
 	// is the base of the Berth lend protocol (contrib/LEND-PROTOCOL.md); a
 	// kind with a built-in lend adapter (strata) needs none.
-	Lend    string `toml:"lend,omitempty" json:"lend,omitempty" yaml:"lend,omitempty"`
-	LendURL string `toml:"lend_url,omitempty" json:"lend_url,omitempty" yaml:"lend_url,omitempty"`
+	Lend string `toml:"lend,omitempty" json:"lend,omitempty" yaml:"lend,omitempty"`
+	// WholeMachine is for an engine that needs the card, the RAM, the CPU
+	// and the disk to itself (Strata pins 40 GiB of RAM beside a full card).
+	// Whatever its lease drains is stopped, not parked, and a parked engine
+	// is evicted before it starts, so no residual or RAM copy is left.
+	WholeMachine bool   `toml:"whole_machine,omitempty" json:"whole_machine,omitempty" yaml:"whole_machine,omitempty"`
+	LendURL      string `toml:"lend_url,omitempty" json:"lend_url,omitempty" yaml:"lend_url,omitempty"`
 	// ExitComfyUIIdle releases after a completed session; IdleAfter also bounds an unused session.
 	ExitComfyUIIdle      bool     `toml:"exit_comfyui_idle,omitempty" json:"exit_comfyui_idle,omitempty" yaml:"exit_comfyui_idle,omitempty"`
 	ExitComfyUIIdleAfter Duration `toml:"exit_comfyui_idle_after,omitzero" json:"exit_comfyui_idle_after,omitempty" yaml:"exit_comfyui_idle_after,omitempty"`
@@ -203,15 +222,16 @@ type Config struct {
 		Hosts    []string `toml:"discover_hosts,omitempty" json:"discover_hosts,omitempty" yaml:"discover_hosts,omitempty"`
 		Ports    []int    `toml:"discover_ports,omitempty" json:"discover_ports,omitempty" yaml:"discover_ports,omitempty"`
 	} `toml:"engines" json:"engines" yaml:"engines"`
-	Engine   []Engine       `toml:"engine,omitempty" json:"engine,omitempty" yaml:"engine,omitempty"`
-	Alerts   AlertsConfig   `toml:"alerts" json:"alerts" yaml:"alerts"`
-	Priority PriorityConfig `toml:"priority,omitempty" json:"priority" yaml:"priority"`
-	Claims   ClaimsConfig   `toml:"claims,omitempty" json:"claims" yaml:"claims"`
-	Claim    []ClaimRule    `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
-	Park     ParkConfig     `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
-	Models   ModelsConfig   `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
-	Library  LibraryConfig  `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
-	Update   UpdateConfig   `toml:"update,omitempty" json:"update,omitempty" yaml:"update,omitempty"`
+	Engine    []Engine        `toml:"engine,omitempty" json:"engine,omitempty" yaml:"engine,omitempty"`
+	Alerts    AlertsConfig    `toml:"alerts" json:"alerts" yaml:"alerts"`
+	Priority  PriorityConfig  `toml:"priority,omitempty" json:"priority" yaml:"priority"`
+	Claims    ClaimsConfig    `toml:"claims,omitempty" json:"claims" yaml:"claims"`
+	Squatters SquattersConfig `toml:"squatters,omitempty" json:"squatters" yaml:"squatters"`
+	Claim     []ClaimRule     `toml:"claim,omitempty" json:"claim,omitempty" yaml:"claim,omitempty"`
+	Park      ParkConfig      `toml:"park,omitempty" json:"park,omitempty" yaml:"park,omitempty"`
+	Models    ModelsConfig    `toml:"models,omitempty" json:"models,omitempty" yaml:"models,omitempty"`
+	Library   LibraryConfig   `toml:"library,omitempty" json:"library,omitempty" yaml:"library,omitempty"`
+	Update    UpdateConfig    `toml:"update,omitempty" json:"update,omitempty" yaml:"update,omitempty"`
 }
 
 // UpdateConfig switches the check for a newer release. On, the harbor asks
@@ -228,6 +248,14 @@ func (c *Config) UpdateCheck() bool {
 		return *c.Update.Check
 	}
 	return true
+}
+
+// SquattersConfig is berthd's squatter check. Allow is process-name
+// substrings that are never squatters (a browser, a terminal): their memory
+// still counts as used, but the card can count as free beside them. berth
+// daemon --allow, when given, takes its place.
+type SquattersConfig struct {
+	Allow []string `toml:"allow,omitempty" json:"allow,omitempty" yaml:"allow,omitempty"`
 }
 
 // ClaimsConfig switches the built-in claim pack (Steam, Lutris and gamescope
@@ -596,6 +624,19 @@ func (c *Config) Validate() error {
 		}
 		if e.APIKeyFile != "" && !filepath.IsAbs(e.APIKeyFile) {
 			errs = append(errs, fmt.Errorf("%s: api_key_file must be an absolute path", where))
+		}
+		if e.GPU != "" {
+			if err := gpu.CheckCard(e.GPU); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", where, err))
+			}
+		}
+		if e.Compose != "" {
+			if e.Container != "" {
+				errs = append(errs, fmt.Errorf("%s: compose and container are mutually exclusive: a project names its own containers", where))
+			}
+			if !filepath.IsAbs(e.Compose) {
+				errs = append(errs, fmt.Errorf("%s: compose %q must be an absolute path: the gateway starts engines from its own working directory", where, e.Compose))
+			}
 		}
 		if !slices.Contains(Types, e.Type) {
 			errs = append(errs, fmt.Errorf("%s: type %q is not one of %v", where, e.Type, Types))

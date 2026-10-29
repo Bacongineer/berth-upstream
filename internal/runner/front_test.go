@@ -218,6 +218,40 @@ func TestCheckpointWithoutTheToolDrainsAndSaysWhy(t *testing.T) {
 }
 
 // A front whose port is still held by the run before it (a router that
+
+// The engine behind a front binds its port only once the lease is granted, so
+// the port must be one the kernel never hands to another socket in the
+// meantime: below the ephemeral range, and not one something listens on.
+func TestFreePortSkipsATakenPortAndStaysBelowTheEphemeralRange(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	busy := taken.Addr().(*net.TCPAddr).Port
+	prev := pickPort
+	t.Cleanup(func() { pickPort = prev })
+	tries := 0
+	pickPort = func() int {
+		tries++
+		if tries == 1 {
+			return busy
+		}
+		return prev()
+	}
+
+	port, err := freePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port == busy || port < 20000 || port >= 30000 {
+		t.Fatalf("freePort = %d, want a free port in 20000-29999 after skipping %d", port, busy)
+	}
+	if tries < 2 {
+		t.Fatalf("tries = %d, want the taken port skipped", tries)
+	}
+}
+
 // restarts a model reuses the port) waits for it instead of failing.
 func TestListenSoonWaitsForAPortToFree(t *testing.T) {
 	old, err := net.Listen("tcp", "127.0.0.1:0")
@@ -239,7 +273,7 @@ func TestListenSoonWaitsForAPortToFree(t *testing.T) {
 }
 
 // A drain that arrives while another is parking the engine is kept, not
-// dropped: berth stop during a slow checkpoint stops the engine once the
+// dropped: berth stop during a slow checkpoint kills the engine once the
 // park ends, instead of leaving it parked against the person's word.
 func TestStopDuringAParkStopsTheEngine(t *testing.T) {
 	tools := t.TempDir()
@@ -267,13 +301,13 @@ func TestStopDuringAParkStopsTheEngine(t *testing.T) {
 	card.set()
 	select {
 	case code := <-exited:
-		if code != 143 {
-			t.Fatalf("exit %d, want 143; log:\n%s", code, log.String())
+		if code != 137 {
+			t.Fatalf("exit %d, want 137; log:\n%s", code, log.String())
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("the engine was left running after berth stop; log:\n%s", log.String())
 	}
-	if !strings.Contains(log.String(), "stopping parked ninfer instead of parking it again: stopped by berth stop") {
+	if !strings.Contains(log.String(), "killing checkpointed ninfer: it cannot shut down while its CUDA calls are locked") {
 		t.Fatalf("no stop line; log:\n%s", log.String())
 	}
 	if hold := <-holder; hold != nil {

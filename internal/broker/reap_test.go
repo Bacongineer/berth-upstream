@@ -131,9 +131,9 @@ func TestReaperLeavesAContainerLease(t *testing.T) {
 	b, c, _ := setup(t, tree)
 	b.cfg.Containers = func(pid int) (string, bool) { return "", false }
 	b.cfg.ProcTable = func() []procs.Proc { return nil }
-	l := must(t, acquire(b, Request{Engine: "a", Container: "a", Needs: 8 * GiB}))
+	l := must(t, acquire(b, Request{Engine: "a", Containers: []string{"a"}, Needs: 8 * GiB}))
 	l.Attach(100)
-	l.AttachContainer(vllmID)
+	l.AttachContainers([]string{vllmID})
 	c.set(gpu.Proc{PID: 100, Name: "a-engine", Used: 8 * GiB})
 	b.Tick(context.Background())
 

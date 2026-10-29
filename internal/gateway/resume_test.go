@@ -27,8 +27,10 @@ import (
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
+	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runner"
 	"github.com/T-Crypt/berth/internal/server"
 )
@@ -72,7 +74,7 @@ func parkDaemon(t *testing.T, card *wakeCard, avail uint64) (string, *broker.Bro
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{}, log)
 	return sock, b
 }
 
@@ -266,3 +268,63 @@ func TestGatewayResumesAParkedEngine(t *testing.T) {
 }
 
 func slogDiscard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// statusDaemon is a berthd that answers every status with st.
+func statusDaemon(t *testing.T, st proto.Status) string {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "berth.sock")
+	ln, err := server.Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn := proto.NewConn(c)
+			if m, err := conn.Recv(); err == nil && m.Op == proto.OpStatus {
+				_ = conn.Send(proto.Msg{Op: proto.OpStatus, Status: &st})
+			}
+			c.Close()
+		}
+	}()
+	return sock
+}
+
+// A parked model behind llama-swap wakes at its own front (berth run
+// --front), so the gateway sends the request to llama-swap. Another model's
+// parked lease in the llama-swap family does not make llama-swap parked.
+// An engine whose own lease is parked is still not proxied live: the gateway
+// is its front and resumes it first.
+func TestParkedLeaseSkipsOnlyItsOwnEngine(t *testing.T) {
+	const model = "NInfer-Qwen3.8-27B"
+	addr := freeAddr(t)
+	go fakeEngine(addr, model, 0)
+	for _, tc := range []struct {
+		engine, lease, group string
+		want                 int
+	}{
+		{"llama-swap", model, "llama-swap", http.StatusOK},
+		{"vllm", "vllm", "vllm", http.StatusNotFound},
+	} {
+		sock := statusDaemon(t, proto.Status{
+			Engines: []proto.Engine{{Name: tc.engine, Type: "llama-swap", URL: "http://" + addr, Up: true, State: "up"}},
+			Leases:  []proto.Lease{{ID: tc.lease + "-1", Engine: tc.lease, Group: tc.group, State: "parked"}},
+		})
+		g := &Gateway{Socket: sock, Ready: 5 * time.Second, Key: testKey}
+		gw := httptest.NewServer(g.Handler())
+		resp := call(t, "POST", gw.URL+"/v1/chat/completions", fmt.Sprintf(`{"model":%q}`, model))
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		gw.Close()
+		if resp.StatusCode != tc.want {
+			t.Fatalf("%s with %s parked: %d %s, want %d", tc.engine, tc.lease, resp.StatusCode, body, tc.want)
+		}
+		if tc.want == http.StatusOK && !strings.Contains(string(body), "never collide") {
+			t.Fatalf("%s with %s parked: the reply did not come from the engine: %s", tc.engine, tc.lease, body)
+		}
+	}
+}

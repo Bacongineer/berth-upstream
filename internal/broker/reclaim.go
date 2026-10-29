@@ -38,7 +38,7 @@ func (b *Broker) Reclaim(id string) ([]proto.Holder, error) {
 	} else {
 		l, ok := b.leases[id]
 		if !ok {
-			return nil, fmt.Errorf("no lease named %s", id)
+			return nil, notFound("no lease named " + id)
 		}
 		if l.state != releasing && l.state != stuck {
 			return nil, fmt.Errorf("lease %s is %s, not stuck", id, l.state)
@@ -52,7 +52,7 @@ func (b *Broker) Reclaim(id string) ([]proto.Holder, error) {
 	var hs []proto.Holder
 	for _, p := range b.snap.Procs {
 		pid := b.identify(p.PID)
-		l := b.owner(pid, b.containerOf(p.PID), b.scopeOf(p.PID))
+		l := b.owner(pid, p, b.scopeOf(p.PID))
 		switch {
 		case l != nil && want[l.id]:
 			hs = append(hs, proto.Holder{PID: p.PID, PIDStart: pid.start, Lease: l.id, Name: p.Name, Used: p.Used})

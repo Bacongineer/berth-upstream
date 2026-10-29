@@ -53,13 +53,61 @@ export function fmtNum(n) {
   if (Math.abs(n) >= 10000) return (n / 1000).toFixed(1) + "k";
   return String(Math.round(n));
 }
-// v0 schedules whole cards on one berthd, so the berth label comes from the
-// scheduled GPUs the status reports.
+// The berth label comes from the scheduled GPUs the status reports. Past
+// three cards a joined list stops fitting, so it gives the count.
 export function berthLabel(status) {
   if (!status || !Array.isArray(status.gpus)) return "";
   const sched = status.gpus.filter((g) => g.scheduled);
   if (sched.length === 0) return "no card scheduled";
+  if (sched.length > 3) return sched.length + " cards";
   return sched.map((g) => "gpu" + g.index).join("+");
+}
+// cardTag names the card a lease, waiting row or squatter sits on, but only
+// when the node schedules more than one: a single card needs no tag.
+export function cardTag(status, card) {
+  const n = ((status && status.gpus) || []).filter((g) => g.scheduled).length;
+  return n > 1 && card ? card : "";
+}
+// leaseGpu is the GPU a lease sits on. A lease with no card (an older berthd)
+// gets the first scheduled card.
+export function leaseGpu(status, card) {
+  const gpus = (status && status.gpus) || [];
+  return (card && gpus.find((g) => g.card === card)) || gpus.find((g) => g.scheduled) || null;
+}
+// cardRange names a lease's cards: "gpu0..gpu4" when they are consecutive,
+// else a comma list in index order.
+export function cardRange(cards) {
+  const idx = cards.map((c) => /^gpu(\d+)$/.exec(c));
+  if (idx.length < 2 || idx.some((m) => !m)) return cards.join(",");
+  const n = idx.map((m) => Number(m[1])).sort((a, b) => a - b);
+  const sorted = n.map((i) => "gpu" + i);
+  return n.every((v, i) => i === 0 || v === n[i - 1] + 1) ? sorted[0] + ".." + sorted[n.length - 1] : sorted.join(",");
+}
+// leaseCardLine is what a lease serves: the models its engine reports loaded
+// or ready, or the lease's engine name when no engine of that name reports
+// one (a llama-swap model's lease is named for the model already). cards
+// lists the lease's cards when it sits on more than one (a lease on several
+// cards is one share per card, one id).
+export function leaseCardLine(status, lease) {
+  const eng = ((status && status.engines) || []).find((e) => e.name === lease.engine);
+  const up = ((eng && eng.models) || []).filter((m) => m.state === "loaded" || m.state === "ready").map((m) => m.name);
+  const model = up.length > 0 ? up.join(", ") : lease.engine;
+  const cards = lease.id
+    ? ((status && status.leases) || []).filter((l) => l.id === lease.id && l.card).map((l) => l.card)
+    : [];
+  return { model, cards: cards.length > 1 ? cardRange(cards) : "" };
+}
+// tideCapacity is what the memory history is drawn against: the scheduled
+// cards' totals and baselines in bytes, summed, because the holders are
+// summed over every card. title is "gpu0" for one card, "N cards" for more.
+export function tideCapacity(status) {
+  const sched = ((status && status.gpus) || []).filter((g) => g.scheduled);
+  if (sched.length === 0) return null;
+  return {
+    total: sched.reduce((a, g) => a + (g.total || 0), 0),
+    baseline: sched.reduce((a, g) => a + (g.baseline || 0), 0),
+    title: sched.length === 1 ? "gpu" + sched[0].index : sched.length + " cards",
+  };
 }
 // proto Priority -> ticket class
 export function classWord(priority) {

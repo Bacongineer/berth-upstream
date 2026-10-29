@@ -11,81 +11,138 @@ import (
 	"os/exec"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
-// Stream keeps one nvidia-smi running in loop mode for every card's memory,
-// instead of starting two processes every poll, and lists the scheduled
-// card's processes only when its used memory moves or AppsEvery passes.
+// Stream is the machine's one NVIDIA reader. It keeps one nvidia-smi running
+// in loop mode for every card's memory, instead of starting two processes
+// every poll for each card, and lists the processes of every card in one
+// query, only when a governed card's used memory moves or AppsEvery passes.
 // Memory can only be held by a process, so a process that appears or goes
 // away moves the used figure, and the periodic list catches anything else.
-// If the stream stalls, Read falls back to a one-shot query, so a dead
+// If the stream stalls, a read falls back to a one-shot query, so a dead
 // stream costs freshness, never correctness.
 //
-// Index picks the card on the first reading only. From then on the card is
-// its PCI bus id: a card passed through to a VM leaves nvidia-smi and the
-// cards after it are renumbered, and the scheduled card must not change
-// with them.
+// Each governed card reads through its StreamCard from Card. A card's Index
+// picks it on the first reading only. From then on the card is its PCI bus
+// id: a card passed through to a VM leaves nvidia-smi and the cards after it
+// are renumbered, and a governed card must not change with them.
 type Stream struct {
-	Index     int
 	Bin       string
 	Log       *slog.Logger
 	Interval  time.Duration // stream period; default 1 s
 	AppsEvery time.Duration // longest gap between process lists; default 10 s
 
 	mu       sync.Mutex
+	cards    []*StreamCard
 	devices  map[string]seen // by bus id; a card that stops reporting drops out
-	busID    string          // the scheduled card: --gpu's address, or pinned by the first reading that finds Index
 	lastLine time.Time
-	procs    []Proc
+	procs    map[string][]Proc // by sysfs address, from the last process list
 	procsAt  time.Time
-	procsFor uint64 // the scheduled card's used bytes when procs was read
+	procsFor map[string]uint64 // each card's used bytes when procs was read
 
-	// paused keeps nvidia-smi off the card (a VFIO switch): stop ends the
-	// running loop, and resume wakes Run when the pause ends.
-	paused bool
-	stop   context.CancelFunc
-	resume chan struct{}
+	// lists runs one process list at a time, so cards whose reads fall due
+	// together share one nvidia-smi.
+	lists sync.Mutex
+
+	// A change to which cards are read (a pause) ends the running loop
+	// through stop, and wakes Run through wake when it waits with nothing
+	// to read.
+	stop context.CancelFunc
+	wake chan struct{}
+	gen  uint64 // counts selection changes
 }
 
-// Pause stops the nvidia-smi loop at once and keeps it stopped until
-// Pause(false), so nothing of berthd's holds the card open while the
-// operator switches its driver. Calling it again with the same value does
-// nothing.
-func (s *Stream) Pause(p bool) {
+// StreamCard is one governed card's probe over the machine's Stream.
+type StreamCard struct {
+	s      *Stream
+	index  int
+	busID  string // the card: --gpu's address, or pinned by the first reading that finds index
+	paused bool
+}
+
+// Card is the probe for the card at index, or at addr when it is set. A
+// card's reads share the stream's one loop and one process list.
+func (s *Stream) Card(index int, addr string) *StreamCard {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p == s.paused {
+	c := &StreamCard{s: s, index: index, busID: addr}
+	s.cards = append(s.cards, c)
+	s.changed()
+	return c
+}
+
+// Pause stops nvidia-smi on this card at once and keeps it off until
+// Pause(false), so nothing of berthd's holds the card open while the
+// operator switches its driver. The machine's other cards go on being read
+// by address. Calling it again with the same value does nothing.
+func (c *StreamCard) Pause(p bool) {
+	s := c.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p == c.paused {
 		return
 	}
-	s.paused = p
-	if p && s.stop != nil {
+	c.paused = p
+	if !p && c.busID != "" {
+		// The card's processes were last listed before the switch.
+		delete(s.procsFor, SysfsAddr(c.busID))
+	}
+	s.changed()
+}
+
+// changed restarts the loop with the cards to read now. Readings taken
+// under the old selection no longer count as fresh. Called with s.mu held.
+func (s *Stream) changed() {
+	s.gen++
+	s.lastLine = time.Time{}
+	if s.stop != nil {
 		s.stop()
+		s.stop = nil
 	}
-	if !p && s.resume != nil {
-		close(s.resume)
-		s.resume = nil
+	if s.wake != nil {
+		close(s.wake)
+		s.wake = nil
 	}
+}
+
+// selection is what nvidia-smi is asked to read: every card it sees ("")
+// while no card is paused, or the unpaused governed cards by address while
+// one is. ok is false when there is nothing to read: no card is governed,
+// or every one is paused. Called with s.mu held.
+func (s *Stream) selection() (sel string, ok bool) {
+	var paused bool
+	var ids []string
+	for _, c := range s.cards {
+		switch {
+		case c.paused:
+			paused = true
+		case c.busID != "":
+			ids = append(ids, c.busID)
+		default:
+			ids = append(ids, strconv.Itoa(c.index))
+		}
+	}
+	if !paused {
+		return "", len(s.cards) > 0
+	}
+	return strings.Join(ids, ","), len(ids) > 0
+}
+
+// args is nvidia-smi's arguments for sel, as selection gives it.
+func args(sel string, query ...string) []string {
+	if sel == "" {
+		return query
+	}
+	return append([]string{"-i", sel}, query...)
 }
 
 // seen is one card's last line from the stream and when it came.
 type seen struct {
 	Device
 	at time.Time
-}
-
-// oneShot is the one-shot probe for the card at busID ("" = by Index).
-func (s *Stream) oneShot(busID string) NvidiaSMI {
-	return NvidiaSMI{Index: s.Index, BusID: busID, Bin: s.Bin, Log: s.Log}
-}
-
-// pin records the scheduled card's bus id once a reading finds it. Called
-// with s.mu held.
-func (s *Stream) pin(busID string) {
-	if s.busID == "" {
-		s.busID = busID
-	}
 }
 
 func (s *Stream) interval() time.Duration {
@@ -95,14 +152,24 @@ func (s *Stream) interval() time.Duration {
 	return s.Interval
 }
 
+func (s *Stream) appsEvery() time.Duration {
+	if s.AppsEvery <= 0 {
+		return 10 * time.Second
+	}
+	return s.AppsEvery
+}
+
+func (s *Stream) smi() NvidiaSMI { return NvidiaSMI{Bin: s.Bin, Log: s.Log} }
+
 // Run feeds the stream until ctx ends, restarting nvidia-smi if it exits,
-// and starts none while paused.
+// and starts none while there is nothing to read.
 func (s *Stream) Run(ctx context.Context) {
 	for ctx.Err() == nil {
 		s.mu.Lock()
-		if s.paused {
+		sel, ok := s.selection()
+		if !ok {
 			wake := make(chan struct{})
-			s.resume = wake
+			s.wake = wake
 			s.mu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -113,8 +180,12 @@ func (s *Stream) Run(ctx context.Context) {
 		fctx, cancel := context.WithCancel(ctx)
 		s.stop = cancel
 		s.mu.Unlock()
-		s.follow(fctx)
+		s.follow(fctx, sel)
+		changed := fctx.Err() != nil
 		cancel()
+		if changed {
+			continue // the selection changed: read the new one at once
+		}
 		select {
 		case <-ctx.Done():
 		case <-time.After(2 * time.Second):
@@ -122,10 +193,10 @@ func (s *Stream) Run(ctx context.Context) {
 	}
 }
 
-func (s *Stream) follow(ctx context.Context) {
-	cmd := exec.CommandContext(ctx, NvidiaSMI{Bin: s.Bin}.bin(),
+func (s *Stream) follow(ctx context.Context, sel string) {
+	cmd := exec.CommandContext(ctx, s.smi().bin(), args(sel,
 		"--query-gpu="+Query, "--format=csv,noheader,nounits",
-		"-lms", strconv.FormatInt(s.interval().Milliseconds(), 10))
+		"-lms", strconv.FormatInt(s.interval().Milliseconds(), 10))...)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return
@@ -140,76 +211,169 @@ func (s *Stream) follow(ctx context.Context) {
 			continue
 		}
 		s.mu.Lock()
-		if s.devices == nil {
-			s.devices = map[string]seen{}
+		if ctx.Err() == nil {
+			if s.devices == nil {
+				s.devices = map[string]seen{}
+			}
+			key := devs[0].BusID
+			if key == "" {
+				key = "index " + strconv.Itoa(devs[0].Index)
+			}
+			s.lastLine = time.Now()
+			s.devices[key] = seen{devs[0], s.lastLine}
 		}
-		key := devs[0].BusID
-		if key == "" {
-			key = "index " + strconv.Itoa(devs[0].Index)
-		}
-		s.lastLine = time.Now()
-		s.devices[key] = seen{devs[0], s.lastLine}
 		s.mu.Unlock()
 	}
 	_ = cmd.Wait()
 }
 
-func (s *Stream) Read(ctx context.Context) (Snapshot, error) {
-	appsEvery := s.AppsEvery
-	if appsEvery <= 0 {
-		appsEvery = 10 * time.Second
-	}
+// Read is the card's snapshot: its memory from the stream's last lines, or
+// from a one-shot query when the stream is stale, and its processes from
+// the machine's last process list.
+func (c *StreamCard) Read(ctx context.Context) (Snapshot, error) {
+	s := c.s
 	s.mu.Lock()
-	fresh := !s.lastLine.IsZero() && time.Since(s.lastLine) < 3*s.interval()
-	if !fresh {
-		busID := s.busID
+	sel, _ := s.selection()
+	var snap Snapshot
+	if !s.lastLine.IsZero() && time.Since(s.lastLine) < 3*s.interval() {
+		snap = Snapshot{At: s.lastLine}
+		for key, d := range s.devices {
+			if s.lastLine.Sub(d.at) >= 3*s.interval() {
+				delete(s.devices, key) // passed through, or renumbered under another key
+				continue
+			}
+			snap.Devices = append(snap.Devices, d.Device)
+		}
+		sort.Slice(snap.Devices, func(i, j int) bool { return snap.Devices[i].Index < snap.Devices[j].Index })
 		s.mu.Unlock()
-		snap, err := s.oneShot(busID).Read(ctx)
-		if err == nil {
-			s.mu.Lock()
-			s.pin(BusID(snap))
-			s.mu.Unlock()
+	} else {
+		s.mu.Unlock()
+		mem, err := s.smi().run(ctx, args(sel, "--query-gpu="+Query, "--format=csv,noheader,nounits")...)
+		if err != nil {
+			return Snapshot{}, err
 		}
-		return snap, err
-	}
-	snap := Snapshot{At: s.lastLine}
-	for key, c := range s.devices {
-		if s.lastLine.Sub(c.at) >= 3*s.interval() {
-			delete(s.devices, key) // passed through, or renumbered under another key
-			continue
+		if snap.Devices, err = ParseDevices(mem); err != nil {
+			return Snapshot{}, err
 		}
-		snap.Devices = append(snap.Devices, c.Device)
+		snap.At = time.Now()
 	}
-	sort.Slice(snap.Devices, func(i, j int) bool { return snap.Devices[i].Index < snap.Devices[j].Index })
-	d, err := pick(snap.Devices, s.Index, s.busID)
+
+	s.mu.Lock()
+	d, err := pick(snap.Devices, c.index, c.busID)
 	if err != nil {
 		s.mu.Unlock()
 		return snap, err
 	}
-	s.pin(d.BusID)
-	selector := s.busID
+	if c.busID == "" {
+		c.busID = d.BusID
+	}
 	snap.Index, snap.Name, snap.Total, snap.Used, snap.Free = d.Index, d.Name, d.Total, d.Used, d.Free
-	stale := s.procsAt.IsZero() || time.Since(s.procsAt) >= appsEvery || s.procsFor != d.Used
-	procs := s.procs
 	s.mu.Unlock()
 
-	if stale {
-		if selector == "" {
-			selector = strconv.Itoa(d.Index)
-		}
-		apps, err := s.oneShot("").run(ctx, "-i", selector, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits")
-		if err != nil {
-			return snap, err
-		}
-		parsed, err := Parse(d.Index, fmt.Sprintf("%d, %s, %d, %d, %d", d.Index, d.Name, d.Total/MiB, d.Used/MiB, d.Free/MiB), apps, snap.At)
-		if err != nil {
-			return snap, err
-		}
-		procs = parsed.Procs
-		s.mu.Lock()
-		s.procs, s.procsAt, s.procsFor = procs, time.Now(), d.Used
-		s.mu.Unlock()
+	procs, err := s.procsOf(ctx, d)
+	if err != nil {
+		return snap, err
 	}
 	snap.Procs = procs
 	return withPDH(snap, logger(s.Log)), nil
+}
+
+// procsOf is the processes on card d from the machine's process list,
+// listing every card read now again when d's list is stale.
+func (s *Stream) procsOf(ctx context.Context, d Device) ([]Proc, error) {
+	key := SysfsAddr(d.BusID)
+	stale := func() bool {
+		used, ok := s.procsFor[key]
+		return !ok || used != d.Used || time.Since(s.procsAt) >= s.appsEvery()
+	}
+	s.mu.Lock()
+	if !stale() {
+		defer s.mu.Unlock()
+		return s.procs[key], nil
+	}
+	s.mu.Unlock()
+
+	s.lists.Lock()
+	defer s.lists.Unlock()
+	s.mu.Lock()
+	if !stale() { // another card's read listed them while this one waited
+		defer s.mu.Unlock()
+		return s.procs[key], nil
+	}
+	sel, _ := s.selection()
+	gen := s.gen
+	s.mu.Unlock()
+	apps, err := s.smi().run(ctx, args(sel, "--query-compute-apps=gpu_bus_id,pid,process_name,used_memory", "--format=csv,noheader,nounits")...)
+	if err != nil {
+		return nil, err
+	}
+	byCard, err := ParseApps(apps)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.procs, s.procsAt = byCard, time.Now()
+	s.procsFor = map[string]uint64{}
+	if gen != s.gen {
+		// A card was paused or resumed while the list ran: it counts for
+		// no card, and every card is listed again on its next read.
+		return s.procs[key], nil
+	}
+	// The list is current only for the cards it asked about: a card left
+	// out (paused when sel was taken) is listed again on its next read.
+	asked := map[string]bool{}
+	for _, id := range strings.Split(sel, ",") {
+		asked[SysfsAddr(id)] = true
+	}
+	for _, seen := range s.devices {
+		if k := SysfsAddr(seen.BusID); sel == "" || asked[k] {
+			s.procsFor[k] = seen.Used
+		}
+	}
+	s.procsFor[key] = d.Used
+	return s.procs[key], nil
+}
+
+// ParseApps reads "gpu_bus_id, pid, process_name, used_memory" lines (memory
+// in MiB) into each card's processes, keyed by the card's sysfs address.
+func ParseApps(apps string) (map[string][]Proc, error) {
+	out := map[string][]Proc{}
+	for _, line := range strings.Split(apps, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "No running") {
+			continue
+		}
+		bus, rest, ok := strings.Cut(line, ",")
+		addr := SysfsAddr(strings.TrimSpace(bus))
+		if !ok || addr == "" {
+			return nil, fmt.Errorf("compute-apps line %q", line)
+		}
+		p, err := parseApp(rest)
+		if err != nil {
+			return nil, fmt.Errorf("compute-apps line %q: %w", line, err)
+		}
+		out[addr] = append(out[addr], p)
+	}
+	return out, nil
+}
+
+// parseApp reads "pid, process_name, used_memory". The name may itself
+// contain commas: the PID is before the first one and the memory figure
+// after the last.
+func parseApp(line string) (Proc, error) {
+	i, j := strings.IndexByte(line, ','), strings.LastIndexByte(line, ',')
+	if i < 0 || i == j {
+		return Proc{}, fmt.Errorf("want pid, name, memory")
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(line[:i]))
+	if err != nil {
+		return Proc{}, fmt.Errorf("pid: %w", err)
+	}
+	used, err := strconv.ParseUint(strings.TrimSpace(line[j+1:]), 10, 64)
+	if err != nil {
+		// "[N/A]" on some drivers and in some containers.
+		used = 0
+	}
+	return Proc{PID: pid, Name: strings.TrimSpace(line[i+1 : j]), Used: used * MiB}, nil
 }

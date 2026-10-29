@@ -13,6 +13,7 @@
   berth wire llama-swap --config cfg.yaml          # plan: which models lack a wrapper
   berth wire llama-swap --config cfg.yaml --write  # apply; a backup stays beside the file
   berth wire llama-swap --config cfg.yaml --check  # exit 1 when a model is unwired
+  berth wire llama-swap --config cfg.yaml --write --update --wait 10m  # rewrite wire's flags, keep yours
   berth config check --strict          # a warning fails the check, exit 1
   berth config show --format toml      # the evaluated config, ready to save
   berth engine check -v                # what each engine reports, right now
@@ -26,7 +27,9 @@
   Exit codes are 0 (done), 1 (validation or logic: an invalid config, a warning under `--strict`,
   an engine that did not answer, a lease the broker refused) and 2 (berth could not do its job:
   unknown flag, missing file, berthd unreachable). `berth run` passes the engine's own status
-  through and exits 75 when no berth was granted. Every read-only command changes nothing.
+  through and exits 75 when no berth was granted. Every read-only command changes nothing. When berthd
+  governs more than one card, `berth status` adds a CARD column and `berth events` names the card on each
+  line. `--format json` carries the card on every event.
 - **Harbor web UI** (`berth harbor`): a departures board of every lease (the HOT / WARM
   tiers included: WARM marks a parked engine, with its parked RAM and age), a boat ticket
   per lease, the collisions counter, berths with measured memory, stowaways, the event
@@ -63,5 +66,16 @@
     (`header_up Host 127.0.0.1`, `proxy_set_header Host 127.0.0.1;`), with the proxy's own
     allowlist or auth on the network side. `tailscale serve` passes the tailnet name as `Host`,
     which `/metrics` refuses.
+
+  Every GPU series carries `card` (`gpu0`), so a machine with several cards reads per card.
+  - `berth_gpu_memory_{total,used,free}_bytes{gpu,card,name,scheduled}`
+  - `berth_gpu_baseline_bytes{gpu,card}`
+  - `berth_gpu_utilization_ratio`, `berth_gpu_temperature_celsius`, `berth_gpu_power_watts`,
+    `berth_gpu_power_limit_watts` and `berth_gpu_fan_ratio`, each `{gpu,card}`. A card that does not
+    report a value has no series for it.
+  - `berth_leases{card,state}` for the states active, draining, parking, parked, releasing and stuck
+  - `berth_lease_used_bytes{card,engine,priority,state}`, summed per label set
+  - `berth_waiting{card}`, `berth_squatters{card}` and `berth_squatter_bytes{card}`
+  - `berth_build_info{version}`, always 1
 - **Footprint:** the node uses about 0.2% of one CPU core and ~21 MB of memory on the
   reference box; the harbor about 0.4% and ~23 MB, writing to disk once a minute.

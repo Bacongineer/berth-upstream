@@ -1,6 +1,6 @@
 // The passage ticket: a boat ticket with a perforated stub and a rubber stamp.
 // Esc and the close button both return focus to the voyage that opened it.
-import { fmtGiB, fmtBytes, fmtAge, classWord, stateTone, berthLabel, el } from "./util.js";
+import { fmtGiB, fmtBytes, fmtAge, classWord, stateTone, berthLabel, leaseGpu, el } from "./util.js";
 import { toast, copyText } from "./ui.js";
 const STAMP_WORD = {
   active: "CLEARED",
@@ -93,7 +93,7 @@ export class Ticket {
     f.no.textContent = lease.id || "-";
     f.vessel.textContent = lease.engine || "?";
     f.cls.textContent = classWord(lease.priority);
-    const sched = (status.gpus || []).find((g) => g.scheduled);
+    const sched = leaseGpu(status, lease.card);
     f.berth.textContent = sched ? "gpu" + sched.index + " - " + sched.name : berthLabel(status);
     f.requested.textContent = lease.needs === 0 ? "whole card" : fmtGiB(lease.needs) + " GiB";
     f.hold.textContent = lease.used > 0 ? fmtGiB(lease.used) + " GiB" : "none measured yet";
@@ -163,15 +163,12 @@ export class Ticket {
       this.f.pos.textContent = bits.join(", ");
     }
   }
-  // CONTAINER: the name the operator gave the container an engine runs in,
-  // with the full ID in the tooltip.
+  // CONTAINER: every container the engine runs in, by ID: one for a
+  // --container engine, the whole set for a Compose project.
   fillContainer(lease) {
-    const name = lease.container_name || "";
-    this.f.containerRow.hidden = !name;
-    if (name) {
-      this.f.container.textContent = name;
-      this.f.container.title = lease.container || name;
-    }
+    const ids = (lease.containers || []).join(", ");
+    this.f.containerRow.hidden = !ids;
+    if (ids) this.f.container.textContent = ids;
   }
   // The terminal row: the exact orders, as copy buttons. The ticket is the
   // operator's seat at the counter, not the node's stick; the harbor reads

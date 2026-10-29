@@ -181,7 +181,7 @@ export class Board {
     const row = this.rows.get(key);
     if (row) row.focus();
   }
-  // data: [{ key, lease, isWaiting }] in display order; sort names a
+  // data: [{ key, lease, isWaiting, berth? }] in display order; sort names a
   // SORTABLE column or is null for the broker's own queue order
   render(data, berth, sort) {
     const ordered = sortEntries(data, sort);
@@ -216,7 +216,7 @@ export class Board {
         : l.needs > 0 ? gib(l.needs) : "CARD";
       updateCell(c.ticket, fit(ticketNo(l.id), WIDTH.ticket), "");
       updateCell(c.vessel, fit(l.engine || "?", WIDTH.vessel), "");
-      updateCell(c.berth, fit(berth, WIDTH.berth), "");
+      updateCell(c.berth, fit(entry.berth || berth, WIDTH.berth), "");
       updateCell(c.cls, fit(CLASS[l.priority] || l.priority || "", WIDTH.cls), "");
       updateCell(c.hold, fit(hold, WIDTH.hold), "");
       // status cell: flip tiles, then the WARM and CONTESTED flags
@@ -322,9 +322,10 @@ function rowTitle(entry) {
   if (entry.isWaiting && l.position != null) {
     bits.push("waiting at queue position " + l.position + (l.estimate_s != null ? ", est. " + ageWord(l.estimate_s) + " to a berth" : ""));
   }
-  if (l.container_name) {
-    bits.push("runs in container " + l.container_name + (l.container ? " (" + l.container + ")" : ""));
-  }
+  // A container engine is shown by what it runs in: every container ID of
+  // its Compose project, or the one container a --container engine has.
+  const ids = (l.containers || []).join(", ");
+  if (ids) bits.push("runs in container " + ids);
   return bits.join("; ");
 }
 // ageWord reads a seconds figure the way the log does: 6m 2s, 1h 30m.

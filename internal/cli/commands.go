@@ -82,9 +82,9 @@ takes. The id of the first line is what civitai:model:<MODEL_ID> resolves to.`,
 	},
 	{
 		Name:    "daemon",
-		Summary: "run the broker for one card (berthd)",
+		Summary: "run the broker for every card (berthd)",
 		Args:    "[flags]",
-		Help: `Run the lease broker for one card: it hands the GPU to one engine at a
+		Help: `Run the lease broker for every card: it hands each GPU to one engine at a
 time, drains the holder when another engine asks for it, and reports any
 process holding VRAM without a lease. It never kills a process it did not
 start. Logs go to stderr; a user unit is in contrib/berthd.service.`,

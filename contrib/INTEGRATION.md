@@ -17,7 +17,7 @@ the engine to the new daemon within a few seconds.
 
 ```sh
 berth run --as <name> --priority <batch|interactive|foreground> [--needs-mib N] \
-  [--drain-post URL] [--drain-comfyui URL] [--wait 10m] -- <the engine's own command>
+  [--drain-post URL] [--drain-comfyui URL] [--wait 10m] [--gpu gpu1] -- <the engine's own command>
 ```
 
 - `--priority`: an equal or higher request drains the holder; a lower one waits.
@@ -25,6 +25,11 @@ berth run --as <name> --priority <batch|interactive|foreground> [--needs-mib N] 
   (for example vLLM with `--gpu-memory-utilization`).
 - `--drain-post`: a URL Berth POSTs first when it wants the card back, before any signal.
 - `--drain-comfyui`: wait for ComfyUI's queue to empty before stopping it.
+- `--gpu`: the card to lease on a machine with several, such as `gpu1`. `gpu0,gpu1` holds one lease on both.
+  The engine starts with `CUDA_VISIBLE_DEVICES` set to the card's UUID unless its environment sets it. With
+  no `--gpu`, the lease goes to the first card and the environment is left alone.
+- With no command after `--`, `berth run --as NAME` runs the `start` of NAME's `[[engine]]` entry in
+  berth.toml. Every setting no flag sets comes from that entry too.
 - On drain, Berth tries the drain step, then SIGTERM to the engine's process group, then
   SIGKILL, with `--grace` (30 s) between steps.
 
@@ -42,17 +47,24 @@ berth wire llama-swap --config /etc/llama-swap/config.yaml --write
 berth wire llama-swap --config /etc/llama-swap/config.yaml --check  # exit 1 when unwired
 ```
 
+`--wait 10m` writes `--wait` on every line, for a batch job that has to queue behind a long foreground
+lease; without it a request waits berthd's default (120 s). `--write --update` rewrites the flags wire
+writes on lines that already exist and keeps any flag you added by hand, such as `--needs-mib 14000`,
+in the order you wrote it. A hand-written `--wait` stays unless you pass `--wait`.
+
 It keeps a backup beside the file and stays re-runnable when the roster changes; point `--api`
 at llama-swap's base URL when it listens elsewhere than `http://127.0.0.1:9090`. Under the
 hood each model's `cmd` gains one wrapper line, and llama-swap's own unload URL is the drain so
-llama-swap's state stays consistent:
+llama-swap's state stays consistent. The unload waits until the model's `/slots`, which llama-swap
+serves under `/upstream/<model>`, show no request in flight:
 
 ```yaml
 models:
   "qwen3-30b":
     cmd: >
       berth run --as qwen3-30b --group llama-swap --priority foreground
-      --drain-post http://127.0.0.1:8080/api/models/unload/qwen3-30b --
+      --drain-post http://127.0.0.1:8080/api/models/unload/qwen3-30b
+      --drain-slots http://127.0.0.1:8080/upstream/qwen3-30b --
       llama-server --port ${PORT} -m /models/qwen3-30b.gguf --metrics
 ```
 
@@ -71,6 +83,11 @@ berth run --as llama-server --priority interactive -- llama-server -m model.gguf
 Start `llama-server` with `--metrics` for token counters and queue; `/slots` (on unless started
 with `--no-slots`) gives the live KV pool. Reading: `type = "llamacpp"` (`ninfer` for
 [NInfer](https://github.com/T-Crypt/ninfer-4090), `koboldcpp` for KoboldCpp).
+
+These engines have no offload call, but they can park in RAM through NVIDIA's `cuda-checkpoint`. Add
+`--park checkpoint --front 127.0.0.1:${PORT}` to the `berth run` line of a llama-swap model, and start
+the engine on `{{BERTH_PORT}}`. [Park in RAM](https://github.com/T-Crypt/berth/blob/main/docs/gateway.md#park-in-ram-warm-switch)
+has the full line.
 
 ## Ollama
 
@@ -128,7 +145,7 @@ full container ID (docker first, then podman), attaches it to the lease, and eve
 GPU process inside that container belongs to the lease from then on. On a drain the
 wrapper runs `docker stop -t 30 vllm` (the image's own SIGTERM, then SIGKILL) instead
 of signalling the wrapper's process group; if the stop fails it falls back to the
-signals. Linux only in this release; on Windows the flag is accepted and ignored.
+signals. Linux and Windows both work: the runtime CLI is the same on each.
 
 The container is Berth's because this command started it, and only that container is
 ever stopped. A container Berth did not start stays a stowaway: reported with its
@@ -152,11 +169,70 @@ berth.toml (a `--container` flag wins). Podman engines read the same:
 `podman run --name vllm ...`; Berth resolves and stops with podman when docker is
 not installed.
 
+## A Compose project as one engine
+
+A lease names containers, plural, so an engine that is a Compose project fits as it
+is. PaddleOCR runs an OCR service beside a detection sidecar and both want the GPU; a
+tagger runs beside a Tailscale sidecar that carries its network. Point Berth at the
+Compose file and the whole project is one engine:
+
+```toml
+[[engine]]
+name    = "pet-tagger"
+type    = "custom"
+url     = "http://127.0.0.1:8000"
+health  = "/health"
+start   = ["docker", "compose", "-f", "/srv/tagger/compose.yaml", "up"]
+compose = "/srv/tagger/compose.yaml"
+needs_mib = 2560
+```
+
+The path is absolute, and an entry sets `compose` or `container`, not both: a project
+names its own containers. `berth config check` refuses both other shapes. `berth run
+--compose PATH` is the run-line form. Your start command stays yours, and `docker
+compose -f PATH up` is the one that fits: it stays in the foreground while the project
+runs and exits after a stop, so the run is the project's lifecycle.
+
+On every poll Berth asks the runtime which containers that file is running
+(`docker compose -f PATH ps -q --all`, podman when docker does not answer) and names the
+set on the lease. Every service's GPU processes then belong to the lease, so the second
+CUDA container is its engine's memory rather than a stowaway, and a container that
+restarts under a new ID comes back to the lease on the next poll. A drain runs `docker
+compose -f PATH stop -t 30`. It never runs `down`: that deletes the containers, networks
+and volumes the project owns.
+
+Windows reads the same file and runs the same two commands. One limit comes with WSL2:
+the driver reports no per-container VRAM there, so a container's memory arrives as the
+WSL VM's single process row, with the VM's whole dedicated usage. While a container
+engine is the only one on the card, Berth counts that row as its lease, which then counts
+the larger of its `needs_mib` and the row, and the VM stops showing as a stowaway. With
+two container engines at once Berth cannot split one row between them: each counts its
+`needs_mib`, and the row is reported once as a stowaway.
+
+Size `needs_mib` from your heaviest run. A batch engine's footprint follows its batch: one
+operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest, and
+the larger figure is the one that keeps the next engine from being over-committed.
+
+## Strata
+
+[Strata](https://github.com/T-Crypt/strata) fills the card and pins about 40 GiB of RAM, so it is a
+whole-machine engine. Give its entry `type = "strata"`, because the `llamacpp` reader names no model and
+Strata's requests would never reach the token ledger or the leaderboard. With `type = "strata"` each request
+lands under the model `/health` names.
+
+```toml
+[[engine]]
+name          = "strata"
+type          = "strata"
+url           = "http://127.0.0.1:8080"
+whole_machine = true      # berthd stops what it drains and evicts parked engines before the grant
+```
+
 ## Everything else
 
-TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken, [Strata](https://github.com/T-Crypt/strata)
-and any OpenAI-compatible server lease the same way: wrap the command that starts them. Their
-readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`, `freetoken`, `strata` and `openai`.
+TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken and any OpenAI-compatible server lease the same
+way. Wrap the command that starts them. Their readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`,
+`freetoken` and `openai`.
 
 An engine with no reader of its own uses `type = "custom"`, with any of:
 

@@ -11,12 +11,16 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"slices"
 	"time"
 )
 
 const (
 	OpAcquire = "acquire" // client: ask for a berth; blocks until granted or refused
 	OpAttach  = "attach"  // client: the engine is running as this PID
+	// OpFinished: client: the engine exited 0, so it stopped answering on
+	// purpose. Sent just before the hang-up that ends the lease.
+	OpFinished = "finished"
 	// OpReattach: client: an engine already running under berth run (PID plus
 	// PIDStart) lost its daemon and asks the new one to lease it the card again.
 	OpReattach = "reattach"
@@ -57,7 +61,10 @@ const (
 	OpParked     = "parked"
 	OpParkFailed = "park_failed"
 	OpResume     = "resume"
-	OpAwake      = "awake"
+	// OpSwitch: a person switched to an engine whose lease is queued, so
+	// that lease wins a juggle as a switched acquire does.
+	OpSwitch = "switch"
+	OpAwake  = "awake"
 
 	// OpLend: the daemon asks a serving holder's runner to give part of its
 	// memory on one card to a waiter that does not fit while the holder keeps
@@ -91,12 +98,20 @@ const (
 
 // Msg is every message in both directions; unused fields are omitted.
 type Msg struct {
-	Op       string  `json:"op"`
-	Engine   string  `json:"engine,omitempty"`
-	Group    string  `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
-	Priority string  `json:"priority,omitempty"`
-	Needs    uint64  `json:"needs,omitempty"` // bytes; 0 = the whole card
-	Wait     float64 `json:"wait,omitempty"`  // seconds to wait before refusing; 0 = server default
+	Op       string `json:"op"`
+	Engine   string `json:"engine,omitempty"`
+	Group    string `json:"group,omitempty"` // the engine family the lease counts for in juggles and usage
+	Priority string `json:"priority,omitempty"`
+	Needs    uint64 `json:"needs,omitempty"` // bytes; 0 = the whole card
+	// Card is the card an OpAcquire or OpReattach is for: its name on the
+	// node (gpu1) or its PCI address, or a comma list of them for one lease
+	// on several cards. "" is the node's first card.
+	Card string `json:"card,omitempty"`
+	// CardUUID is the granted cards' NVIDIA UUIDs on OpGranted, comma
+	// separated, "" when one is unknown: a run that named its cards sets
+	// CUDA_VISIBLE_DEVICES to it.
+	CardUUID string  `json:"card_uuid,omitempty"`
+	Wait     float64 `json:"wait,omitempty"` // seconds to wait before refusing; 0 = server default
 	PID      int     `json:"pid,omitempty"`
 	PIDStart uint64  `json:"pid_start,omitempty"` // OpReattach: the engine's start time, so a reused PID is refused
 	Pinned   bool    `json:"pinned,omitempty"`    // OpAcquire/OpReattach: never drained (holds, berth run --pinned)
@@ -105,6 +120,9 @@ type Msg struct {
 	// lend = "hook"): OpAcquire and OpReattach declare it, and the broker
 	// never asks a lease that did not.
 	Lend bool `json:"lend,omitempty"`
+	// WholeMachine marks a run whose engine needs the machine to itself
+	// (its entry says whole_machine = true). OpAcquire and OpReattach.
+	WholeMachine bool `json:"whole_machine,omitempty"`
 	// Switched marks a person's switch (the wake page's Launch,
 	// /v1/berth/switch): it wins a juggle. OpAcquire and OpResume.
 	Switched bool `json:"switched,omitempty"`
@@ -115,10 +133,15 @@ type Msg struct {
 	// ParkTTL is how long the lease may stay parked, in seconds, in place
 	// of the node's [park] ttl. OpAcquire and OpReattach; 0 = the node's.
 	ParkTTL float64 `json:"park_ttl,omitempty"`
-	// Container is the container the engine runs in: OpAcquire and
-	// OpReattach carry the name the operator gave (--container), OpAttach
-	// the full ID berth run resolved it to. The broker matches GPU
-	// processes by the ID and reports it shortened.
+	// Containers is the containers the engine runs in: OpAcquire and
+	// OpReattach carry the names the operator gave (--container), OpAttach
+	// the full IDs berth run resolved them to. A Compose project is a set;
+	// a lone --container is a set of one, so the runner has one path. The
+	// broker matches GPU processes by the IDs and reports them shortened.
+	Containers []string `json:"containers,omitempty"`
+	// Container is the one container a wrapper from before Compose support
+	// sends. A berth run started before an upgrade re-attaches to the new
+	// daemon with it, so the daemon still reads it; nothing sends it now.
 	Container string `json:"container,omitempty"`
 	Lease     string `json:"lease,omitempty"`
 	// OpStop: Leases is the reply, the leases the daemon asked to drain.
@@ -181,6 +204,7 @@ type PairedDevice struct {
 type Event struct {
 	Seq    uint64    `json:"seq"`
 	At     time.Time `json:"at"`
+	Card   string    `json:"card,omitempty"` // the card it happened on
 	Kind   string    `json:"kind"`
 	Lease  string    `json:"lease,omitempty"`
 	Engine string    `json:"engine,omitempty"`
@@ -296,9 +320,10 @@ type Status struct {
 	// scope's anon plus shmem, or its VRAM footprint where Berth reads no
 	// scope. A reading, never a reservation.
 	ParkedBytes uint64 `json:"parked_bytes,omitempty"`
-	// Passthrough is the governed card's VM state while it does not serve
-	// the node: bound to vfio-pci, or switching to or from that. Omitted
-	// when the card is normal.
+	// Passthrough is the VM state of the first scheduled card, set only
+	// while every scheduled card in this status is bound to vfio-pci or
+	// switching to or from it, so none serves. With one card of several in
+	// a VM, only that card's GPU entry carries it.
 	Passthrough *Passthrough `json:"passthrough,omitempty"`
 }
 
@@ -335,6 +360,8 @@ type Claim struct {
 	Lease   string `json:"lease,omitempty"` // hold: the lease it holds or waits on
 	Used    uint64 `json:"used,omitempty"`  // track: card memory under the matches
 	GTTUsed uint64 `json:"gtt_used,omitempty"`
+	// Cards names the cards where the claim is active or holds memory.
+	Cards []string `json:"cards,omitempty"`
 }
 
 // PriorityStatus is how the node ranks engines when two at one priority
@@ -370,6 +397,8 @@ type Alerts struct {
 // GPU is the last measurement of one device. Age says how stale it is.
 // Scheduled marks the card this berthd leases; the others are inventory.
 type GPU struct {
+	Card      string  `json:"card,omitempty"` // the card's name on its node (gpu0)
+	Addr      string  `json:"addr,omitempty"` // its PCI address in sysfs form (0000:09:00.0)
 	Index     int     `json:"index"`
 	Name      string  `json:"name"`
 	Scheduled bool    `json:"scheduled"`
@@ -387,6 +416,11 @@ type GPU struct {
 	GTTTotal    uint64 `json:"gtt_total,omitempty"`
 	GTTUsed     uint64 `json:"gtt_used,omitempty"`
 	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
+	// ProbeErr is this card's last probe failure, "" while it reads.
+	ProbeErr string `json:"probe_error,omitempty"`
+	// Passthrough is this card's VM state while it does not serve; nil
+	// when the card is normal.
+	Passthrough *Passthrough `json:"passthrough,omitempty"`
 
 	// Telemetry as the driver reports it; -1 = not reported.
 	Util       float64 `json:"util_pct"`
@@ -459,6 +493,7 @@ type History struct {
 }
 
 type Lease struct {
+	Card     string `json:"card,omitempty"` // the card's name on its node (gpu0)
 	ID       string `json:"id"`
 	Engine   string `json:"engine"`
 	Group    string `json:"group,omitempty"` // the engine family it counts for (llama-swap's models); "" = Engine
@@ -467,18 +502,17 @@ type Lease struct {
 	Needs    uint64 `json:"needs"`
 	PID      int    `json:"pid,omitempty"`
 	PIDStart uint64 `json:"pid_start,omitempty"`
-	// Container is the container the engine runs in (the full ID berth run
-	// resolved), "" for a host process; ContainerName is the name the
-	// operator gave.
-	Container     string  `json:"container,omitempty"`
-	ContainerName string  `json:"container_name,omitempty"`
-	GPUPIDs       []int   `json:"gpu_pids,omitempty"`
-	Used          uint64  `json:"used"`
-	GTTUsed       uint64  `json:"gtt_used,omitempty"`
-	GTTContested  uint64  `json:"gtt_contested,omitempty"`
-	Contested     uint64  `json:"contested,omitempty"`
-	Age           float64 `json:"age_seconds"`
-	Pinned        bool    `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
+	// Containers are the containers the engine runs in, as the full IDs
+	// berth run resolved them; empty for a host process. A Compose engine
+	// lists the whole project.
+	Containers   []string `json:"containers,omitempty"`
+	GPUPIDs      []int    `json:"gpu_pids,omitempty"`
+	Used         uint64   `json:"used"`
+	GTTUsed      uint64   `json:"gtt_used,omitempty"`
+	GTTContested uint64   `json:"gtt_contested,omitempty"`
+	Contested    uint64   `json:"contested,omitempty"`
+	Age          float64  `json:"age_seconds"`
+	Pinned       bool     `json:"pinned,omitempty"` // never drained: a hold, a claim, berth run --pinned
 	// ParkedSince is how long the engine has been parked, in seconds; 0
 	// when it is not parked.
 	ParkedSince float64 `json:"parked_since,omitempty"`
@@ -495,6 +529,7 @@ type Lease struct {
 }
 
 type Squatter struct {
+	Card     string `json:"card,omitempty"` // the card's name on its node (gpu0)
 	PID      int    `json:"pid"`
 	PIDStart uint64 `json:"pid_start,omitempty"`
 	Name     string `json:"name"`
@@ -722,3 +757,12 @@ func (c *Conn) Recv() (Msg, error) {
 // priority, Engine "vfio:<reason>", made by `berth vfio run`. While one is
 // granted berthd does not open the card, so the driver switch can run.
 const GroupVFIO = "vfio"
+
+// ContainerIDs is the containers a message names, with the single
+// Container of an older wrapper folded in.
+func (m Msg) ContainerIDs() []string {
+	if m.Container == "" || slices.Contains(m.Containers, m.Container) {
+		return m.Containers
+	}
+	return append(slices.Clone(m.Containers), m.Container)
+}

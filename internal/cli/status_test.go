@@ -22,6 +22,7 @@ import (
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/server"
@@ -59,7 +60,7 @@ func startDaemon(t *testing.T) string {
 	ev := alerts.New(alerts.FromConfig(config.AlertsConfig{}), 3, nil)
 	lastAlerts := &atomic.Pointer[proto.Alerts]{}
 	lastAlerts.Store(ev.Snapshot())
-	go server.Serve(ctx, ln, b, server.Extras{Alerts: lastAlerts.Load}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Alerts: lastAlerts.Load}, log)
 	return sock
 }
 
@@ -144,7 +145,7 @@ func startFootprintDaemon(t *testing.T) (string, *broker.Broker, *procCard) {
 		return []proto.Engine{{Name: "llama", Type: "llamacpp", URL: "http://127.0.0.1:8080",
 			Up: true, State: "up", Models: []proto.Model{{Name: "m", State: "loaded"}}}}
 	}
-	go server.Serve(ctx, ln, b, server.Extras{Engines: engines}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Engines: engines}, log)
 	return sock, b, c
 }
 
@@ -368,5 +369,76 @@ func TestStatusNamesAnUnreadPassthroughCardByAddress(t *testing.T) {
 	}
 	if s := out.String(); !strings.Contains(s, "gpu     0000:02:00.0: passed through to a VM (vfio-pci)") || strings.Contains(s, "gpu0") {
 		t.Fatalf("stdout = %q, want the card named by its address", s)
+	}
+}
+
+// With more than one card on the node, the lease and stowaway tables name
+// each row's card. With one card they stay as they were.
+func TestStatusNamesTheCardWithSeveral(t *testing.T) {
+	render := func(gpus []proto.GPU) string {
+		var out, errOut bytes.Buffer
+		c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+		st := &proto.Status{
+			API: proto.APIVersion, Version: "test", GPUs: gpus,
+			Leases:    []proto.Lease{{ID: "maya-3", Card: "gpu1", Engine: "maya", Priority: "interactive", State: "active", Age: 60}},
+			Waiting:   []proto.Lease{{ID: "voice-4", Card: "gpu1", Engine: "voice", Priority: "foreground", State: "waiting", Position: 1}},
+			Squatters: []proto.Squatter{{Card: "gpu0", Name: "python3", PID: 77, Used: 1 << 30}},
+		}
+		if err := (statusView{st: st}).Human(c, true); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	two := render([]proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}, {Index: 1, Card: "gpu1", Scheduled: true}})
+	heads := map[string]bool{}
+	for _, line := range strings.Split(two, "\n") {
+		if f := strings.Fields(line); len(f) > 1 {
+			heads[f[0]+" "+f[1]] = true
+		}
+	}
+	for _, want := range []string{"LEASE CARD", "WAITING CARD", "SQUATTER CARD"} {
+		if !heads[want] {
+			t.Errorf("two cards: no %q header in\n%s", want, two)
+		}
+	}
+	for _, line := range strings.Split(two, "\n") {
+		for id, card := range map[string]string{"maya-3": "gpu1", "voice-4": "gpu1", "python3": "gpu0"} {
+			if strings.HasPrefix(line, id) && !strings.Contains(line, card) {
+				t.Errorf("row %q does not name %s", line, card)
+			}
+		}
+	}
+	if one := render([]proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}}); strings.Contains(one, "CARD") {
+		t.Errorf("one card grew a CARD column:\n%s", one)
+	}
+}
+
+// The claims table labels the memory column HOLDS like the lease table, and
+// adds a CARD column of the cards a claim sits on only with several cards.
+func TestClaimsTablesSayHoldsAndNameCards(t *testing.T) {
+	claims := []proto.Claim{{Name: "blender", Action: "track", Active: true, Used: 2 << 30, Cards: []string{"gpu0", "gpu1"}, Procs: "blender"}}
+	two := []proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}, {Index: 1, Card: "gpu1", Scheduled: true}}
+	var out, errOut bytes.Buffer
+	c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+	st := &proto.Status{API: proto.APIVersion, Version: "test", GPUs: two, Claims: claims}
+	if err := (statusView{st: st}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "CLAIM    ACTION  LEASE  CARD       HOLDS") || !strings.Contains(s, "gpu0,gpu1") {
+		t.Errorf("status claims table:\n%s", s)
+	}
+	out.Reset()
+	if err := (claimsView{claims: claims, cards: 2}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "LEASE  CARD       HOLDS") || strings.Contains(s, "CARD  PROCESSES") {
+		t.Errorf("berth claims table:\n%s", s)
+	}
+	out.Reset()
+	if err := (claimsView{claims: claims, cards: 1}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "HOLDS") || strings.Contains(s, "CARD") {
+		t.Errorf("one card claims table:\n%s", s)
 	}
 }

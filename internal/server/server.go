@@ -14,12 +14,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/T-Crypt/berth/internal/broker"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/pair"
 	"github.com/T-Crypt/berth/internal/proto"
 )
@@ -113,10 +115,13 @@ type Extras struct {
 	Alerts func() *proto.Alerts
 	// Pair is the harbor's device pairing; nil turns the OpPair* ops off.
 	Pair *pair.Store
+	// Finished hears that a run's engine exited 0, by the lease's engine
+	// name.
+	Finished func(engine string)
 }
 
 // Serve answers clients on ln.
-func Serve(ctx context.Context, ln net.Listener, b *broker.Broker, x Extras, log *slog.Logger) error {
+func Serve(ctx context.Context, ln net.Listener, n *node.Node, x Extras, log *slog.Logger) error {
 	if x.Engines == nil {
 		x.Engines = func() []proto.Engine { return []proto.Engine{} }
 	}
@@ -147,11 +152,11 @@ func Serve(ctx context.Context, ln net.Listener, b *broker.Broker, x Extras, log
 			}
 			return err
 		}
-		go handle(ctx, c, b, x, log)
+		go handle(ctx, c, n, x, log)
 	}
 }
 
-func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *slog.Logger) {
+func handle(ctx context.Context, c net.Conn, n *node.Node, x Extras, log *slog.Logger) {
 	defer c.Close()
 	conn := proto.NewConn(c)
 	first, err := conn.Recv()
@@ -160,7 +165,7 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 	}
 	switch first.Op {
 	case proto.OpStatus:
-		st := b.Status()
+		st := n.Status()
 		st.Engines, st.Host, st.Insights = x.Engines(), x.Host(), x.Insights()
 		st.Alerts = x.Alerts()
 		st.Counters.SendTimeouts = sendTimeouts.Load()
@@ -176,23 +181,25 @@ func handle(ctx context.Context, c net.Conn, b *broker.Broker, x Extras, log *sl
 		}
 		reply(conn, log, proto.Msg{Op: proto.OpRequests, Requests: rs})
 	case proto.OpAcquire, proto.OpReattach:
-		hold(ctx, conn, first, b, log)
+		hold(ctx, conn, first, n, x.Finished, log)
 	case proto.OpReclaim:
-		reclaim(conn, log, first, b)
+		reclaim(conn, log, first, n)
 	case proto.OpStop:
-		stop(conn, log, first, b)
+		stop(conn, log, first, n)
 	case proto.OpPairCode, proto.OpPairRedeem, proto.OpPairCheck, proto.OpPairList, proto.OpPairRevoke:
 		pairing(conn, log, first, x.Pair)
 	case proto.OpResume:
-		resume(conn, log, first, b)
+		resume(conn, log, first, n)
+	case proto.OpSwitch:
+		switched(conn, log, first, n)
 	case proto.OpEvents:
-		events(ctx, c, conn, first, b, log)
+		events(ctx, c, conn, first, n, log)
 	default:
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: fmt.Sprintf("unknown op %q", first.Op)})
 	}
 }
 
-func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker, log *slog.Logger) {
+func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, n *node.Node, finished func(string), log *slog.Logger) {
 	u := &consumer{conn: conn, log: log}
 	prio, err := broker.ParsePriority(req.Priority)
 	if err != nil || req.Engine == "" {
@@ -202,6 +209,13 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
 		return
 	}
+	cards, err := n.Pick(req.Card)
+	if err != nil {
+		reply(conn, log, proto.Msg{Op: proto.OpRefused, Reason: err.Error()})
+		return
+	}
+	card := cards[0]
+	b := card.B
 
 	// The client's later messages (attach) and its disconnect both arrive
 	// through this reader. A disconnect cancels the wait or ends the lease.
@@ -215,6 +229,12 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 			if err != nil {
 				return
 			}
+			if m.Op == proto.OpFinished {
+				if finished != nil {
+					finished(req.Engine)
+				}
+				continue
+			}
 			select {
 			case incoming <- m:
 			case <-ctx.Done():
@@ -224,20 +244,25 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 	}()
 
 	r := broker.Request{
-		Engine:    req.Engine,
-		Group:     req.Group,
-		Priority:  prio,
-		Needs:     req.Needs,
-		Wait:      time.Duration(req.Wait * float64(time.Second)),
-		Pinned:    req.Pinned,
-		Switched:  req.Switched,
-		Parked:    req.Parked,
-		Lend:      req.Lend,
-		LendID:    req.LendID,
-		LentBytes: req.Lent,
-		MinTurn:   time.Duration(req.MinTurn * float64(time.Second)),
-		ParkTTL:   time.Duration(req.ParkTTL * float64(time.Second)),
-		Container: req.Container,
+		Engine:       req.Engine,
+		Group:        req.Group,
+		Priority:     prio,
+		Needs:        req.Needs,
+		Wait:         time.Duration(req.Wait * float64(time.Second)),
+		Pinned:       req.Pinned,
+		Switched:     req.Switched,
+		Parked:       req.Parked,
+		Lend:         req.Lend,
+		WholeMachine: req.WholeMachine,
+		LendID:       req.LendID,
+		LentBytes:    req.Lent,
+		MinTurn:      time.Duration(req.MinTurn * float64(time.Second)),
+		ParkTTL:      time.Duration(req.ParkTTL * float64(time.Second)),
+		Containers:   req.ContainerIDs(),
+	}
+	if len(cards) > 1 {
+		holdAll(ctx, u, req, r, cards, incoming, cancel, log)
+		return
 	}
 	var lease *broker.Lease
 	if req.Op == proto.OpReattach {
@@ -257,16 +282,7 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 		return
 	}
 	defer lease.Release()
-	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID()}
-	if c := lease.Contested(); c > 0 {
-		granted.Reason = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
-	}
-	if shared := lease.ContestedGTT(); shared > 0 {
-		if granted.Reason == "" {
-			granted.Reason = "card contested: processes without a lease hold shared RAM"
-		}
-		granted.Reason += fmt.Sprintf(" (%d MiB GTT)", shared/gpu.MiB)
-	}
+	granted := proto.Msg{Op: proto.OpGranted, Lease: lease.ID(), Card: card.Name, CardUUID: card.UUID, Reason: contested(lease)}
 	if !u.send(granted) {
 		return
 	}
@@ -322,9 +338,119 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 				lease.Attach(m.PID)
 				log.Info("attached", "lease", lease.ID(), "pid", m.PID)
 			}
-			if m.Container != "" {
-				lease.AttachContainer(m.Container)
-				log.Info("attached container", "lease", lease.ID(), "container", m.Container)
+			if ids := m.ContainerIDs(); len(ids) > 0 {
+				lease.AttachContainers(ids)
+				log.Info("attached containers", "lease", lease.ID(), "containers", ids)
+			}
+		}
+	}
+}
+
+// contested is the warning a grant carries when processes without a lease
+// held memory on the card, "" when none did.
+func contested(lease *broker.Lease) string {
+	why := ""
+	if c := lease.Contested(); c > 0 {
+		why = fmt.Sprintf("card contested: processes without a lease hold %d MiB", c/gpu.MiB)
+	}
+	if shared := lease.ContestedGTT(); shared > 0 {
+		if why == "" {
+			why = "card contested: processes without a lease hold shared RAM"
+		}
+		why += fmt.Sprintf(" (%d MiB GTT)", shared/gpu.MiB)
+	}
+	return why
+}
+
+// holdAll holds one lease on several cards, granted on all of them at once.
+// Each card schedules and drains its own share, and a drain on any card is a
+// drain of the engine, which runs on all of them. The connection's end frees
+// every card. A share cannot park or lend yet: a park is refused, so the run
+// drains the usual way, and no card asks the lease to lend.
+func holdAll(ctx context.Context, u *consumer, req proto.Msg, r broker.Request, cards []*node.Card, incoming <-chan proto.Msg, cancel context.CancelFunc, log *slog.Logger) {
+	bs := make([]*broker.Broker, len(cards))
+	names := make([]string, len(cards))
+	uuids := make([]string, len(cards))
+	for i, c := range cards {
+		bs[i], names[i], uuids[i] = c.B, c.Name, c.UUID
+	}
+	r.Lend = false
+	var leases []*broker.Lease
+	var err error
+	if req.Op == proto.OpReattach {
+		leases, err = broker.ReattachAll(bs, r, req.PID, req.PIDStart)
+	} else {
+		leases, err = broker.AcquireAll(ctx, bs, r, func(reason string) {
+			if !u.send(proto.Msg{Op: proto.OpWaiting, Reason: reason}) {
+				cancel()
+			}
+		})
+	}
+	if err != nil {
+		u.send(proto.Msg{Op: proto.OpRefused, Reason: strings.TrimPrefix(err.Error(), broker.ErrRefused.Error()+": ")})
+		return
+	}
+	defer func() {
+		for _, l := range leases {
+			l.Release()
+		}
+	}()
+	granted := proto.Msg{Op: proto.OpGranted, Lease: leases[0].ID(), Card: strings.Join(names, ",")}
+	// CUDA_VISIBLE_DEVICES takes every card or none: a card with no UUID
+	// leaves the engine to pick its cards itself.
+	if !slices.Contains(uuids, "") {
+		granted.CardUUID = strings.Join(uuids, ",")
+	}
+	var warns []string
+	for i, l := range leases {
+		if why := contested(l); why != "" {
+			warns = append(warns, names[i]+": "+why)
+		}
+	}
+	granted.Reason = strings.Join(warns, "; ")
+	if !u.send(granted) {
+		return
+	}
+	drains := make(chan string)
+	for i, l := range leases {
+		go func() {
+			for {
+				select {
+				case why := <-l.Drains():
+					select {
+					case drains <- names[i] + ": " + why:
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case why := <-drains:
+			if !u.send(proto.Msg{Op: proto.OpDrain, Reason: why}) {
+				return
+			}
+		case m := <-incoming:
+			switch {
+			case m.Op == proto.OpPark:
+				u.send(proto.Msg{Op: proto.OpRefused, Reason: "a lease on several cards cannot park"})
+			case m.Op == proto.OpAttach && m.PID > 0:
+				for _, l := range leases {
+					l.Attach(m.PID)
+				}
+				log.Info("attached", "lease", leases[0].ID(), "cards", granted.Card, "pid", m.PID)
+			}
+			if ids := m.ContainerIDs(); len(ids) > 0 {
+				for _, l := range leases {
+					l.AttachContainers(ids)
+				}
+				log.Info("attached containers", "lease", leases[0].ID(), "containers", ids)
 			}
 		}
 	}
@@ -332,9 +458,9 @@ func hold(ctx context.Context, conn *proto.Conn, req proto.Msg, b *broker.Broker
 
 // events replays the ring after Since, then, with Watch, streams new events
 // until the client goes away or falls too far behind.
-func events(ctx context.Context, c net.Conn, conn *proto.Conn, req proto.Msg, b *broker.Broker, log *slog.Logger) {
+func events(ctx context.Context, c net.Conn, conn *proto.Conn, req proto.Msg, n *node.Node, log *slog.Logger) {
 	u := &consumer{conn: conn, log: log}
-	backlog, live, stop := b.Events(req.Since, req.Watch)
+	backlog, live, stop := n.Events.Events(req.Since, req.Watch)
 	defer stop()
 	for i := range backlog {
 		if !u.send(proto.Msg{Op: proto.OpEvent, Event: &backlog[i]}) {

@@ -21,10 +21,21 @@
 - **Children stay on the lease.** On Linux with a systemd user manager, `berth run`
   gives the engine its own cgroup scope, which every child inherits on fork: a child
   that escapes its process group and reparents keeps the lease stuck under its own
-  name instead of turning into a stowaway. Without a user manager, and on Windows,
-  Berth records every descendant of the wrapper each tick, which covers everything
-  except a fork whose parent exits inside one tick.
+  name instead of turning into a stowaway. Without a user manager, Berth records every
+  descendant of the wrapper each tick, which covers everything except a fork whose
+  parent exits inside one tick. On Windows, a child keeps its parent's PID after the
+  parent exits, so Berth follows each GPU process's parent chain from a process
+  snapshot it refreshes every second, and the job object `berth run` puts the engine
+  in carries every process it starts, so a drain stops them all.
+- **Stop signals.** A SIGTERM, SIGINT or SIGHUP to `berth run` drains the engine and releases the lease. On
+  Windows, Ctrl-C, Ctrl-Break, closing the console window and logging off do the same, and the engine's drain
+  has to finish in the few seconds Windows allows after a close. `berth gateway` starts each run in its own
+  process group on Windows, so Ctrl-C in the gateway's console does not drain engines it meant to leave running.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
+- **Several cards.** One berthd governs every card by default. A foreground request on one card never drains a
+  holder on another. `berth run --gpu gpu1` puts a lease on one card, and `--gpu gpu0,gpu1` holds one lease on
+  both (see [Training runs](#training-runs)). A running game holds every card, because Berth cannot tell which
+  card it will use. A lease on several cards cannot park or lend yet.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine
   but records it as an *unprotected run* that status shows (`--fail-closed` refuses).
 - **Survives a daemon restart.** A running engine stays up when berthd restarts or is
@@ -43,7 +54,8 @@
   is three clean handoffs. A person's switch (Launch on the gateway's wake page, or
   `/v1/berth/switch`) is never a juggle: it takes the card whatever the ranking says, and inside
   the window a request no person made (a chat client's background call) does not take it back.
-  To keep it longer, give the engine a `min_turn`.
+  A switch to an engine whose start a request already queued, and lost a juggle, reaches that
+  start's lease and takes the card too. To keep it longer, give the engine a `min_turn`.
 
   ```toml
   [priority]
@@ -110,3 +122,30 @@
   it exits).
 - A hold cannot free memory held by something outside Berth: that memory is still reported,
   as contested.
+
+## Training runs
+
+A training run that loses its cards loses everything since its last checkpoint. Run it under one pinned lease:
+
+```sh
+berth run --as train-mymodel --pinned --priority foreground --gpu gpu0,gpu1,gpu2 \
+  -- torchrun --nproc_per_node 3 train.py
+```
+
+- `--pinned` keeps every card of the lease. A foreground run, a game's hold, `berth hold` and another lease on
+  several cards all wait until the run exits. A gateway request never drains it, and the gateway's stop answers
+  `409`. `berth stop train-mymodel` still stops it, because a person asked.
+- `--priority` decides only how the run gets its cards. `foreground` drains interactive and batch engines so the
+  run can start. A hold or a pinned app already on a card makes it wait.
+- berthd grants the cards together and starts the command with `CUDA_VISIBLE_DEVICES` set to their UUIDs, in the
+  order you named them. Do not set `CUDA_VISIBLE_DEVICES` yourself, since Berth leaves it alone when it is set. Set
+  `--nproc_per_node` to the number of cards.
+- Leave `--needs-mib` at 0, the whole card. Training memory grows after the first steps.
+- The workers torchrun or `accelerate launch` starts belong to the lease, so their memory is the run's on every card.
+- A berthd restart or upgrade does not stop the run. It keeps running, and berthd re-attaches it with its pin on
+  every card.
+
+A pin does not stop memory taken outside Berth. A game started on a leased card waits behind the run in Berth but
+still allocates memory, and that can run the training out of memory. Keep the card that drives your display out of
+`--gpu`. A crash or a power cut needs checkpoints. With Hugging Face's `Trainer`, set `save_steps` and resume with
+`trainer.train(resume_from_checkpoint=True)`.

@@ -4,6 +4,7 @@
 package gpu
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,7 +28,10 @@ type Options struct {
 	// card is in a VM and Index is not read.
 	Addr     string
 	Interval time.Duration
-	Log      *slog.Logger
+	// Stream is the machine's NVIDIA reader the card reads through; nil =
+	// a one-shot nvidia-smi query per read.
+	Stream *Stream
+	Log    *slog.Logger
 	// Roots are injectable for fixtures; empty means the host's sysfs/procfs.
 	SysRoot  string
 	ProcRoot string
@@ -69,19 +73,9 @@ func Open(o Options) (Probe, error) {
 	if err := ValidateSelection(o.Backend, o.Index); err != nil {
 		return nil, err
 	}
-	backend := o.Backend
-	if backend == "" || backend == "auto" {
-		backend = "nvidia"
-		if _, err := exec.LookPath("nvidia-smi"); err != nil {
-			amd, err := hasAMD(o)
-			if err != nil {
-				return nil, err
-			}
-			if !amd {
-				return nil, fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
-			}
-			backend = "amd"
-		}
+	backend, err := pickBackend(o)
+	if err != nil {
+		return nil, err
 	}
 	if backend == "amd" {
 		if o.Addr != "" {
@@ -89,8 +83,90 @@ func Open(o Options) (Probe, error) {
 		}
 		return openAMD(o)
 	}
-	if o.Interval > 0 {
-		return &Stream{Index: o.Index, Interval: o.Interval, Log: o.Log, busID: o.Addr}, nil
+	if o.Stream != nil {
+		return o.Stream.Card(o.Index, o.Addr), nil
 	}
 	return NvidiaSMI{Index: o.Index, BusID: o.Addr, Log: o.Log}, nil
+}
+
+// pickBackend resolves auto: NVIDIA whenever nvidia-smi is installed, AMD
+// only without it.
+func pickBackend(o Options) (string, error) {
+	if o.Backend != "" && o.Backend != "auto" {
+		return o.Backend, nil
+	}
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		return "nvidia", nil
+	}
+	amd, err := hasAMD(o)
+	if err != nil {
+		return "", err
+	}
+	if !amd {
+		return "", fmt.Errorf("no supported GPU backend: need nvidia-smi or Linux amdgpu with an RDNA3/RDNA4 discrete GPU or Phoenix APU")
+	}
+	return "amd", nil
+}
+
+// List is every card the backend can govern, in index order, from one
+// reading: the cards berthd --gpu all opens. An NVIDIA card in a VM is not
+// listed; berthd governs it only when --gpu names its address.
+func List(ctx context.Context, o Options) ([]Device, error) {
+	if err := ValidateSelection(o.Backend, 0); err != nil {
+		return nil, err
+	}
+	backend, err := pickBackend(o)
+	if err != nil {
+		return nil, err
+	}
+	if backend == "amd" {
+		return listAMD(o)
+	}
+	mem, err := NvidiaSMI{Log: o.Log}.run(ctx, "--query-gpu="+Query, "--format=csv,noheader,nounits")
+	if err != nil {
+		return nil, err
+	}
+	return ParseDevices(mem)
+}
+
+// CheckCard accepts the card a run or an engine entry names: its name on
+// the node (gpu plus its index) or its PCI address, or a comma list of them
+// for one lease on several cards.
+func CheckCard(s string) error {
+	seen := map[string]bool{}
+	for _, c := range strings.Split(s, ",") {
+		if !cardName(c) {
+			return fmt.Errorf("gpu %q must be a card name like gpu1 or a PCI address like 0000:41:00.0, or a comma list of them", s)
+		}
+		if seen[c] {
+			return fmt.Errorf("gpu %q names %s twice", s, c)
+		}
+		seen[c] = true
+	}
+	return nil
+}
+
+// cardName is whether s is one card's name on a node or its PCI address.
+func cardName(s string) bool {
+	if strings.Contains(s, ":") {
+		return SysfsAddr(s) != ""
+	}
+	n, ok := strings.CutPrefix(s, "gpu")
+	_, err := strconv.Atoi(n)
+	return ok && err == nil && !strings.HasPrefix(n, "-") && !strings.HasPrefix(n, "+")
+}
+
+// UUID is an NVIDIA card's UUID (GPU-...), read by its PCI address. It is
+// what CUDA_VISIBLE_DEVICES takes to name one card, whatever order CUDA
+// counts the cards in.
+func UUID(ctx context.Context, addr string) (string, error) {
+	out, err := NvidiaSMI{}.run(ctx, "-i", addr, "--query-gpu=uuid", "--format=csv,noheader")
+	if err != nil {
+		return "", err
+	}
+	uuid := strings.TrimSpace(out)
+	if !strings.HasPrefix(uuid, "GPU-") || strings.ContainsAny(uuid, " \n,") {
+		return "", fmt.Errorf("nvidia-smi gave no UUID for %s: %q", addr, uuid)
+	}
+	return uuid, nil
 }

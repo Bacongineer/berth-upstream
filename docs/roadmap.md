@@ -12,7 +12,7 @@
 | P5.5 | Harbor router: one URL serves models from any node in the fleet | Planned |
 | P6 | ComfyUI job-boundary handoff on Linux (**done**); ComfyUI started on demand through the gateway (**done**); Windows node (**experimental**) | Partly done |
 | P7 | Offers: a waiting request can offer for an idle card on another machine; the holder decides | Planned |
-| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Started: one berthd per card, named by PCI address (experimental) |
+| P8 | Multi-GPU scheduling: a lease table per card, "any card that fits" | Started: one berthd for every card, an engine on one card or a lease on several (experimental) |
 | P9 | Organisations: single sign-on, role-based access, audit log, Postgres, regional federation; a mobile app after | Planned |
 | P10 | Opt-in auto-yield: a card's owner can pre-approve offers for their own card | Later |
 
@@ -61,17 +61,46 @@ desktop notifications on Linux, `berth skill install` adds a ComfyUI skill, and 
 the card is free ([#172](https://github.com/T-Crypt/berth/issues/172)). [Swap numbers](benchmarks.md#swap-numbers)
 now has page cache, park and `cuda-checkpoint` timings from the RTX 4090.
 
-## Next: v0.3.x
+## Shipped: v0.4, many cards and parks for any engine (2026-10-29)
 
-In the next v0.3.x releases. Each item has its building blocks merged or a spec written:
+v0.4.0 puts a whole machine under one berthd. Testers ran it first as pre-releases (`v0.4.0-rc.1` to `rc.8`, see
+[Testing a pre-release](prerelease.md)).
+
+- **Many cards.** berthd and `berth service install` govern every card by default (`--gpu all`).
+  `berth run --gpu gpu1` puts an engine on one card, `--gpu gpu0,gpu1` holds one lease on several, and
+  `berth run --pinned` keeps a training run's cards ([Training runs](leasing.md#training-runs)). The gateway,
+  `berth status`, `berth events`, `berth notify`, `/metrics` and the harbor all name the card. One card can go
+  to a VM while the others keep serving. A lease on several cards cannot park or lend yet.
+- **Parks for any engine.** Engines with no offload call of their own, llama.cpp and NInfer included, park
+  in RAM through `cuda-checkpoint` behind `berth run --front`. A stop kills a parked checkpointed engine at once.
+  [Park in RAM](gateway.md#park-in-ram-warm-switch) has the setup and the numbers.
+- **Engines that need the whole machine.** `whole_machine = true` makes berthd stop what it drains and evict
+  parked engines before the grant. Strata is the case it was written for.
+- **Lends (experimental).** An engine that can shrink a cache gives part of its card to a sized waiter and keeps
+  serving. [Lending part of a card](gateway.md#lending-part-of-a-card) states the rules, and
+  [LEND-PROTOCOL.md](https://github.com/T-Crypt/berth/blob/main/contrib/LEND-PROTOCOL.md) is the contract for
+  engines.
+- **More engines under a lease.** A Docker Compose project runs as one engine, container engines work on
+  Windows, and `berth run` warns about a restart policy that brings a container back without a lease.
+- **Better readings.** Strata's requests reach the token ledger and the leaderboard under the model its
+  `/health` names, a GPU process in a Proxmox LXC container shows as a stowaway named by its container, and
+  the harbor and berthd use less CPU and bandwidth.
+- **Less wiring by hand.** `berth wire llama-swap` takes `--wait`, keeps the flags you added with `--update`
+  and adds `--drain-slots` so a drain waits for the request in flight. `berth run --as NAME` with no command
+  runs the entry's `start`, and `[squatters] allow` in `berth.toml` replaces a hand-written `--allow`.
+- **Windows.** `berth service install` and `uninstall` end the running tasks, closing the console or logging
+  off drains `berth run`, and `berth wire` reads Windows paths.
+
+The [CHANGELOG](https://github.com/T-Crypt/berth/blob/main/CHANGELOG.md) has every entry.
+
+## Next
+
+Each item has its building blocks merged or a spec written:
 
 - Measured switch costs on the live daemon.
 - Models started on demand for a standalone llama-server.
 - Parked resume numbers for vLLM and SGLang in [Swap numbers](benchmarks.md#swap-numbers), which take
   their park adapters out of experimental.
-- A `cuda-checkpoint` park for engines with no offload call of their own, such as llama-server and NInfer.
-  Measured: 23.1 GB back on the card in 3.3 s where a reload takes 14 s. It needs a design for requests that
-  reach llama-swap while a model is checkpointed.
 - `berth notify` on Windows: a tray icon with native toasts ([#186](https://github.com/T-Crypt/berth/pull/186)),
   after a test on a real Windows desktop.
 - VFIO on a box with two NVIDIA cards: keep the other card's berthd from opening the card being
@@ -81,13 +110,14 @@ In the next v0.3.x releases. Each item has its building blocks merged or a spec 
 
 Not started, and in no release yet: `berth fit` and scenes, so engines that fit together never swap.
 
-## After v0.3.x
+## Later
 
 | Release | What it brings |
 |---|---|
-| v0.4 | Broader AMD Linux hardware validation beyond the experimental RDNA3/RDNA4 probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
-| v0.4 | Proxmox in every common layout. Berth detects whether it runs on a Proxmox host, in an LXC container or in a VM and says where it belongs (`berth env`). Engines in LXC containers lease the host's card and show by container, and a system service covers hosts without a user session |
-| v0.4 | Multi-GPU in one berthd, first as v0.4.0-rc preview tags. One daemon and one gateway for every card on the machine, cards named `gpu0` and `gpu1` or a name you pick, an engine pinned to one card or holding two under one lease, and one card in a VM while the rest serve. Then "any card that fits" |
+| next | Parks and lends on a lease that holds several cards, one share per card ([Design](design.md)) |
+| next | Broader AMD Linux hardware validation beyond the experimental RDNA3/RDNA4 probe; the Windows node out of experimental (a packaged installer, a locked-down control pipe) |
+| next | Proxmox in every common layout. Berth detects whether it runs on a Proxmox host, in an LXC container or in a VM and says where it belongs (`berth env`). Engines in LXC containers lease the host's card, and a system service covers hosts without a user session |
+| later | Cards you name yourself, and "any card that fits" placement |
 | v0.6 | The fleet: Berth on every machine, one harbor, one URL for every model |
 | later | Offers: a waiting request can ask for an idle card on another machine, and its holder decides |
 

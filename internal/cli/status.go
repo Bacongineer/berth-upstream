@@ -44,8 +44,8 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 	}
 	for _, g := range st.GPUs {
-		if g.Scheduled && st.Passthrough != nil {
-			c.Printf("gpu%d    %s: %s, memory read %s ago\n", g.Index, g.Name, cardLine(st.Passthrough), age(g.Age))
+		if p := cardVM(g, st); g.Scheduled && p != nil {
+			c.Printf("gpu%d    %s: %s, memory read %s ago\n", g.Index, g.Name, cardLine(p), age(g.Age))
 			continue
 		}
 		role := "inventory only"
@@ -73,11 +73,19 @@ func (v statusView) Human(c *Context, ok bool) error {
 	}
 
 	tw := tabwriter.NewWriter(c.Out, 0, 4, 2, ' ', tabwriter.StripEscape)
+	// Each row names its card once the node has more than one.
+	cards := scheduledCards(st)
+	cardCol := func(head, card string) string {
+		if cards < 2 {
+			return head
+		}
+		return head + "\t" + card
+	}
 	lease := func(title string, ls []proto.Lease, waiting bool) {
 		if len(ls) == 0 {
 			return
 		}
-		header := "\n" + title + "\tENGINE\tPRIORITY\tSTATE\tNEEDS\tHOLDS\tPIDS"
+		header := "\n" + cardCol(title, "CARD") + "\tENGINE\tPRIORITY\tSTATE\tNEEDS\tHOLDS\tPIDS"
 		if c.Verbose {
 			header += "\tPID"
 		}
@@ -97,7 +105,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if l.Pinned {
 				prio += ",pinned"
 			}
-			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", l.ID, l.Engine, prio, state, needs, memoryHeld(l.Used, l.GTTUsed), l.GPUPIDs)
+			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%v", cardCol(l.ID, l.Card), l.Engine, prio, state, needs, memoryHeld(l.Used, l.GTTUsed), l.GPUPIDs)
 			if c.Verbose {
 				row += fmt.Sprintf("\t%d", l.PID)
 			}
@@ -121,9 +129,9 @@ func (v statusView) Human(c *Context, ok bool) error {
 	lease("LEASE", st.Leases, false)
 	lease("WAITING", st.Waiting, true)
 	if len(st.Squatters) > 0 {
-		fmt.Fprint(tw, "\nSQUATTER\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
+		fmt.Fprint(tw, "\n"+cardCol("SQUATTER", "CARD")+"\tPID\tHOLDS\tSEEN\tUNPROTECTED RUN\n")
 		for _, s := range st.Squatters {
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", s.Name, s.PID, memoryHeld(s.Used, s.GTTUsed), age(s.Age), s.Run)
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", cardCol(s.Name, s.Card), s.PID, memoryHeld(s.Used, s.GTTUsed), age(s.Age), s.Run)
 		}
 	}
 	var active []proto.Claim
@@ -133,7 +141,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 		}
 	}
 	if len(active) > 0 {
-		fmt.Fprint(tw, "\nCLAIM\tACTION\tLEASE\tCARD\tPROCESSES\n")
+		fmt.Fprint(tw, "\nCLAIM\tACTION\tLEASE\t"+claimCardCol(cards, "CARD")+"HOLDS\tPROCESSES\n")
 		for _, cl := range active {
 			lease, used := cl.Lease, "-"
 			if lease == "" {
@@ -142,7 +150,7 @@ func (v statusView) Human(c *Context, ok bool) error {
 			if cl.Used > 0 || cl.GTTUsed > 0 {
 				used = memoryHeld(cl.Used, cl.GTTUsed)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", cl.Name, cl.Action, lease, used, cl.Procs)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%s\t%s\n", cl.Name, cl.Action, lease, claimCardCol(cards, cardNames(cl)), used, cl.Procs)
 		}
 	}
 	if len(st.Unprotected) > 0 {
@@ -230,6 +238,15 @@ func (v statusView) Human(c *Context, ok bool) error {
 
 // cardLine is what the scheduled card's gpu line shows instead of memory
 // figures while the card is in a VM or switching to or from one.
+// cardVM is g's VM state. A berthd older than per-card passthrough sets
+// only the status-wide field, which then means its one card.
+func cardVM(g proto.GPU, st *proto.Status) *proto.Passthrough {
+	if g.Passthrough != nil {
+		return g.Passthrough
+	}
+	return st.Passthrough
+}
+
 func cardLine(p *proto.Passthrough) string {
 	if p.State == proto.CardDetaching {
 		if p.Driver == "" {
@@ -358,6 +375,35 @@ func runStatus(c *Context) int {
 		return c.fail(Systemf("no status from berthd: empty reply"))
 	}
 	return c.Write(statusView{st: m.Status, sock: *sock}, nil)
+}
+
+// claimCardCol is a claims table cell for the CARD column, nothing with
+// one card.
+func claimCardCol(cards int, cell string) string {
+	if cards < 2 {
+		return ""
+	}
+	return cell + "\t"
+}
+
+// cardNames is where a claim is active or holds memory.
+func cardNames(cl proto.Claim) string {
+	if len(cl.Cards) == 0 {
+		return "-"
+	}
+	return strings.Join(cl.Cards, ",")
+}
+
+// scheduledCards is how many cards berthd schedules. A line names its card
+// only when there is more than one.
+func scheduledCards(st *proto.Status) int {
+	n := 0
+	for _, g := range st.GPUs {
+		if g.Scheduled {
+			n++
+		}
+	}
+	return n
 }
 
 // age is a duration since the reading, rounded to the second.

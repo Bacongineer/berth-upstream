@@ -3,7 +3,7 @@
 Linux only and experimental. It has passed its tests but has not yet run on a real passthrough, so the
 commands and messages can still change.
 
-Passing the governed card to a virtual machine through VFIO takes it away from the host for the whole
+Passing a card to a virtual machine through VFIO takes it away from the host for the whole
 VM session. The NVIDIA driver lets go, `vfio-pci` takes the card, and nothing on the host may touch it
 until the VM is done. Berth coordinates its side of that handover. It drains your engines, holds the
 card, runs your own switch script, and keeps the next engine waiting until the card is back on its host
@@ -78,13 +78,14 @@ engine starts once the card is back and free.
 
 ## Two NVIDIA cards
 
-On a box with two NVIDIA cards, each card has its own berthd. Name each card by its PCI address, not its
-index. `nvidia-smi` renumbers the cards that stay on the host when one goes to a VM, so an index can
+berthd governs every card by default, and `berth vfio run` has no flag to name a card. It holds the first card
+its berthd governs. To pass the other card to a VM while the first keeps serving, run one berthd for each card
+and name each card by its PCI address, not its index. `nvidia-smi` renumbers the cards that stay on the host when one goes to a VM, so an index can
 point at the other card. An address cannot. To find the addresses, run
 `nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv` while both cards are on the host.
 
 `berth service install` writes one `berthd` unit, so install it for the card that stays on the host and
-run the second daemon yourself, with its own socket and state files:
+run the second daemon yourself, for the card that goes to the VM, with its own socket and state files:
 
 ```sh
 berth service install --gpu 0000:01:00.0
@@ -105,8 +106,7 @@ opens both cards, and `berth vfio run` names it as a holder.
 
 One gap remains. The other card's berthd runs `nvidia-smi` over both cards, and that can open the card
 being switched for a moment. If the unbind in your script hangs, stop the other berthd in `--before`
-and start it again in `--after`. One berthd for every card is planned for v0.4 and removes the second
-daemon.
+and start it again in `--after`.
 
 ## Examples to adapt
 

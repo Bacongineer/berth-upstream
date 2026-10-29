@@ -27,6 +27,7 @@ import (
 	"github.com/T-Crypt/berth/internal/config"
 	"github.com/T-Crypt/berth/internal/engines"
 	"github.com/T-Crypt/berth/internal/gpu"
+	"github.com/T-Crypt/berth/internal/node"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
 	"github.com/T-Crypt/berth/internal/runner"
@@ -66,7 +67,7 @@ func start(t *testing.T) string {
 	ev := alerts.New(alerts.FromConfig(config.AlertsConfig{}), 3, nil)
 	lastAlerts := &atomic.Pointer[proto.Alerts]{}
 	lastAlerts.Store(ev.Snapshot())
-	go server.Serve(ctx, ln, b, server.Extras{Alerts: lastAlerts.Load}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Alerts: lastAlerts.Load}, log)
 	return sock
 }
 
@@ -203,7 +204,7 @@ func TestRequestsSinceOverSocket(t *testing.T) {
 		}
 		return out
 	}}
-	go server.Serve(ctx, ln, b, x, log)
+	go server.Serve(ctx, ln, node.One(b), x, log)
 
 	ask := func(since time.Time) proto.Msg {
 		conn, raw, err := server.Dial(sock)
@@ -264,7 +265,7 @@ func TestStatusCarriesWindowsAndSlots(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go b.Run(ctx)
-	go server.Serve(ctx, ln, b, server.Extras{Engines: w.Snapshot}, log)
+	go server.Serve(ctx, ln, node.One(b), server.Extras{Engines: w.Snapshot}, log)
 
 	conn, raw, err := server.Dial(sock)
 	if err != nil {
@@ -345,7 +346,7 @@ func daemon(t *testing.T, sock string, window time.Duration) (*broker.Broker, fu
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go b.Run(ctx)
-	go func() { _ = server.Serve(ctx, ln, b, server.Extras{}, log); close(done) }()
+	go func() { _ = server.Serve(ctx, ln, node.One(b), server.Extras{}, log); close(done) }()
 	stop := func() { cancel(); <-done }
 	t.Cleanup(stop)
 	return b, stop

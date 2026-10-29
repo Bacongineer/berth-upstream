@@ -58,8 +58,16 @@ func amdFixtureProc(t *testing.T, a AMDGPU, pid int, name string, start uint64, 
 	if err := os.MkdirAll(filepath.Join(p, "fdinfo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(p, "fd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for i, s := range samples {
 		amdWrite(t, filepath.Join(p, "fdinfo", fmt.Sprint(i)), s)
+		link := filepath.Join(p, "fd", fmt.Sprint(i))
+		_ = os.Remove(link)
+		if err := os.Symlink("/dev/dri/renderD128", link); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return p
 }
@@ -247,7 +255,7 @@ func TestAMDTelemetry(t *testing.T) {
 func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	a := amdFixture(t)
 	t.Setenv("PATH", t.TempDir())
-	opts := Options{SysRoot: a.SysRoot, ProcRoot: a.ProcRoot, Interval: time.Second}
+	opts := Options{SysRoot: a.SysRoot, ProcRoot: a.ProcRoot, Interval: time.Second, Stream: &Stream{}}
 	p, err := Open(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +273,7 @@ func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.(*Stream); !ok {
+	if _, ok := p.(*StreamCard); !ok {
 		t.Fatalf("auto on a mixed host chose %T, want the NVIDIA probe", p)
 	}
 	opts.Backend = "nvidia"
@@ -273,7 +281,7 @@ func TestOpenAMDAndMixedVendorSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.(*Stream); !ok {
+	if _, ok := p.(*StreamCard); !ok {
 		t.Fatalf("probe %T", p)
 	}
 	opts.Backend = "amd"
@@ -304,4 +312,71 @@ func TestAMDLiveReadOnly(t *testing.T) {
 		}
 	}
 	t.Logf("%s PCI=%s APU=%v VRAM total=%d used=%d free=%d GTT capacity=%d used=%d processes=%+v telemetry=%+v", s.Name, card.BusID, s.APU, s.Total, s.Used, s.Free, s.GTTTotal, s.GTTUsed, s.Procs, card)
+}
+
+// BenchmarkAMDProcesses walks this machine's real /proc, as berthd does on
+// every AMD read. On a machine without an AMD card nothing matches, but
+// every process's open files are still visited.
+func BenchmarkAMDProcesses(b *testing.B) {
+	a := AMDGPU{}
+	for b.Loop() {
+		if _, _, err := a.processes(context.Background(), "0000:03:00.0", false); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// berthd walks every process's open files only when the card's used memory
+// moves or the last walk is ProcsEvery old. Memory can only be held by a
+// process, so a steady card has the processes it had.
+func TestAMDWalksProcessesWhenTheCardMoves(t *testing.T) {
+	a := amdFixture(t)
+	a.walk, a.ProcsEvery = &amdWalk{}, 200*time.Millisecond
+	used := filepath.Join(a.SysRoot, "card0/device/mem_info_vram_used")
+	amdFixtureProc(t, a, 101, "llama-server", 11, drmSample("0000:03:00.0", "7", "drm-memory-vram: 2048 MiB"))
+	pids := func() string {
+		t.Helper()
+		s, err := a.Read(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range s.Procs {
+			out = append(out, fmt.Sprintf("%d:%dMiB", p.PID, p.Used/MiB))
+		}
+		return strings.Join(out, " ")
+	}
+	if got := pids(); got != "101:2048MiB" {
+		t.Fatalf("first read %q", got)
+	}
+
+	amdFixtureProc(t, a, 102, "comfyui", 12, drmSample("0000:03:00.0", "8", "drm-memory-vram: 1024 MiB"))
+	if got := pids(); got != "101:2048MiB" {
+		t.Fatalf("steady card walked again: %q", got)
+	}
+	amdWrite(t, used, fmt.Sprint(9*GiB))
+	if got := pids(); got != "101:2048MiB 102:1024MiB" {
+		t.Fatalf("after the card moved %q", got)
+	}
+
+	amdFixtureProc(t, a, 103, "ollama", 13, drmSample("0000:03:00.0", "9", "drm-memory-vram: 512 MiB"))
+	time.Sleep(250 * time.Millisecond)
+	if got := pids(); got != "101:2048MiB 102:1024MiB 103:512MiB" {
+		t.Fatalf("after ProcsEvery %q", got)
+	}
+}
+
+// --gpu all on AMD opens the cards Berth can govern, by DRM number, and
+// leaves out the ones it cannot.
+func TestListAMDCards(t *testing.T) {
+	a := amdFixture(t)
+	amdFixtureCard(t, a, 1, "0000:0a:00.0", 11, 5, 0)
+	amdFixtureCard(t, a, 10, "0001:04:00.0", 12, 0, 1)
+	devs, err := List(context.Background(), Options{Backend: "amd", SysRoot: a.SysRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devs) != 2 || devs[0].Index != 0 || devs[1].Index != 10 {
+		t.Fatalf("devices = %+v", devs)
+	}
 }

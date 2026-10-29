@@ -8,9 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
-
-	"github.com/T-Crypt/berth/internal/gpu"
 )
 
 // Unit is one berth service: what it runs and where it sits in the
@@ -31,7 +30,7 @@ func serviceUnits(exe string, gateway, harbor bool) []Unit {
 	units := []Unit{{
 		Name:        "berthd",
 		Exec:        []string{exe, "daemon", "--gpu", "0", "--poll", "2s"},
-		Description: "berth - GPU lease broker (one card, many inference engines)",
+		Description: "berth - GPU lease broker (every card, many inference engines)",
 	}}
 	if gateway {
 		units = append(units, Unit{
@@ -184,25 +183,30 @@ func runServiceInstall(c *Context) int {
 	notifyToo := fs.Bool("notify", false, "also install berth notify, desktop notifications (Linux)")
 	dryRun := fs.Bool("dry-run", false, "print what would be written and run, change nothing")
 	backend := fs.String("gpu-backend", "auto", "daemon GPU probe: auto, nvidia or amd")
-	card := fs.String("gpu", "0", "daemon GPU index (AMD: DRM cardN number), or an NVIDIA card's PCI address (0000:02:00.0)")
+	card := fs.String("gpu", "all", "daemon cards: all, or a comma list of GPU indices (AMD: DRM cardN numbers) and NVIDIA PCI addresses (0000:02:00.0)")
 	if code, done := c.Parse(fs); done {
 		return code
 	}
 	if code, done := c.noArgs(); done {
 		return code
 	}
-	index, addr, err := gpu.ParseCard(*card)
+	sels, err := parseGPUs(*card, *backend)
 	if err != nil {
 		return c.fail(Failf("%v", err))
 	}
-	if err := gpu.ValidateSelection(*backend, index); err != nil {
-		return c.fail(Failf("%v", err))
-	}
-	if addr != "" && *backend == "amd" {
-		return c.fail(Failf("an AMD card is selected by its DRM cardN number, not a PCI address"))
-	}
-	if addr != "" {
-		*card = addr
+	*card = "all"
+	if sels != nil {
+		parts := make([]string, len(sels))
+		for i, sel := range sels {
+			if sel.addr != "" && *backend == "amd" {
+				return c.fail(Failf("an AMD card is selected by its DRM cardN number, not a PCI address"))
+			}
+			parts[i] = strconv.Itoa(sel.index)
+			if sel.addr != "" {
+				parts[i] = sel.addr
+			}
+		}
+		*card = strings.Join(parts, ",")
 	}
 	exe, err := os.Executable()
 	if err != nil {

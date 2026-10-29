@@ -494,22 +494,11 @@ func Parse(index int, mem, apps string, at time.Time) (Snapshot, error) {
 		if line == "" || strings.HasPrefix(line, "No running") {
 			continue
 		}
-		// The name may itself contain commas: the PID is before the first
-		// one and the memory figure after the last.
-		i, j := strings.IndexByte(line, ','), strings.LastIndexByte(line, ',')
-		if i < 0 || i == j {
-			return s, fmt.Errorf("compute-apps line %q", line)
-		}
-		pid, err := strconv.Atoi(strings.TrimSpace(line[:i]))
+		p, err := parseApp(line)
 		if err != nil {
-			return s, fmt.Errorf("compute-apps pid in %q: %w", line, err)
+			return s, fmt.Errorf("compute-apps line %q: %w", line, err)
 		}
-		used, err := strconv.ParseUint(strings.TrimSpace(line[j+1:]), 10, 64)
-		if err != nil {
-			// "[N/A]" on some drivers and in some containers.
-			used = 0
-		}
-		s.Procs = append(s.Procs, Proc{PID: pid, Name: strings.TrimSpace(line[i+1 : j]), Used: used * MiB})
+		s.Procs = append(s.Procs, p)
 	}
 	return s, nil
 }

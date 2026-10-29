@@ -41,18 +41,17 @@ func List() []Proc {
 		return nil
 	}
 	ps := make([]Proc, 0, len(entries))
+	buf := make([]byte, 0, 512)
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue
 		}
-		name, f := statFields(pid)
-		if len(f) < 20 {
-			continue
+		var p Proc
+		var ok bool
+		if p, buf, ok = ReadStat(pid, buf); ok {
+			ps = append(ps, p)
 		}
-		ppid, _ := strconv.Atoi(f[1])
-		start, _ := strconv.ParseUint(f[19], 10, 64)
-		ps = append(ps, Proc{PID: pid, Parent: ppid, Start: start, Name: name})
 	}
 	return ps
 }
@@ -60,7 +59,9 @@ func List() []Proc {
 // Container is the container id that owns pid, from an actual
 // /proc/<pid>/cgroup: docker runs its engine images in a docker-<64hex>.scope
 // (v2) or a /docker/<64hex> directory (v1), podman in a libpod-<64hex>.scope,
-// containerd/CRI in a cri-containerd-<64hex>.scope. A host process reads "".
+// containerd/CRI in a cri-containerd-<64hex>.scope, and Proxmox runs an LXC
+// container's processes under /lxc/<vmid>/, read as lxc:<vmid>. A host
+// process reads "".
 func Container(pid int) (string, bool) {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
 	if err != nil {

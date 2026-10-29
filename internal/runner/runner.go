@@ -39,8 +39,13 @@ import (
 )
 
 type Options struct {
-	Socket   string
-	Engine   string
+	Socket string
+	Engine string
+	// Card is the card the run asked for (berth run --gpu, the entry's
+	// gpu): its name on the node or its PCI address, or a comma list of
+	// them for one lease on several cards. "" = the first card,
+	// and the engine's environment is left as it is.
+	Card     string
 	Group    string // the engine family for juggles and usage (llama-swap's models: "llama-swap")
 	Priority string
 	Needs    uint64
@@ -58,9 +63,11 @@ type Options struct {
 	Wait      time.Duration
 	DrainPost string // asked first on drain, e.g. llama-swap's unload URL
 	// DrainSlots is an engine base URL with a llama.cpp-style /slots: on
-	// drain, wait until no slot is processing, then stop the engine. For a
-	// server with no unload URL (Strata), so a drain never cuts off the
-	// request it is serving.
+	// drain, wait until no slot is processing, then post DrainPost or stop
+	// the engine, so a drain never cuts off the request it is serving. For
+	// a server with no unload URL (Strata), and for a llama-swap model,
+	// whose slots are under /upstream/<model>, not at DrainPost's origin.
+	// Without it, DrainPost's origin is the base.
 	DrainSlots string
 	// DrainComfyUI is a ComfyUI base URL: on drain, wait until its queue
 	// has nothing running or pending before any stop step, so a job is
@@ -123,23 +130,29 @@ type Options struct {
 	// run that declares it is ever asked to give part of the card to a waiter
 	// or to take it back.
 	Lend *lend.Adapter
+	// WholeMachine is the entry's whole_machine: berthd stops what this
+	// run drains rather than parking it, and grants nothing parked beside it.
+	WholeMachine bool
 	// front is the open front, set by Run.
 	front *front.Front
-	// Container is the container the engine runs in (berth run
-	// --container NAME, the name of `docker run --name`): the drain stops
-	// it through the runtime CLI instead of signalling this process
-	// group, because containerd-shim, not this wrapper, parents the
-	// engine. Linux-only in this release; elsewhere the flag is accepted
-	// and ignored. The container is Berth's because this command started
-	// it; nothing else is ever stopped.
+	// Container is the one container the engine runs in (berth run
+	// --container NAME, the name of `docker run --name`).
 	Container string
-	// CLI is the runtime CLI exec: every docker or podman inspect and stop
-	// runs through it, under the timeout the caller names, and it returns
-	// the command's combined output; nil = the real CLI, tests fake it and
-	// assert the argv.
+	// Compose is the Compose file the engine's project runs from (berth run
+	// --compose PATH): its containers are the engine, and the drain stops
+	// the project through the runtime CLI instead of signalling this
+	// process group, because containerd-shim, not this wrapper, parents the
+	// engine. The containers are Berth's because this command started them;
+	// nothing else is ever stopped. Container and Compose are mutually
+	// exclusive, and config.Validate keeps them so.
+	Compose string
+	// CLI is the runtime CLI exec: every docker or podman inspect, list and
+	// stop runs through it, under the timeout the caller names, and it
+	// returns the command's combined output; nil = the real CLI, tests fake
+	// it and assert the argv.
 	CLI func(argv []string, timeout time.Duration) (string, error)
-	// container carries the resolved container (the runtime that answered
-	// and the full ID) from the resolver goroutine to the drain; Run sets
+	// container carries the resolved containers (the runtime that answered
+	// and the full IDs) from the resolver goroutine to the drain; Run sets
 	// it, tests that fake the resolution set it directly.
 	container  *containerRef
 	Grace      time.Duration // per drain step before escalating
@@ -201,10 +214,11 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, WholeMachine: o.WholeMachine, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
+	var cardEnv string
 	for granted := false; !granted; {
 		m, err := conn.Recv()
 		if err != nil {
@@ -224,10 +238,14 @@ func Run(o Options) int {
 				say("granted %s", m.Lease)
 			}
 			granted = true
+			cardEnv = visibleDevices(o.Card, m, os.LookupEnv, say)
 		}
 	}
 
 	cmd := command(o, o.Output)
+	if cardEnv != "" {
+		cmd.Env = append(os.Environ(), cardEnv)
+	}
 	session := comfySession{granted: time.Now()}
 	if err := cmd.Start(); err != nil {
 		say("start %s: %v", o.Argv[0], err)
@@ -240,28 +258,25 @@ func Run(o Options) int {
 	}
 
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
 
-	// A container engine resolves its name to the full ID and names it on
-	// the lease, so the broker attributes the engine's GPU processes
-	// (containerd-shim parents them, not this wrapper). The ID also rides
-	// on any re-attach, in case the daemon changes before it resolves.
 	if o.CLI == nil {
 		o.CLI = execCLI
 	}
 	var cid containerRef
 	o.container = &cid
-	if o.Container != "" {
-		if containerSupported() {
-			go resolveContainer(o, conn, cmd, done, &cid, say)
-		} else {
-			say("container engines are Linux-only in this release; --container %s ignored", o.Container)
-		}
-	}
 
-	// line is the lease's live conn and park state; the drain and the
-	// resume ride it across reattach loops.
+	// line is the lease's live conn and park state; the drain, the resume
+	// and the container resolver ride it across reattach loops.
 	line := newLine(conn)
+	go forwardSignals(cmd, done, func() bool { return o.Checkpoint && line.isParked() })
+
+	// A container engine resolves its containers to their full IDs and names
+	// them on the lease, so the broker attributes the engine's GPU processes
+	// (containerd-shim parents them, not this wrapper). The IDs also ride on
+	// any re-attach, in case the daemon changes before the next poll.
+	if o.Container != "" || o.Compose != "" {
+		go resolveContainers(o, line, cmd, done, &cid, say)
+	}
 
 	// One drain at a time: a drain parks the engine or stops it, and the
 	// daemon's next drain waits for that answer. A token leaves the slot
@@ -356,19 +371,24 @@ func Run(o Options) int {
 			// so the daemon frees the lease even if this process lives on.
 			go func(c net.Conn) { <-done; c.Close() }(raw)
 			line.setConn(conn)
-			if id := cid.id(); id != "" {
-				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Container: id})
+			if ids := cid.list(); len(ids) > 0 {
+				_ = conn.Send(proto.Msg{Op: proto.OpAttach, PID: cmd.Process.Pid, Containers: ids})
 			}
 			say("re-attached %s as %s", o.Engine, lease)
 		}
 	}()
 
 	err = cmd.Wait()
-	close(done)
+	afterWait(cmd)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil // exited cleanly; a grandchild still held the output copy
 	}
-	return exitCode(cmd, err)
+	code := exitCode(cmd, err)
+	if code == 0 {
+		_ = line.send(proto.Msg{Op: proto.OpFinished})
+	}
+	close(done)
+	return code
 }
 
 // listen hears the daemon until the connection drops, passing each
@@ -429,10 +449,10 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 // the holder as `lent` instead of counting its full budget and blocking
 // waiters behind memory that is already gone.
 func reattachMsg(o Options, pid int, start uint64, cid *containerRef, parked bool, line *leaseLine) proto.Msg {
-	m := proto.Msg{Op: proto.OpReattach, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
-		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil,
+	m := proto.Msg{Op: proto.OpReattach, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
+		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil, WholeMachine: o.WholeMachine,
 		MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(),
-		PID: pid, PIDStart: start, Container: cid.id(), Parked: parked}
+		PID: pid, PIDStart: start, Containers: cid.list(), Parked: parked}
 	if t, ok := line.openLend(); ok {
 		m.LendID, m.Lent = t.ID, t.MiB<<20
 	}
@@ -680,8 +700,9 @@ func runUnleased(o Options, reason string) int {
 	afterStart(cmd)
 	defer record(o, cmd, reason)()
 	done := make(chan struct{})
-	go forwardSignals(cmd, done)
+	go forwardSignals(cmd, done, func() bool { return false })
 	err := cmd.Wait()
+	afterWait(cmd)
 	close(done)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
@@ -703,6 +724,25 @@ func record(o Options, cmd *exec.Cmd, reason string) func() {
 	return remove
 }
 
+// visibleDevices is the CUDA_VISIBLE_DEVICES=UUID entry that keeps the
+// engine on the cards the run named, "" when the run named none, when the
+// environment already picks the devices, or when a card has no UUID (an
+// AMD card, or one in a VM when berthd started).
+func visibleDevices(card string, granted proto.Msg, env func(string) (string, bool), say func(string, ...any)) string {
+	if card == "" {
+		return ""
+	}
+	if v, ok := env("CUDA_VISIBLE_DEVICES"); ok {
+		say("CUDA_VISIBLE_DEVICES=%s is set; %s keeps it", v, granted.Card)
+		return ""
+	}
+	if granted.CardUUID == "" {
+		say("%s has no CUDA UUID; the engine must pick the card itself", granted.Card)
+		return ""
+	}
+	return "CUDA_VISIBLE_DEVICES=" + granted.CardUUID
+}
+
 func command(o Options, out io.Writer) *exec.Cmd {
 	argv := scopeToChild(o.Engine, o.Argv, o.Log)
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -722,8 +762,10 @@ func command(o Options, out io.Writer) *exec.Cmd {
 func ExitCode(cmd *exec.Cmd, err error) int { return exitCode(cmd, err) }
 
 // forwardSignals passes stop signals (llama-swap stopping a model, Ctrl-C)
-// to the engine's whole process group.
-func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
+// to the engine's whole process group. A checkpointed engine is killed
+// instead: its CUDA calls block until a restore, so its own shutdown never
+// finishes, and the supervisor kills this wrapper before a grace would end.
+func forwardSignals(cmd *exec.Cmd, done <-chan struct{}, locked func() bool) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, stopSignals...)
 	defer signal.Stop(ch)
@@ -732,6 +774,10 @@ func forwardSignals(cmd *exec.Cmd, done <-chan struct{}) {
 		case <-done:
 			return
 		case s := <-ch:
+			if locked() {
+				kill(cmd)
+				continue
+			}
 			signalGroup(cmd, s)
 		}
 	}
@@ -796,8 +842,10 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			say("a request to %s outlived --drain-max %s; stopping it instead of parking it", o.Engine, o.DrainMax)
 			o.Park, o.Hook = nil, false
 		}
-	case o.DrainSlots != "" && o.DrainPost == "":
-		if !slotBoundaryAt(o, drainPostBase(o.DrainSlots), done, say) {
+	case o.DrainSlots != "":
+		// The base as given: llama-swap serves a model's slots only under
+		// /upstream/<model>, beside an unload URL on the same host.
+		if !slotBoundaryAt(o, strings.TrimRight(o.DrainSlots, "/"), done, say) {
 			return
 		}
 	case o.DrainPost != "":
@@ -813,6 +861,11 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 	// engine: on admission the weights move to RAM, the lease is held
 	// parked, and the stop ladder never runs.
 	if o.Park != nil || o.Hook {
+		if line.isParked() && o.Checkpoint {
+			say("killing checkpointed %s: it cannot shut down while its CUDA calls are locked", o.Engine)
+			kill(cmd)
+			return
+		}
 		if line.isParked() {
 			say("stopping parked %s instead of parking it again: %s", o.Engine, reason)
 		} else if line.park(o, say) {
@@ -837,29 +890,14 @@ func drain(o Options, cmd *exec.Cmd, line *leaseLine, done <-chan struct{}, reas
 			say("drain url answered %s but %s is still running", resp.Status, o.Engine)
 		}
 	}
-	if o.Container != "" && containerSupported() {
-		// The engine lives in a container of ours: stop it through the
-		// runtime CLI (its own SIGTERM, then SIGKILL inside the image)
-		// instead of signalling the CLI wrapper's process group. The
-		// target is the full ID the resolver answered, never the bare
-		// name; before the name resolved there is no ID to stop, so the
-		// group signals run as they always have.
-		runtime, id := "", ""
-		if o.container != nil {
-			runtime, id = o.container.runtime(), o.container.id()
-		}
-		if id != "" {
-			if runtime == "" {
-				if rs := runtimes(); len(rs) > 0 {
-					runtime = rs[0]
-				}
-			}
-			argv := stopArgv(runtime, id, o.Grace)
-			if _, err := o.CLI(argv, o.Grace+15*time.Second); err != nil {
-				say("container stop failed (%v); falling back to the process group", err)
-			} else {
-				return
-			}
+	if o.Container != "" || o.Compose != "" {
+		// The engine lives in containers of ours: stop them through the
+		// runtime CLI (their own SIGTERM, then SIGKILL inside the image)
+		// instead of signalling the CLI wrapper's process group. A lone
+		// container is stopped by the full ID the resolver answered, never
+		// the bare name; a Compose project is stopped as a project.
+		if stopContainers(o, say) {
+			return
 		}
 	}
 	terminate(cmd)
