@@ -22,19 +22,19 @@ import (
 // nothing is killed.
 type Reporter struct {
 	Notify  bool   // notify-send, when it is installed
-	Webhook string // POSTed JSON {event, pid, name, mib, host}
+	Webhook string // POSTed JSON {event, pid, name, mib, host, card}
 	Log     *slog.Logger
 }
 
-func (r Reporter) Squatter(appeared bool, p gpu.Proc) {
+func (r Reporter) Squatter(appeared bool, card string, p gpu.Proc) {
 	event := "squatter.gone"
 	if appeared {
 		event = "squatter.appeared"
 	}
-	go r.send(event, p)
+	go r.send(event, card, p)
 }
 
-func (r Reporter) send(event string, p gpu.Proc) {
+func (r Reporter) send(event, card string, p gpu.Proc) {
 	if r.Notify && event == "squatter.appeared" {
 		if bin, err := exec.LookPath("notify-send"); err == nil {
 			body := fmt.Sprintf("%s (pid %d) holds %d MiB of VRAM without a lease", p.Name, p.PID, p.Used/gpu.MiB)
@@ -48,6 +48,9 @@ func (r Reporter) send(event string, p gpu.Proc) {
 	data := map[string]any{
 		"event": event, "pid": p.PID, "name": p.Name, "mib": p.Used / gpu.MiB, "host": host,
 	}
+	if card != "" {
+		data["card"] = card
+	}
 	if p.GTT > 0 {
 		data["gtt_mib"] = p.GTT / gpu.MiB
 	}
@@ -58,12 +61,13 @@ func (r Reporter) send(event string, p gpu.Proc) {
 // Alert tells a person about a threshold or danger level crossing: the
 // same two channels as squatters, nothing more. Report-only. The work
 // runs in a goroutine, as Squatter does: a dead webhook or a hung
-// notify-send must not stall the sampler's 5 s cycle.
-func (r Reporter) Alert(level, key, message string) {
-	go r.sendAlert(level, key, message)
+// notify-send must not stall the sampler's 5 s cycle. card is the card
+// the alert names, empty for a machine-wide key.
+func (r Reporter) Alert(level, key, message, card string) {
+	go r.sendAlert(level, key, message, card)
 }
 
-func (r Reporter) sendAlert(level, key, message string) {
+func (r Reporter) sendAlert(level, key, message, card string) {
 	if r.Notify {
 		if bin, err := exec.LookPath("notify-send"); err == nil {
 			urg := "normal"
@@ -74,9 +78,13 @@ func (r Reporter) sendAlert(level, key, message string) {
 		}
 	}
 	host, _ := os.Hostname()
-	payload, _ := json.Marshal(map[string]any{
+	data := map[string]any{
 		"event": "alert." + level, "key": key, "level": level, "message": message, "host": host,
-	})
+	}
+	if card != "" {
+		data["card"] = card
+	}
+	payload, _ := json.Marshal(data)
 	r.postWebhook(payload)
 }
 

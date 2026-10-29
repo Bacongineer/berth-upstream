@@ -412,3 +412,33 @@ func TestStatusNamesTheCardWithSeveral(t *testing.T) {
 		t.Errorf("one card grew a CARD column:\n%s", one)
 	}
 }
+
+// The claims table labels the memory column HOLDS like the lease table, and
+// adds a CARD column of the cards a claim sits on only with several cards.
+func TestClaimsTablesSayHoldsAndNameCards(t *testing.T) {
+	claims := []proto.Claim{{Name: "blender", Action: "track", Active: true, Used: 2 << 30, Cards: []string{"gpu0", "gpu1"}, Procs: "blender"}}
+	two := []proto.GPU{{Index: 0, Card: "gpu0", Scheduled: true}, {Index: 1, Card: "gpu1", Scheduled: true}}
+	var out, errOut bytes.Buffer
+	c := &Context{Out: &out, Err: &errOut, Format: FormatHuman, Style: newStyle(&out), errStyle: newStyle(&errOut)}
+	st := &proto.Status{API: proto.APIVersion, Version: "test", GPUs: two, Claims: claims}
+	if err := (statusView{st: st}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "CLAIM    ACTION  LEASE  CARD       HOLDS") || !strings.Contains(s, "gpu0,gpu1") {
+		t.Errorf("status claims table:\n%s", s)
+	}
+	out.Reset()
+	if err := (claimsView{claims: claims, cards: 2}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "LEASE  CARD       HOLDS") || strings.Contains(s, "CARD  PROCESSES") {
+		t.Errorf("berth claims table:\n%s", s)
+	}
+	out.Reset()
+	if err := (claimsView{claims: claims, cards: 1}).Human(c, true); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "HOLDS") || strings.Contains(s, "CARD") {
+		t.Errorf("one card claims table:\n%s", s)
+	}
+}

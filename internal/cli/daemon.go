@@ -193,10 +193,10 @@ func runDaemon(c *Context) int {
 	// keys plus what the operator enabled. One level crossing is one
 	// event and one notification through the same channels as squatters.
 	ev := alerts.New(alerts.FromConfig(cfg.Alerts), *cfg.Alerts.ClearPolls,
-		func(key alerts.Key, lv alerts.Level, raised bool, msg string) {
+		func(key alerts.Key, lv alerts.Level, raised bool, msg, card string) {
 			if raised {
 				first.Note(proto.Event{Kind: proto.EvAlertRaised, Detail: lv.Name() + ": " + msg})
-				rep.Alert(lv.Name(), string(key), msg)
+				rep.Alert(lv.Name(), string(key), msg, card)
 			} else {
 				first.Note(proto.Event{Kind: proto.EvAlertCleared, Detail: msg})
 			}

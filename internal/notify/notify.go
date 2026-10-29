@@ -74,8 +74,10 @@ var rules = map[string]rule{
 }
 
 // For is the notification e becomes at level, or false when a person at
-// that level does not hear about it.
-func For(e proto.Event, level Level) (Note, bool) {
+// that level does not hear about it. With named set, the machine has
+// several cards and the title leads with the card the event happened on,
+// so a person sees it first and the gate keeps two cards' notes apart.
+func For(e proto.Event, level Level, named bool) (Note, bool) {
 	r, ok := rules[e.Kind]
 	if !ok || r.level > level {
 		return Note{}, false
@@ -83,6 +85,9 @@ func For(e proto.Event, level Level) (Note, bool) {
 	title := r.title
 	if e.Engine != "" {
 		title += ": " + e.Engine
+	}
+	if named && e.Card != "" {
+		title = e.Card + ": " + title
 	}
 	return Note{Kind: e.Kind, Level: r.level, Title: title, Body: e.Detail}, true
 }
