@@ -187,6 +187,8 @@ func handle(ctx context.Context, c net.Conn, n *node.Node, x Extras, log *slog.L
 		pairing(conn, log, first, x.Pair)
 	case proto.OpResume:
 		resume(conn, log, first, n)
+	case proto.OpSwitch:
+		switched(conn, log, first, n)
 	case proto.OpEvents:
 		events(ctx, c, conn, first, n, log)
 	default:

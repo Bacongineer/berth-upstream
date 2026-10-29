@@ -107,3 +107,16 @@ func parkedIn(st *proto.Status, name string) bool {
 	}
 	return false
 }
+
+// switchQueued tells berthd a person switched to e while its start waits in
+// the queue. Nothing queued is no error: the start may be granted already.
+func (g *Gateway) switchQueued(e *config.Engine) {
+	conn, raw, err := server.Dial(g.Socket)
+	if err != nil {
+		return
+	}
+	defer raw.Close()
+	if conn.Send(proto.Msg{Op: proto.OpSwitch, Engine: e.Name}) == nil {
+		_, _ = conn.Recv()
+	}
+}

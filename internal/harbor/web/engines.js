@@ -258,7 +258,8 @@ export class EngineView {
     const cols = [
       { key: "model", label: "Model", cls: "" },
       { key: "engine", label: "Engine", cls: "" },
-      { key: "requests", label: "Requests", cls: "num" },
+      // 0 is a row from an engine's counters alone (llama.cpp keeps no request log)
+      { key: "requests", label: "Requests", cls: "num", fmt: (v) => (v ? String(v) : "-") },
       { key: "prompt_tokens", label: "Prompt", cls: "num", fmt: fmtTok },
       { key: "output_tokens", label: "Output", cls: "num", fmt: fmtTok },
       { key: "decode_tps_median", label: "Decode med", cls: "num", fmt: (v) => na(v, (v) => v.toFixed(0)) },
