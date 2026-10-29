@@ -410,6 +410,8 @@ type GPU struct {
 	GTTTotal    uint64 `json:"gtt_total,omitempty"`
 	GTTUsed     uint64 `json:"gtt_used,omitempty"`
 	GTTBaseline uint64 `json:"gtt_baseline,omitempty"`
+	// ProbeErr is this card's last probe failure, "" while it reads.
+	ProbeErr string `json:"probe_error,omitempty"`
 	// Passthrough is this card's VM state while it does not serve; nil
 	// when the card is normal.
 	Passthrough *Passthrough `json:"passthrough,omitempty"`

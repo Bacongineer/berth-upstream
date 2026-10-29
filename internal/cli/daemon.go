@@ -204,11 +204,21 @@ func runDaemon(c *Context) int {
 
 	// Seed every broker before accepting clients, not in a racing goroutine:
 	// guarded admission must never see an uninitialised lease-only snapshot.
+	// One card that cannot be read stays fenced (it grants nothing until its
+	// first good read) while berthd serves the others; with none readable
+	// there is nothing to serve.
+	var failed []string
 	for _, cd := range cards {
 		cd.B.Tick(ctx)
 		if st := cd.B.Status(); st.ProbeErr != "" {
-			return c.fail(Systemf("gpu initial observation on %s: %s", cd.Name, st.ProbeErr))
+			failed = append(failed, cd.Name+": "+st.ProbeErr)
 		}
+	}
+	if len(failed) == len(cards) {
+		return c.fail(Systemf("gpu initial observation on %s", strings.Join(failed, "; ")))
+	}
+	for _, f := range failed {
+		log.Error("gpu initial observation failed; the card grants nothing until a read succeeds", "card", f)
 	}
 
 	ln, err := server.Listen(*sock)
