@@ -17,6 +17,97 @@ has a matching GitHub release whose body comes from its section below.
   kept on the card, and one started beside a checkpoint-parked NInfer found 20 GiB of RAM free for its 40 GiB of
   experts.
 
+- `/metrics` is per card. GPU memory series gain a `card` label, and each card reports its baseline, utilization,
+  temperature, power, power limit and fan speed when the driver gives them. Leases, the queue and stowaways count
+  per card, `berth_lease_used_bytes` shows what each engine holds, and `berth_build_info` carries the version.
+
+- docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
+  them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
+  `--pinned` help no longer says it is only for apps.
+- On a Proxmox VE host, a GPU process inside an LXC container shows as a stowaway named by its container,
+  `lxc:101 (ollama)`, where it showed as a bare PID. Berth reads the VMID from the process's cgroup (`/lxc/101/...`)
+  and the name from the `hostname` in `/etc/pve/lxc/101.conf`. That file is readable by root and `www-data` only,
+  so a berthd running as a normal user shows `lxc:101` alone. LXC's `lxc-start` monitor is not a container, and
+  Docker inside an LXC still resolves to the Docker container (#128).
+- `berth wire llama-swap --wait DUR` writes `--wait` on every model's line, so a batch request can queue
+  behind a long foreground lease instead of giving up after berthd's default 120 s (#231).
+- `berth run --as NAME` with no command runs the `start` of NAME's entry in `berth.toml`, as the gateway does, so
+  a configured engine no longer needs its command typed again. An entry matched only through `--group` never lends
+  its `start`, because that is the group's engine (llama-swap), not this one. azrael-229 asked for it (#232).
+- `[squatters] allow` in `berth.toml` lists process names that are never squatters, as `berth daemon --allow`
+  does. A unit or scheduled task from `berth service install` had no way to pass `--allow`, so on a desktop a
+  browser or a terminal kept the card from ever being free and background engines never started. The flag still
+  replaces the list when given (#172).
+- One lease across several cards: `berth run --gpu gpu0,gpu1`, or `gpu = "gpu0,gpu1"` on an engine entry. berthd
+  grants the lease on every named card at once, only when each one fits, and holds no card while it waits for
+  another. The engine starts with `CUDA_VISIBLE_DEVICES` listing the cards' UUIDs in the order named, and its
+  memory on those cards counts as the lease's instead of showing as stowaways. A drain on any card stops the engine,
+  its exit frees every card, and a berthd restart re-attaches it to all of them under the same lease. A lease on
+  several cards cannot park or lend yet (#189).
+- An engine runs on the card it names: `berth run --gpu gpu1`, or `gpu = "gpu1"` on its `[[engine]]` entry (a
+  PCI address works too). The lease goes to that card and stays there across a berthd restart. The engine starts
+  with `CUDA_VISIBLE_DEVICES` set to the card's UUID, which berthd reads from `nvidia-smi` at startup, unless the
+  environment already sets it. A gateway start passes the entry's card on. A run that names no card goes to the
+  first card and its environment is left alone, so an engine split across two cards keeps both.
+- One berthd can govern several cards (experimental). `berth daemon --gpu all` opens every card it finds, and
+  `--gpu` also takes a comma list of indices and NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`). Each card keeps its
+  own leases, queue, drains and parks, so a foreground request on gpu0 never drains a holder on gpu1. The cards share
+  one event log, one set of lease IDs and one park budget. A card is named `gpu` plus its index, or by its address
+  when it is in a VM at startup. A running game holds every card, because Berth can't tell which card it will use.
+  Alerts read the hottest and fullest card and name it. `berth status` adds a CARD column to the lease, waiting and
+  stowaway tables when there is more than one card. The first card keeps the plain state files, and each other card
+  writes its own (`usage.gpu1.json`).
+- berthd runs its card as part of a node, the groundwork for one berthd governing every card on a machine. The
+  status JSON names each GPU, lease, waiter and stowaway's card (`card`), every event names the card it happened
+  on, and a client may name its card when it asks for one (`card` on the socket); a request that names none goes to
+  the first card, as before. The node keeps one event sequence and one set of lease IDs for the machine. Nothing
+  changes yet for a berthd with one card.
+- `berth run` warns when a container it names on a lease has restart policy `always`, with `--container` or
+  `--compose`. Docker restarts such a container when its daemon starts, even after a drain stopped it, so it comes
+  back on the card without a lease after a reboot. docs/engines.md says which policy fits (#172).
+- Pre-releases for testers. Work for the next release lands on the `next` branch and is tagged `vX.Y.Z-rc.N`, which
+  publishes as a GitHub pre-release. The README's download link, `go install ...@latest` and `berth update` stay on
+  the latest release. [Testing a pre-release](docs/prerelease.md) covers installing one and going back.
+- `berth config check` warns when `[park]` turns eviction off: `floor_gib = 0` means Berth never stops a parked
+  engine when RAM runs low, and a `pressure` of 100 or more is past anything `/proc/pressure/memory` reports.
+  `--strict` fails on both (#193).
+- Engines with no offload call of their own (llama.cpp, NInfer, any llama-swap model) park in RAM through NVIDIA's
+  `cuda-checkpoint`: `berth run --park checkpoint --front 127.0.0.1:${PORT}` with `--port {{BERTH_PORT}}` in the
+  engine's command. The front takes the requests llama-swap sends, waits for the ones in flight before the
+  checkpoint, holds new ones while the engine sleeps, and asks berthd for the card on the first, so no request
+  hangs on a checkpointed engine. A 23.1 GB NInfer comes back in 3.3 s instead of a 14 s reload. `park =
+  "checkpoint"` on an engine entry is refused: a front is one run's address. docs/design.md is the model this and
+  the coming lends, multi-card leases and networked nodes follow.
+- Experimental: an engine that can shrink a cache lends part of its card to a sized waiter instead of being drained for it:
+  `lend = "hook"` on the entry, with `lend_url` for an engine that serves the lend routes
+  ([contrib/LEND-PROTOCOL.md](contrib/LEND-PROTOCOL.md)), and Strata's `/v1/vram` built in. The holder keeps
+  serving while the borrower builds beside it. Berth grants the borrower only once a card read taken after the
+  engine answered shows the memory free, and the lend stops counting against the holder at that read, never at
+  the engine's word. The holder is asked for its memory back once the borrower's is measured gone, and only when
+  the card has room for it again. A lend the engine refuses, or one the card has not confirmed within
+  `--release-grace` (30 s), falls through to the park or drain that would have run anyway. Nothing is asked of a
+  run that did not declare lend calls, of a pinned holder or a hold, or on an APU. This is the broker's decision
+  and the wrapper's calls, and the wrapper keeps the ledger of what its run has lent. A lend the engine did not
+  answer in time (its `503`) is treated as refused for that waiter, and the wrapper reads the engine's ledger
+  (`GET /vram/state`) for 30 s in case it lands, then asks for that memory back at once. After a
+  berthd restart the run re-attaches naming its open lend, so the new daemon counts the holder's budget less the
+  lend and asks for the take-back once the card has room, instead of blocking waiters behind memory that is gone.
+  `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
+  docs/gateway.md's Lending section states the rules.
+- A Docker Compose project can run as one engine: `compose = "/abs/path/compose.yml"` on an entry, or
+  `berth run --compose PATH`. The lease covers every container in the project, found with
+  `docker compose -f PATH ps -q --all` on every poll (podman when docker does not answer), so a container that
+  restarts under a new ID comes back to the lease. A drain runs `compose stop -t <grace>`, never `down`, which would
+  delete containers and networks you own. The start command stays yours, and `docker compose -f PATH up` fits.
+  `berth config check` refuses `compose` together with `container`, and a relative path.
+  Container engines now work on Windows too, where `--container` was accepted and ignored. WSL2 reports no
+  per-container VRAM. So while one container engine is the only one on the card, Berth charges it the WSL VM's
+  measured GPU row whenever that row is larger than its `needs_mib`. With two container engines Berth cannot split
+  the row, so each counts its `needs_mib` and the row stays a stowaway, counted once. Size `needs_mib` from your
+  heaviest run. One operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest (#172).
+  In `berth status --format json` and the harbor, a lease's `container` and `container_name` are replaced by
+  `containers`, a list of full container IDs. A `berth run` started before an upgrade still attaches its container.
+
 ### Changed
 
 - The harbor's page files carry an ETag for the build and `Cache-Control: no-cache`, so a reload answers 304 and
@@ -153,99 +244,6 @@ has a matching GitHub release whose body comes from its section below.
   memory back, and berthd gave up on a lend 30 s after the ask while `berth run` waited 60 s for the engine, so a
   long answer turned the lend into a drain. berthd now waits the run's 60 s for the answer, and the 30 s grace for
   the card to show the memory free counts from the answer.
-
-### Added
-
-- `/metrics` is per card. GPU memory series gain a `card` label, and each card reports its baseline, utilization,
-  temperature, power, power limit and fan speed when the driver gives them. Leases, the queue and stowaways count
-  per card, `berth_lease_used_bytes` shows what each engine holds, and `berth_build_info` carries the version.
-
-- docs/leasing.md has a section on training runs. One `berth run --pinned` lease across several cards keeps all of
-  them from a foreground run, a game's hold and another multi-card lease, and it survives a berthd restart. The
-  `--pinned` help no longer says it is only for apps.
-- On a Proxmox VE host, a GPU process inside an LXC container shows as a stowaway named by its container,
-  `lxc:101 (ollama)`, where it showed as a bare PID. Berth reads the VMID from the process's cgroup (`/lxc/101/...`)
-  and the name from the `hostname` in `/etc/pve/lxc/101.conf`. That file is readable by root and `www-data` only,
-  so a berthd running as a normal user shows `lxc:101` alone. LXC's `lxc-start` monitor is not a container, and
-  Docker inside an LXC still resolves to the Docker container (#128).
-- `berth wire llama-swap --wait DUR` writes `--wait` on every model's line, so a batch request can queue
-  behind a long foreground lease instead of giving up after berthd's default 120 s (#231).
-- `berth run --as NAME` with no command runs the `start` of NAME's entry in `berth.toml`, as the gateway does, so
-  a configured engine no longer needs its command typed again. An entry matched only through `--group` never lends
-  its `start`, because that is the group's engine (llama-swap), not this one. azrael-229 asked for it (#232).
-- `[squatters] allow` in `berth.toml` lists process names that are never squatters, as `berth daemon --allow`
-  does. A unit or scheduled task from `berth service install` had no way to pass `--allow`, so on a desktop a
-  browser or a terminal kept the card from ever being free and background engines never started. The flag still
-  replaces the list when given (#172).
-- One lease across several cards: `berth run --gpu gpu0,gpu1`, or `gpu = "gpu0,gpu1"` on an engine entry. berthd
-  grants the lease on every named card at once, only when each one fits, and holds no card while it waits for
-  another. The engine starts with `CUDA_VISIBLE_DEVICES` listing the cards' UUIDs in the order named, and its
-  memory on those cards counts as the lease's instead of showing as stowaways. A drain on any card stops the engine,
-  its exit frees every card, and a berthd restart re-attaches it to all of them under the same lease. A lease on
-  several cards cannot park or lend yet (#189).
-- An engine runs on the card it names: `berth run --gpu gpu1`, or `gpu = "gpu1"` on its `[[engine]]` entry (a
-  PCI address works too). The lease goes to that card and stays there across a berthd restart. The engine starts
-  with `CUDA_VISIBLE_DEVICES` set to the card's UUID, which berthd reads from `nvidia-smi` at startup, unless the
-  environment already sets it. A gateway start passes the entry's card on. A run that names no card goes to the
-  first card and its environment is left alone, so an engine split across two cards keeps both.
-- One berthd can govern several cards (experimental). `berth daemon --gpu all` opens every card it finds, and
-  `--gpu` also takes a comma list of indices and NVIDIA PCI addresses (`--gpu 0,0000:41:00.0`). Each card keeps its
-  own leases, queue, drains and parks, so a foreground request on gpu0 never drains a holder on gpu1. The cards share
-  one event log, one set of lease IDs and one park budget. A card is named `gpu` plus its index, or by its address
-  when it is in a VM at startup. A running game holds every card, because Berth can't tell which card it will use.
-  Alerts read the hottest and fullest card and name it. `berth status` adds a CARD column to the lease, waiting and
-  stowaway tables when there is more than one card. The first card keeps the plain state files, and each other card
-  writes its own (`usage.gpu1.json`).
-- berthd runs its card as part of a node, the groundwork for one berthd governing every card on a machine. The
-  status JSON names each GPU, lease, waiter and stowaway's card (`card`), every event names the card it happened
-  on, and a client may name its card when it asks for one (`card` on the socket); a request that names none goes to
-  the first card, as before. The node keeps one event sequence and one set of lease IDs for the machine. Nothing
-  changes yet for a berthd with one card.
-- `berth run` warns when a container it names on a lease has restart policy `always`, with `--container` or
-  `--compose`. Docker restarts such a container when its daemon starts, even after a drain stopped it, so it comes
-  back on the card without a lease after a reboot. docs/engines.md says which policy fits (#172).
-- Pre-releases for testers. Work for the next release lands on the `next` branch and is tagged `vX.Y.Z-rc.N`, which
-  publishes as a GitHub pre-release. The README's download link, `go install ...@latest` and `berth update` stay on
-  the latest release. [Testing a pre-release](docs/prerelease.md) covers installing one and going back.
-- `berth config check` warns when `[park]` turns eviction off: `floor_gib = 0` means Berth never stops a parked
-  engine when RAM runs low, and a `pressure` of 100 or more is past anything `/proc/pressure/memory` reports.
-  `--strict` fails on both (#193).
-- Engines with no offload call of their own (llama.cpp, NInfer, any llama-swap model) park in RAM through NVIDIA's
-  `cuda-checkpoint`: `berth run --park checkpoint --front 127.0.0.1:${PORT}` with `--port {{BERTH_PORT}}` in the
-  engine's command. The front takes the requests llama-swap sends, waits for the ones in flight before the
-  checkpoint, holds new ones while the engine sleeps, and asks berthd for the card on the first, so no request
-  hangs on a checkpointed engine. A 23.1 GB NInfer comes back in 3.3 s instead of a 14 s reload. `park =
-  "checkpoint"` on an engine entry is refused: a front is one run's address. docs/design.md is the model this and
-  the coming lends, multi-card leases and networked nodes follow.
-- Experimental: an engine that can shrink a cache lends part of its card to a sized waiter instead of being drained for it:
-  `lend = "hook"` on the entry, with `lend_url` for an engine that serves the lend routes
-  ([contrib/LEND-PROTOCOL.md](contrib/LEND-PROTOCOL.md)), and Strata's `/v1/vram` built in. The holder keeps
-  serving while the borrower builds beside it. Berth grants the borrower only once a card read taken after the
-  engine answered shows the memory free, and the lend stops counting against the holder at that read, never at
-  the engine's word. The holder is asked for its memory back once the borrower's is measured gone, and only when
-  the card has room for it again. A lend the engine refuses, or one the card has not confirmed within
-  `--release-grace` (30 s), falls through to the park or drain that would have run anyway. Nothing is asked of a
-  run that did not declare lend calls, of a pinned holder or a hold, or on an APU. This is the broker's decision
-  and the wrapper's calls, and the wrapper keeps the ledger of what its run has lent. A lend the engine did not
-  answer in time (its `503`) is treated as refused for that waiter, and the wrapper reads the engine's ledger
-  (`GET /vram/state`) for 30 s in case it lands, then asks for that memory back at once. After a
-  berthd restart the run re-attaches naming its open lend, so the new daemon counts the holder's budget less the
-  lend and asks for the take-back once the card has room, instead of blocking waiters behind memory that is gone.
-  `lease.lending`, `lease.lent`, `lease.returned` and `lease.lend_failed` name it on the event stream, and
-  docs/gateway.md's Lending section states the rules.
-- A Docker Compose project can run as one engine: `compose = "/abs/path/compose.yml"` on an entry, or
-  `berth run --compose PATH`. The lease covers every container in the project, found with
-  `docker compose -f PATH ps -q --all` on every poll (podman when docker does not answer), so a container that
-  restarts under a new ID comes back to the lease. A drain runs `compose stop -t <grace>`, never `down`, which would
-  delete containers and networks you own. The start command stays yours, and `docker compose -f PATH up` fits.
-  `berth config check` refuses `compose` together with `container`, and a relative path.
-  Container engines now work on Windows too, where `--container` was accepted and ignored. WSL2 reports no
-  per-container VRAM. So while one container engine is the only one on the card, Berth charges it the WSL VM's
-  measured GPU row whenever that row is larger than its `needs_mib`. With two container engines Berth cannot split
-  the row, so each counts its `needs_mib` and the row stays a stowaway, counted once. Size `needs_mib` from your
-  heaviest run. One operator's photo tagger measured 2.1 GiB on a small scan and 6.7 GiB on its biggest (#172).
-  In `berth status --format json` and the harbor, a lease's `container` and `container_name` are replaced by
-  `containers`, a list of full container IDs. A `berth run` started before an upgrade still attaches its container.
 
 ## [v0.3.6] - 2026-10-23
 
