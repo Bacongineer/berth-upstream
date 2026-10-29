@@ -21,9 +21,12 @@
 - **Children stay on the lease.** On Linux with a systemd user manager, `berth run`
   gives the engine its own cgroup scope, which every child inherits on fork: a child
   that escapes its process group and reparents keeps the lease stuck under its own
-  name instead of turning into a stowaway. Without a user manager, and on Windows,
-  Berth records every descendant of the wrapper each tick, which covers everything
-  except a fork whose parent exits inside one tick.
+  name instead of turning into a stowaway. Without a user manager, Berth records every
+  descendant of the wrapper each tick, which covers everything except a fork whose
+  parent exits inside one tick. On Windows, a child keeps its parent's PID after the
+  parent exits, so Berth follows each GPU process's parent chain from a process
+  snapshot it refreshes every second, and the job object `berth run` puts the engine
+  in carries every process it starts, so a drain stops them all.
 - **Whole-card or sized leases.** `--needs-mib N` lets engines that fit share a card.
 - **Fail-open, never silent.** If the daemon is down, `berth run` still starts the engine
   but records it as an *unprotected run* that status shows (`--fail-closed` refuses).

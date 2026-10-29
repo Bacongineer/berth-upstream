@@ -59,6 +59,17 @@ berth version
 
 Or build it: `go install github.com/T-Crypt/berth/cmd/berth@latest` (Go 1.27+, no C toolchain).
 
+On Windows 10 or 11, download `berth-windows-amd64.exe` and `SHA256SUMS` from the same release.
+Compare the hash PowerShell prints with the line in `SHA256SUMS`, then save the file as `berth.exe`
+in a folder on your `PATH`, such as `%LOCALAPPDATA%\Programs\berth`:
+
+```powershell
+(Get-FileHash .\berth-windows-amd64.exe -Algorithm SHA256).Hash.ToLower()
+```
+
+To update later, run `berth update`, then `berth service install` again so the tasks start the new
+binary.
+
 **2. The daemon and the UI** (one per machine). `berth service
 install --harbor` does this on both platforms; by hand, on Linux, they are
 systemd user units from `contrib/`:
@@ -71,6 +82,10 @@ systemctl --user enable --now berthd berth-harbor
 berth status            # the card, leases, stowaways, the engines and their estimated VRAM
 ```
 
+On Windows, `berth service install --harbor` creates Task Scheduler logon tasks under `\Berth\`
+that run in your session without admin rights, and starts them. Each task writes its log under the
+state directory, and `berth service status` prints where.
+
 Open <http://127.0.0.1:9798/>. Engines on their default ports appear on their own.
 
 **3. Wrap your engines** so they lease the card instead of grabbing it. The pattern:
@@ -82,8 +97,10 @@ berth run --as <name> --priority <batch|interactive|foreground> -- <the engine's
 Per-engine recipes (llama-swap, llama.cpp, Ollama, ComfyUI, vLLM, SGLang, custom) are in
 [contrib/INTEGRATION.md](https://github.com/T-Crypt/berth/blob/main/contrib/INTEGRATION.md).
 
-**4. Optional configuration** in `~/.config/berth/berth.toml`; validate with
-`berth config check`:
+**4. Optional configuration** in `~/.config/berth/berth.toml` (on Windows,
+`%AppData%\berth\berth.toml`); validate with `berth config check`. On Windows, berthd's
+socket is `%LOCALAPPDATA%\berth\berth.sock`, and its state files and service logs are under
+`%USERPROFILE%\.local\state\berth`.
 
 ```toml
 [metrics]
