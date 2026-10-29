@@ -380,11 +380,15 @@ func Run(o Options) int {
 
 	err = cmd.Wait()
 	afterWait(cmd)
-	close(done)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil // exited cleanly; a grandchild still held the output copy
 	}
-	return exitCode(cmd, err)
+	code := exitCode(cmd, err)
+	if code == 0 {
+		_ = line.send(proto.Msg{Op: proto.OpFinished})
+	}
+	close(done)
+	return code
 }
 
 // listen hears the daemon until the connection drops, passing each
