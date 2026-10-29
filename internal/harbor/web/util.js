@@ -53,13 +53,38 @@ export function fmtNum(n) {
   if (Math.abs(n) >= 10000) return (n / 1000).toFixed(1) + "k";
   return String(Math.round(n));
 }
-// v0 schedules whole cards on one berthd, so the berth label comes from the
-// scheduled GPUs the status reports.
+// The berth label comes from the scheduled GPUs the status reports. Past
+// three cards a joined list stops fitting, so it gives the count.
 export function berthLabel(status) {
   if (!status || !Array.isArray(status.gpus)) return "";
   const sched = status.gpus.filter((g) => g.scheduled);
   if (sched.length === 0) return "no card scheduled";
+  if (sched.length > 3) return sched.length + " cards";
   return sched.map((g) => "gpu" + g.index).join("+");
+}
+// cardTag names the card a lease, waiting row or squatter sits on, but only
+// when the node schedules more than one: a single card needs no tag.
+export function cardTag(status, card) {
+  const n = ((status && status.gpus) || []).filter((g) => g.scheduled).length;
+  return n > 1 && card ? card : "";
+}
+// leaseGpu is the GPU a lease sits on. A lease with no card (an older berthd)
+// gets the first scheduled card.
+export function leaseGpu(status, card) {
+  const gpus = (status && status.gpus) || [];
+  return (card && gpus.find((g) => g.card === card)) || gpus.find((g) => g.scheduled) || null;
+}
+// tideCapacity is what the memory history is drawn against: the scheduled
+// cards' totals and baselines in bytes, summed, because the holders are
+// summed over every card. title is "gpu0" for one card, "N cards" for more.
+export function tideCapacity(status) {
+  const sched = ((status && status.gpus) || []).filter((g) => g.scheduled);
+  if (sched.length === 0) return null;
+  return {
+    total: sched.reduce((a, g) => a + (g.total || 0), 0),
+    baseline: sched.reduce((a, g) => a + (g.baseline || 0), 0),
+    title: sched.length === 1 ? "gpu" + sched[0].index : sched.length + " cards",
+  };
 }
 // proto Priority -> ticket class
 export function classWord(priority) {

@@ -37,6 +37,9 @@ has a matching GitHub release whose body comes from its section below.
   it is parked, so the SIGTERM from llama-swap's unload or ttl could never end it. llama-swap then killed `berth run`,
   the lease freed, and the engine stayed alive holding its weights in RAM (35 GB for NInfer 27B). A stop signal,
   `berth stop` or an eviction now kills a parked checkpointed engine at once.
+- On a machine with several cards the harbor draws the memory history against the sum of the scheduled cards,
+  names the card on each board row and stowaway, and puts the lease ticket on its own card. Hidden tabs no
+  longer run the header clock or poll for updates.
 - On Windows, `berth service uninstall` stops the running berthd, harbor and gateway before it deletes their tasks,
   and `berth service install` over an existing install stops each task before it starts it again. A second
   `berth update` no longer fails when the previous `.old` binary is still running.
