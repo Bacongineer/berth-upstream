@@ -130,6 +130,9 @@ type Options struct {
 	// run that declares it is ever asked to give part of the card to a waiter
 	// or to take it back.
 	Lend *lend.Adapter
+	// WholeMachine is the entry's whole_machine: berthd stops what this
+	// run drains rather than parking it, and grants nothing parked beside it.
+	WholeMachine bool
 	// front is the open front, set by Run.
 	front *front.Front
 	// Container is the one container the engine runs in (berth run
@@ -211,7 +214,7 @@ func Run(o Options) int {
 	}
 	defer raw.Close()
 
-	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
+	if err := conn.Send(proto.Msg{Op: proto.OpAcquire, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority, Needs: o.Needs, Wait: o.Wait.Seconds(), Pinned: o.Pinned, Switched: o.Switched, Lend: o.Lend != nil, WholeMachine: o.WholeMachine, MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds()}); err != nil {
 		say("acquire: %v", err)
 		return ExitRefused
 	}
@@ -443,7 +446,7 @@ func reattach(o Options, cmd *exec.Cmd, done <-chan struct{}, cid *containerRef,
 // waiters behind memory that is already gone.
 func reattachMsg(o Options, pid int, start uint64, cid *containerRef, parked bool, line *leaseLine) proto.Msg {
 	m := proto.Msg{Op: proto.OpReattach, Card: o.Card, Engine: o.Engine, Group: o.Group, Priority: o.Priority,
-		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil,
+		Needs: o.Needs, Pinned: o.Pinned, Lend: o.Lend != nil, WholeMachine: o.WholeMachine,
 		MinTurn: o.MinTurn.Seconds(), ParkTTL: o.ParkTTL.Seconds(),
 		PID: pid, PIDStart: start, Containers: cid.list(), Parked: parked}
 	if t, ok := line.openLend(); ok {

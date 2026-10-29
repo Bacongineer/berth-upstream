@@ -340,6 +340,8 @@ type lease struct {
 	// lendCap is the run's declaration that its engine has lend calls
 	// (Request.Lend); the broker never asks a lease that did not declare it.
 	lendCap bool
+	// wholeMachine is Request.WholeMachine.
+	wholeMachine bool
 
 	grantCh  chan struct{}
 	resumeCh chan struct{}
@@ -396,25 +398,26 @@ func (l *lease) turnWhy(now time.Time) string {
 // queues and Reattach grants at once.
 func newLease(id string, r Request, now time.Time) *lease {
 	return &lease{
-		id:        id,
-		engine:    r.Engine,
-		group:     r.Group,
-		prio:      r.Priority,
-		needs:     r.Needs,
-		pinned:    r.Pinned,
-		switched:  r.Switched,
-		minTurn:   r.MinTurn,
-		parkTTL:   r.ParkTTL,
-		lendCap:   r.Lend,
-		gpu:       map[ident]gpu.Proc{},
-		desc:      map[ident]struct{}{},
-		arrived:   now,
-		grantCh:   make(chan struct{}),
-		resumeCh:  make(chan struct{}, 1),
-		drainCh:   make(chan string, 1),
-		waitCh:    make(chan string, 8),
-		lendSig:   make(chan struct{}, 1),
-		returnSig: make(chan struct{}, 1),
+		id:           id,
+		engine:       r.Engine,
+		group:        r.Group,
+		prio:         r.Priority,
+		needs:        r.Needs,
+		pinned:       r.Pinned,
+		switched:     r.Switched,
+		minTurn:      r.MinTurn,
+		parkTTL:      r.ParkTTL,
+		lendCap:      r.Lend,
+		wholeMachine: r.WholeMachine,
+		gpu:          map[ident]gpu.Proc{},
+		desc:         map[ident]struct{}{},
+		arrived:      now,
+		grantCh:      make(chan struct{}),
+		resumeCh:     make(chan struct{}, 1),
+		drainCh:      make(chan string, 1),
+		waitCh:       make(chan string, 8),
+		lendSig:      make(chan struct{}, 1),
+		returnSig:    make(chan struct{}, 1),
 	}
 }
 
@@ -1433,12 +1436,13 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 		// A parked engine's residual is small enough to build a load
 		// beside: when the parked leases together keep no more than
 		// ParkResidualMax on the card, the whole card is granted beside
-		// them, and the grant event names what it sits next to.
+		// them, and the grant event names what it sits next to. A
+		// whole-machine waiter evicts them all instead.
 		var residual uint64
 		for _, p := range warm {
 			residual += p.used()
 		}
-		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax {
+		if len(warm) > 0 && residual <= b.cfg.ParkResidualMax && !w.wholeMachine {
 			w.beside = besideLine(warm, residual)
 			return true, "", nil
 		}
@@ -1448,7 +1452,7 @@ func (b *Broker) evaluate(w *lease, now time.Time) (bool, string, []*lease) {
 			var victims []*lease
 			var evicted uint64
 			for _, p := range sortParked(warm) {
-				if residual-evicted <= b.cfg.ParkResidualMax {
+				if residual-evicted <= b.cfg.ParkResidualMax && !w.wholeMachine {
 					break
 				}
 				victims = append(victims, p)
