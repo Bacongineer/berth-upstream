@@ -4,7 +4,7 @@
 import {
   $, el, fmtGiB, fmtMiB, fmtAge, fmtClock, fmtDate, fmtClockShort, pad,
   isNA, na, fmtPct, fmtMS, fmtTok, fmtBytes, fmtDayShort,
-  kindWord, kindGroup, kindCss, berthLabel, cardTag, tideCapacity, kindSi, siEl,
+  kindWord, kindGroup, kindCss, berthLabel, cardTag, leaseCardLine, tideCapacity, kindSi, siEl,
 } from "./util.js";
 import { Board } from "./board.js";
 import { PriorityView } from "./priority.js";
@@ -1868,7 +1868,10 @@ function updateBerth(card, g, s) {
       }
       const cls = "occ" + (l.state === "stuck" ? " stuck" : l.state === "parked" ? " warm" : "");
       const sits = l.group === "vfio" ? "in the VM" : l.state === "parked" ? ram.trim() : l.used > 0 ? fmtGiB(l.used) + " GiB" : "draining";
-      card.occ.append(el("div", cls, el("span", "who", tier + " " + l.engine + " " + (l.id || "")), el("span", null, sits)));
+      const serves = leaseCardLine(s, l);
+      const what = serves.model === l.engine ? l.engine : l.engine + " " + serves.model;
+      const also = serves.cards ? " on " + serves.cards : "";
+      card.occ.append(el("div", cls, el("span", "who", tier + " " + what + also + " " + (l.id || "")), el("span", null, sits)));
     }
     for (const q of (s.squatters || []).filter(onCard)) card.occ.append(el("div", "occ squatter", el("span", "who", "STOWAWAY " + q.name), el("span", null, fmtGiB(q.used) + " GiB")));
     if (card.occ.childElementCount === 0) card.occ.append(el("div", "occ", el("span", "who", "all berths free")));

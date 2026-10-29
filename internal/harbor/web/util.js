@@ -74,6 +74,31 @@ export function leaseGpu(status, card) {
   const gpus = (status && status.gpus) || [];
   return (card && gpus.find((g) => g.card === card)) || gpus.find((g) => g.scheduled) || null;
 }
+// cardRange names a lease's cards: "gpu0..gpu4" when they are consecutive,
+// else a comma list in index order.
+export function cardRange(cards) {
+  const idx = cards.map((c) => /^gpu(\d+)$/.exec(c));
+  if (idx.length < 2 || idx.some((m) => !m)) return cards.join(",");
+  const n = idx.map((m) => Number(m[1])).sort((a, b) => a - b);
+  const sorted = n.map((i) => "gpu" + i);
+  return n.every((v, i) => i === 0 || v === n[i - 1] + 1) ? sorted[0] + ".." + sorted[n.length - 1] : sorted.join(",");
+}
+// leaseCardLine is what a lease serves: the models its engine reports loaded
+// or ready, or the engine name when it reports none. A llama-swap model's
+// lease already is the model. cards lists the lease's cards when it sits on
+// more than one (a lease on several cards is one share per card, one id).
+export function leaseCardLine(status, lease) {
+  let model = lease.engine;
+  if (!lease.group) {
+    const eng = ((status && status.engines) || []).find((e) => e.name === lease.engine);
+    const up = ((eng && eng.models) || []).filter((m) => m.state === "loaded" || m.state === "ready").map((m) => m.name);
+    if (up.length > 0) model = up.join(", ");
+  }
+  const cards = lease.id
+    ? ((status && status.leases) || []).filter((l) => l.id === lease.id && l.card).map((l) => l.card)
+    : [];
+  return { model, cards: cards.length > 1 ? cardRange(cards) : "" };
+}
 // tideCapacity is what the memory history is drawn against: the scheduled
 // cards' totals and baselines in bytes, summed, because the holders are
 // summed over every card. title is "gpu0" for one card, "N cards" for more.

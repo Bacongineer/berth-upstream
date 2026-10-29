@@ -8,6 +8,9 @@ has a matching GitHub release whose body comes from its section below.
 
 ### Added
 
+- The harbor names the model each lease serves on its card's panel: the model its engine reports loaded or ready, or
+  the engine name when it reports none. A lease on several cards shows on each with its card list (`on gpu0..gpu4`
+  when the cards are consecutive, else `on gpu0,gpu2`). A card with one lease reads as before plus the model name.
 - `whole_machine = true` on an engine entry is for engines that need the card, the RAM, the CPU and the disk to
   themselves, such as Strata. While one waits, berthd stops the engine it drains instead of parking it, and evicts
   any parked engine before the grant. A Strata started beside a parked ComfyUI lost the 0.5 GiB its CUDA context
