@@ -180,6 +180,13 @@ func (b *Broker) Park(id string) (bool, string) {
 		b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Detail: why})
 		return false, why
 	}
+	for _, w := range b.queue {
+		if w.wholeMachine {
+			why := "park refused: " + w.engine + " needs the whole machine"
+			b.emit(proto.Event{Kind: proto.EvParkRefused, Lease: id, Engine: l.engine, Detail: why})
+			return false, why
+		}
+	}
 	if b.footprintOf(l) == 0 {
 		// Nothing was ever measured: there is nothing to hold in RAM,
 		// and nothing worth parking.

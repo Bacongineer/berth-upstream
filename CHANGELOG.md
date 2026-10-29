@@ -6,6 +6,14 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+### Added
+
+- `whole_machine = true` on an engine entry is for engines that need the card, the RAM, the CPU and the disk to
+  themselves, such as Strata. While one waits, berthd stops the engine it drains instead of parking it, and evicts
+  any parked engine before the grant. A Strata started beside a parked ComfyUI lost the 0.5 GiB its CUDA context
+  kept on the card, and one started beside a checkpoint-parked NInfer found 20 GiB of RAM free for its 40 GiB of
+  experts.
+
 ### Changed
 
 - The harbor's page files carry an ETag for the build and `Cache-Control: no-cache`, so a reload answers 304 and
