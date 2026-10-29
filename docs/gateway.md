@@ -167,8 +167,8 @@ that left are dropped. Restarting during a cold start (up to 85 s for Strata) co
 restart itself.
 
 **Stopping the gateway keeps its engines too.** Each engine runs outside the gateway's cgroup (above),
-so stopping the gateway service does not stop the engines: they stay on the card under their own leases
-and keep answering. `berth stop ENGINE` is how one is stopped on purpose, parked or parking engines included: the daemon asks the engine's
+so stopping the gateway service does not stop the engines. They stay on the card under their own leases
+and keep answering. `berth stop ENGINE` is how one is stopped on purpose, a parked or parking engine too. The daemon asks the engine's
 leases to give the card back through the normal stop ladder, as when another engine asks for it, and a
 lease frees only after a card read shows the engine's memory gone. `berth stop ENGINE --wait` follows
 the daemon's event log until the leases are freed (exit 0) or stuck (exit 2, pointing at `berth reclaim`

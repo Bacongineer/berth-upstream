@@ -231,7 +231,7 @@ whole_machine = true      # berthd stops what it drains and evicts parked engine
 ## Everything else
 
 TabbyAPI, LocalAI, LM Studio, Unsloth Studio, FreeToken and any OpenAI-compatible server lease the same
-way: wrap the command that starts them. Their readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`,
+way. Wrap the command that starts them. Their readers are `tabbyapi`, `localai`, `lmstudio`, `unsloth`,
 `freetoken` and `openai`.
 
 An engine with no reader of its own uses `type = "custom"`, with any of:
