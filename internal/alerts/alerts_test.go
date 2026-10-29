@@ -16,14 +16,15 @@ type change struct {
 	level  Level
 	raised bool
 	msg    string
+	card   string
 }
 
 type recorder struct {
 	changes []change
 }
 
-func (r *recorder) on(key Key, level Level, raised bool, msg string) {
-	r.changes = append(r.changes, change{key: key, level: level, raised: raised, msg: msg})
+func (r *recorder) on(key Key, level Level, raised bool, msg, card string) {
+	r.changes = append(r.changes, change{key: key, level: level, raised: raised, msg: msg, card: card})
 }
 
 func (r *recorder) raised() int {
@@ -119,10 +120,10 @@ func TestEscalation(t *testing.T) {
 		ev.Tick(one(KeyTemp, 9)) // target ok < warn
 	}
 	want := []change{
-		{KeyTemp, LevelWarn, true, "temp 15°C (warn at 10°C)"},
-		{KeyTemp, LevelCrit, true, "temp 21°C (crit at 20°C)"},
-		{KeyTemp, LevelWarn, false, "temp 15°C (warn at 10°C)"},
-		{KeyTemp, LevelOK, false, "temp 9°C (warn at 10°C)"},
+		{KeyTemp, LevelWarn, true, "temp 15°C (warn at 10°C)", ""},
+		{KeyTemp, LevelCrit, true, "temp 21°C (crit at 20°C)", ""},
+		{KeyTemp, LevelWarn, false, "temp 15°C (warn at 10°C)", ""},
+		{KeyTemp, LevelOK, false, "temp 9°C (warn at 10°C)", ""},
 	}
 	if len(rec.changes) != len(want) {
 		t.Fatalf("got %d changes, want %d: %+v", len(rec.changes), len(want), rec.changes)
@@ -309,6 +310,9 @@ func TestFromStatusWorstCard(t *testing.T) {
 		t.Fatalf("V = %v", r.V)
 	}
 	for _, k := range []Key{KeyTemp, KeyVRAM, KeyPower} {
+		if r.Card[k] != "gpu1" {
+			t.Errorf("Card[%q] = %q, want gpu1", k, r.Card[k])
+		}
 		if r.Note[k] != "gpu1" {
 			t.Errorf("Note[%q] = %q, want gpu1", k, r.Note[k])
 		}
@@ -318,5 +322,7 @@ func TestFromStatusWorstCard(t *testing.T) {
 	}
 	if r := FromStatus(proto.Status{GPUs: st.GPUs[1:]}); r.Note[KeyTemp] != "" {
 		t.Errorf("one card: Note[temp] = %q, want none, so one-card messages stay as they were", r.Note[KeyTemp])
+	} else if r.Card[KeyTemp] != "gpu1" {
+		t.Errorf("one card: Card[temp] = %q, want gpu1", r.Card[KeyTemp])
 	}
 }
