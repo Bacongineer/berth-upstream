@@ -221,6 +221,10 @@ type Request struct {
 	// lend = "hook"), so this lease is asked to give part of the card to a
 	// sized waiter that does not fit, instead of being drained for one.
 	Lend bool
+	// WholeMachine: the engine needs the machine to itself (its entry says
+	// whole_machine = true). Nothing parks while it waits, and it is never
+	// granted beside a parked engine.
+	WholeMachine bool
 	// LendID and LentBytes: a re-attach of a holder the last daemon had
 	// confirmed a lend for. The lease comes back `lent` with that ticket
 	// and those bytes, counting its budget less the lend until the card
