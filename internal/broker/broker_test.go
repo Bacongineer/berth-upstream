@@ -73,7 +73,7 @@ type reports struct {
 	seen []string
 }
 
-func (r *reports) Squatter(appeared bool, p gpu.Proc) {
+func (r *reports) Squatter(appeared bool, card string, p gpu.Proc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	verb := "gone"
@@ -83,7 +83,7 @@ func (r *reports) Squatter(appeared bool, p gpu.Proc) {
 	r.seen = append(r.seen, verb+":"+p.Name)
 }
 
-func (r *reports) Alert(level, key, message string) {
+func (r *reports) Alert(level, key, message, card string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seen = append(r.seen, "alert:"+level+":"+key)

@@ -584,6 +584,29 @@ pressure  = 10         # PSI "some avg10" that stops one parked copy (default 10
   the ttl longer than the time you spend in the other engine. A missing
   `cuda-checkpoint` leaves the drain as it was, with a warning.
 
+## Engines that need the whole machine
+
+Some engines use more than the card. Strata fills the card and pins 40 GiB of RAM for its experts, and it
+reads the rest from the disk. A parked engine beside it takes from both. A parked ComfyUI keeps a CUDA
+context of about 530 MiB on the card, so Strata's expert cache comes out that much smaller. A parked NInfer
+keeps 22 GiB or more in RAM, which leaves Strata's 40 GiB to swap.
+
+Mark such an engine `whole_machine`:
+
+```toml
+[[engine]]
+name          = "strata"
+type          = "strata"
+url           = "http://127.0.0.1:8080"
+whole_machine = true
+```
+
+- **What it changes.** While the engine waits for its card, berthd refuses every park on that card. The
+  engine it drains is stopped instead, and a parked engine is evicted before the grant, whatever its
+  residual. When the engine starts, nothing else holds the card or a RAM copy.
+- **What it leaves alone.** Engines that switch among themselves (llama-swap, Ollama, ComfyUI) still park
+  beside each other. Only a switch to the whole-machine engine stops them.
+
 ## Lending part of a card
 
 A sized engine that does not fit beside a serving holder waits for that holder to

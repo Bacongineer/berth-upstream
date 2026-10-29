@@ -19,13 +19,14 @@ func TestOptionsFor(t *testing.T) {
 		Start: []string{"python", "serve.py"}, DrainPost: "http://127.0.0.1:1/unload",
 		DrainSlots: "http://127.0.0.1:2", DrainComfyUI: "http://127.0.0.1:3",
 		DrainMax: config.Duration{Duration: time.Minute}, MinTurn: config.Duration{Duration: 5 * time.Minute},
-		ParkTTL: config.Duration{Duration: 10 * time.Minute}}
+		ParkTTL: config.Duration{Duration: 10 * time.Minute}, WholeMachine: true}
 
 	o := OptionsFor(e, Over{Socket: "s", Group: "strata", Wait: 10 * time.Second, Argv: []string{"true"}})
 	want := Options{
 		Socket: "s", Engine: "strata", Group: "strata", Priority: "foreground", Needs: 8192 << 20,
 		Wait: 10 * time.Second, Grace: 30 * time.Second, DrainPost: e.DrainPost, DrainSlots: e.DrainSlots,
 		DrainComfyUI: e.DrainComfyUI, DrainMax: e.DrainMax.Duration, MinTurn: 5 * time.Minute, ParkTTL: 10 * time.Minute, Argv: []string{"true"},
+		WholeMachine: true,
 	}
 	if !reflect.DeepEqual(o, want) {
 		t.Errorf("entry settings = %+v, want %+v", o, want)
