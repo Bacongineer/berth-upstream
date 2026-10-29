@@ -27,6 +27,9 @@ func isolate(cmd *exec.Cmd) {
 // afterStart has nothing to do: the process group was set at start.
 func afterStart(*exec.Cmd) {}
 
+// afterWait has nothing to do: the process group needs no handle.
+func afterWait(*exec.Cmd) {}
+
 // scopeToChild starts the engine in its own transient scope, so the
 // lease can name every process under it by cgroup even when one escapes
 // the process tree (chaos scenario 3: a child that forks and whose

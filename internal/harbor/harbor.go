@@ -9,7 +9,9 @@ package harbor
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,7 +110,7 @@ func listenMode(addr string) (string, error) {
 func (h *Harbor) Handler() http.Handler {
 	web, _ := fs.Sub(webFS, "web")
 	mux := http.NewServeMux()
-	mux.Handle("GET /", http.FileServerFS(web))
+	mux.Handle("GET /", static(web))
 	mux.HandleFunc("GET /v1/status", h.status)
 	mux.HandleFunc("GET /v1/events", h.events)
 	mux.HandleFunc("GET /v1/history", h.history)
@@ -123,6 +125,29 @@ func (h *Harbor) Handler() http.Handler {
 	mux.HandleFunc("GET /pair", h.pairShow)
 	mux.HandleFunc("POST /pair", h.pairRedeem)
 	return h.guard(mux)
+}
+
+// static serves the page's files with one ETag for the build, a hash of
+// every embedded file, and asks the browser to revalidate on each load. The
+// embedded files carry no modification time, so without it every reload
+// sent the whole page again; with it a reload of the same build is a 304.
+func static(web fs.FS) http.Handler {
+	h := sha256.New()
+	_ = fs.WalkDir(web, ".", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := fs.ReadFile(web, path)
+			h.Write([]byte(path))
+			h.Write(b)
+		}
+		return nil
+	})
+	tag := `"` + hex.EncodeToString(h.Sum(nil)[:12]) + `"`
+	files := http.FileServerFS(web)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", tag)
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	})
 }
 
 // guard is the browser boundary: GET only, and the page may load nothing

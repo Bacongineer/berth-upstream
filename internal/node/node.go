@@ -124,7 +124,26 @@ func View(st *proto.Status, key string) *proto.Status {
 	v.Leases = slices.DeleteFunc(slices.Clone(st.Leases), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Waiting = slices.DeleteFunc(slices.Clone(st.Waiting), func(l proto.Lease) bool { return !on(l.Card) })
 	v.Squatters = slices.DeleteFunc(slices.Clone(st.Squatters), func(s proto.Squatter) bool { return !on(s.Card) })
+	v.Passthrough = inVM(v.GPUs)
 	return &v
+}
+
+// inVM is the first scheduled card's VM state when every scheduled card in
+// gpus is in a VM, nil while one of them serves.
+func inVM(gpus []proto.GPU) *proto.Passthrough {
+	var first *proto.Passthrough
+	for _, g := range gpus {
+		if !g.Scheduled {
+			continue
+		}
+		if g.Passthrough == nil {
+			return nil
+		}
+		if first == nil {
+			first = g.Passthrough
+		}
+	}
+	return first
 }
 
 // cardsOf is the names of the cards key picks in a node's status: "" is
@@ -304,15 +323,15 @@ func (n *Node) Status() proto.Status {
 				st.Footprints = append(st.Footprints, f)
 			}
 		}
+		st.Claims = mergeClaims(st.Claims, cs.Claims)
+		st.Priority = mergePriority(st.Priority, cs.Priority)
 		st.Counters = add(st.Counters, cs.Counters)
 		st.ParkedBytes += cs.ParkedBytes
 		if cs.ProbeErr != "" {
 			probeErrs = append(probeErrs, n.cards[i+1].Name+": "+cs.ProbeErr)
 		}
-		if st.Passthrough == nil {
-			st.Passthrough = cs.Passthrough
-		}
 	}
+	st.Passthrough = inVM(st.GPUs)
 	st.ProbeErr = strings.Join(probeErrs, "; ")
 	st.LastEvent = n.Events.Last()
 	return st
@@ -323,6 +342,7 @@ func named(st *proto.Status, c *Card) {
 	for i := range st.GPUs {
 		if st.GPUs[i].Scheduled {
 			st.GPUs[i].Card, st.GPUs[i].Addr = c.Name, c.Addr
+			st.GPUs[i].Passthrough = st.Passthrough
 		}
 	}
 	for _, ls := range []([]proto.Lease){st.Leases, st.Waiting} {
@@ -333,6 +353,55 @@ func named(st *proto.Status, c *Card) {
 	for i := range st.Squatters {
 		st.Squatters[i].Card = c.Name
 	}
+	for i, cl := range st.Claims {
+		if cl.Active || cl.Used > 0 || cl.GTTUsed > 0 {
+			st.Claims[i].Cards = []string{c.Name}
+		}
+	}
+}
+
+// mergeClaims adds another card's claim states to a: memory is summed, a
+// claim is active if it is on any card, and its cards are the union.
+func mergeClaims(a, b []proto.Claim) []proto.Claim {
+	a = slices.Clone(a)
+	for _, cl := range b {
+		i := slices.IndexFunc(a, func(x proto.Claim) bool { return x.Name == cl.Name })
+		if i < 0 {
+			a = append(a, cl)
+			continue
+		}
+		a[i].Active = a[i].Active || cl.Active
+		a[i].Used += cl.Used
+		a[i].GTTUsed += cl.GTTUsed
+		a[i].Cards = append(slices.Clone(a[i].Cards), cl.Cards...)
+		if a[i].Lease == "" {
+			a[i].Lease = cl.Lease
+		}
+	}
+	return a
+}
+
+// mergePriority sums each engine's 7 day hours over the cards. The engines
+// keep the first card's order; one only another card has goes last.
+func mergePriority(a, b *proto.PriorityStatus) *proto.PriorityStatus {
+	if a == nil || b == nil {
+		if a == nil {
+			return b
+		}
+		return a
+	}
+	m := *a
+	m.Engines = slices.Clone(a.Engines)
+	for _, e := range b.Engines {
+		i := slices.IndexFunc(m.Engines, func(x proto.EngineRank) bool { return x.Engine == e.Engine })
+		if i < 0 {
+			e.Rank = len(m.Engines) + 1
+			m.Engines = append(m.Engines, e)
+			continue
+		}
+		m.Engines[i].Hours7d += e.Hours7d
+	}
+	return &m
 }
 
 // add is the board's counters of two cards together.
