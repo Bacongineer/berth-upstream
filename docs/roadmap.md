@@ -61,9 +61,9 @@ desktop notifications on Linux, `berth skill install` adds a ComfyUI skill, and 
 the card is free ([#172](https://github.com/T-Crypt/berth/issues/172)). [Swap numbers](benchmarks.md#swap-numbers)
 now has page cache, park and `cuda-checkpoint` timings from the RTX 4090.
 
-## Shipped: v0.4, many cards and parks for any engine
+## Shipped: v0.4, many cards and parks for any engine (2026-10-29)
 
-v0.4 puts a whole machine under one berthd, first as pre-releases (`v0.4.0-rc.1` to `rc.7`, see
+v0.4.0 puts a whole machine under one berthd. Testers ran it first as pre-releases (`v0.4.0-rc.1` to `rc.8`, see
 [Testing a pre-release](prerelease.md)).
 
 - **Many cards.** berthd and `berth service install` govern every card by default (`--gpu all`).

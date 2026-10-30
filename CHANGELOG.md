@@ -6,6 +6,18 @@ has a matching GitHub release whose body comes from its section below.
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-10-29
+
+One berthd now governs every card on a machine. `berth run --gpu gpu1` puts an engine on one card,
+`--gpu gpu0,gpu1` holds one lease on several, and `berth run --pinned` keeps a training run's cards. The gateway,
+`berth status`, `berth notify`, `/metrics` and the harbor name the card, and one card can go to a VM while the
+others serve. Engines with no offload call of their own, llama.cpp and NInfer included, park in RAM through
+`cuda-checkpoint`. `whole_machine = true` is for an engine such as Strata that needs the card, the RAM and the CPU,
+so nothing parks beside it. A Docker Compose project runs as one engine
+([#172](https://github.com/T-Crypt/berth/issues/172)). An engine that can shrink a cache can lend part of its card
+and keep serving (experimental, [#189](https://github.com/T-Crypt/berth/issues/189)). berthd uses less CPU, and the
+AMD probe no longer stops berthd on a desktop session ([#196](https://github.com/T-Crypt/berth/issues/196)).
+
 ### Added
 
 - The harbor names the model each lease serves on its card's panel: the model its engine reports loaded or ready, or
