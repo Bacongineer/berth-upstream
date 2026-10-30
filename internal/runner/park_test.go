@@ -30,6 +30,7 @@ import (
 	"github.com/T-Crypt/berth/internal/park"
 	"github.com/T-Crypt/berth/internal/procs"
 	"github.com/T-Crypt/berth/internal/proto"
+	"github.com/T-Crypt/berth/internal/runs"
 	"github.com/T-Crypt/berth/internal/server"
 )
 
@@ -601,6 +602,29 @@ func TestDrainOfAParkedEngineSaysWhy(t *testing.T) {
 // A parked engine whose daemon restarts comes back parked: the new daemon
 // grants a whole-card waiter beside its residual, and the engine is never
 // drained, where an active lease would be drained and stopped.
+// An engine that exits while its daemon is gone leaves no unprotected-run
+// record behind once Run returns.
+func TestRunReturnsWithItsLostRecordGone(t *testing.T) {
+	card := &parkCard{total: 24 << 30}
+	sock := filepath.Join(t.TempDir(), "berth.sock")
+	b, stop := parkDaemonAt(t, sock, card, 16<<30)
+	exited, _ := runPark(t, sock, "vllm", "http://127.0.0.1:1", false)
+	pid := attachAndMeasure(t, b, card)
+	stopAtEnd(t, pid, exited)
+
+	stop()
+	dir := runs.Dir(sock)
+	waitFor(t, "the lost record", func() bool {
+		left, _ := os.ReadDir(dir)
+		return len(left) > 0
+	})
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	<-exited
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("records left after Run returned: %v", left)
+	}
+}
+
 func TestParkedEngineReattachesParked(t *testing.T) {
 	card := &parkCard{total: 24 << 30}
 	sock := filepath.Join(t.TempDir(), "berth.sock")
