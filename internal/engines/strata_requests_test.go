@@ -42,7 +42,9 @@ func strataServer(t *testing.T, model string, at time.Time, finish string) *http
 // under the model their /health names, whatever port they run on, and a
 // second poll of the same request list counts nothing twice.
 func TestStrataRequestsReachTheLeaderboard(t *testing.T) {
-	at := time.Date(2026, 10, 28, 21, 35, 21, 155911000, time.FixedZone("MDT", -6*60*60))
+	// An hour ago, inside the watcher's 24h request window.
+	sec := time.Now().Add(-time.Hour).Unix()
+	at := time.Unix(sec, 155911000).In(time.FixedZone("MDT", -6*60*60))
 	iq4 := strataServer(t, "qwen3.8-flash-next-ud-iq4_xs", at, "stop")
 	sc117 := strataServer(t, "qwen3.8-flash-next-sc117-iq3_s", at.Add(time.Second), "cancel")
 	w := &Watcher{Engines: []config.Engine{
@@ -54,10 +56,10 @@ func TestStrataRequestsReachTheLeaderboard(t *testing.T) {
 
 	got := w.Requests(time.Time{})
 	want := []proto.Request{
-		{ID: "strata/1793244921.155911", Engine: "strata", Model: "qwen3.8-flash-next-ud-iq4_xs", T: at, Status: 200,
+		{ID: fmt.Sprintf("strata/%d.155911", sec), Engine: "strata", Model: "qwen3.8-flash-next-ud-iq4_xs", T: at, Status: 200,
 			Prompt: 32000, Cache: 31552, Output: 388, Draft: 277, DraftAcc: 214,
 			PrefillTPS: 448 / 0.6211, DecodeTPS: 95.5, DurationMS: 4700, PrefillMS: 621.1},
-		{ID: "strata-sc117/1793244922.155911", Engine: "strata-sc117", Model: "qwen3.8-flash-next-sc117-iq3_s", T: at.Add(time.Second), Status: 499,
+		{ID: fmt.Sprintf("strata-sc117/%d.155911", sec+1), Engine: "strata-sc117", Model: "qwen3.8-flash-next-sc117-iq3_s", T: at.Add(time.Second), Status: 499,
 			Prompt: 32000, Cache: 31552, Output: 388, Draft: 277, DraftAcc: 214,
 			PrefillTPS: 448 / 0.6211, DecodeTPS: 95.5, DurationMS: 4700, PrefillMS: 621.1},
 	}
