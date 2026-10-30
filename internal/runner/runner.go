@@ -335,7 +335,12 @@ func Run(o Options) int {
 		}()
 	}
 
+	// Run returns only after the listener does, so an unprotected-run record
+	// it wrote is gone by then.
+	listening := make(chan struct{})
+	go func(c net.Conn) { <-done; c.Close() }(raw)
 	go func() {
+		defer close(listening)
 		for {
 			err := listen(conn, func(m proto.Msg) {
 				switch {
@@ -388,6 +393,7 @@ func Run(o Options) int {
 		_ = line.send(proto.Msg{Op: proto.OpFinished})
 	}
 	close(done)
+	<-listening
 	return code
 }
 
